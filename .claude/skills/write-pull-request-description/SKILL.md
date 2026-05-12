@@ -5,7 +5,7 @@ description: >-
   description, create a pull request, or summarize changes for a PR.
   Produces a complete PR title and body.
 user-invocable: true
-allowed-tools: Bash(git diff *) Bash(git log *) Bash(git merge-base *) Bash(git rev-parse *) Bash(git remote *) Bash(gh --version) Bash(gh auth status) Read(*/.github/*) Read(*/.github/**/*)
+allowed-tools: Bash(git diff *) Bash(git log *) Bash(git merge-base *) Bash(git rev-parse *) Bash(git remote *) Bash(gh --version) Bash(gh auth status) Bash(bash */write-pull-request-description/scripts/detect-base-branch.sh) Read(*/.github/*) Read(*/.github/**/*)
 ---
 
 ## Working directory rule
@@ -24,10 +24,18 @@ edits). Batch related structured questions into one call.
 
 ## Flow
 
-1. **Load the diff and align on scope and intent** — run this exact command exactly once:
+1. **Load the diff and align on scope and intent** — first detect the base
+   branch, then diff against it. Run these commands in order:
 
    ```bash
-   git diff main...HEAD
+   # Step 1a: detect base branch
+   base=$(bash .claude/skills/write-pull-request-description/scripts/detect-base-branch.sh)
+   echo "Base branch: $base"
+   ```
+
+   ```bash
+   # Step 1b: load the diff (substitute the detected base for BASE)
+   git diff BASE...HEAD
    ```
 
    Do not run `--name-only` first or follow up with per-file `-- path/to/file` diffs.
@@ -99,10 +107,8 @@ edits). Batch related structured questions into one call.
 
 - **Reviewers** — Ask: "Any specific reviewers to add? (Enter usernames
   or leave blank.)" Accept a comma-separated list or blank.
-- **Base branch** — Infer from `git merge-base --fork-point main HEAD`
-  and `git remote show origin | grep HEAD`. Use `main` as fallback.
-  Do not ask unless the inferred base looks wrong (e.g., not `main`
-  and not obviously a stack branch).
+- **Base branch** — Use the base detected in step 1. Do not ask unless
+  it looks wrong.
 
 10. **Pre-flight checks** — Before running the command, verify:
 
