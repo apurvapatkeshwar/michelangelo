@@ -94,8 +94,6 @@ jobs:
           cd javascript
           yarn setup
           yarn workspace @michelangelo/app build
-        env:
-          WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: Build & Push UI Image
         uses: docker/build-push-action@v6

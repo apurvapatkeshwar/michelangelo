@@ -3,7 +3,7 @@
 set -e
 set -x
 
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(git rev-parse --show-toplevel)}"
+WORKSPACE_ROOT="$(git rev-parse --show-toplevel)"
 
 # Function to move generated files for any client
 move_generated_files() {

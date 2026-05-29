@@ -37,8 +37,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn setup
-        env:
-          WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: Build Core package for type resolution
         run: yarn workspace @michelangelo-ai/core build
@@ -70,8 +68,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
-        env:
-          WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: Check formatting
         run: yarn format
@@ -102,8 +98,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn setup
-        env:
-          WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: Run unit tests
         run: yarn test
