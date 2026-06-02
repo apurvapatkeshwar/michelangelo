@@ -3686,6 +3686,40 @@ func (m *TriggerRunStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
+func (m *TriggerRun) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+		EnumsAsInts:  false,
+		EmitDefaults: false,
+		OrigName:     false,
+		AnyResolver:  &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TriggerRun) UnmarshalJSON(b []byte) error {
+	err := (&jsonpb.Unmarshaler{
+		AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+		AnyResolver:        &util.GenericResolver{},
+	}).Unmarshal(bytes.NewReader(b), m)
+	if err == nil {
+		return nil
+	}
+	if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+		strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+		return err
+	}
+	visited := make(map[reflect.Type]bool)
+	var paths []util.InlineFieldMapping
+	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+	if len(paths) > 0 {
+		b, err = util.ApplyInlineFields(b, paths)
+	}
+	type Alias TriggerRun
+	aux := (*Alias)(m)
+	return json.Unmarshal(b, aux)
+}
+
 func (in *TriggerRun) DeepCopy() *TriggerRun {
 	if in == nil {
 		return nil
