@@ -3686,6 +3686,22 @@ func (m *TriggerRunStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
+func (m *TriggerRun) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
+	visited := make(map[reflect.Type]bool)
+	var paths []util.InlineFieldMapping
+	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+	if len(paths) > 0 {
+		var err error
+		b, err = util.ApplyInlineFields(b, paths)
+		if err != nil {
+			return err
+		}
+	}
+	type Alias TriggerRun
+	aux := (*Alias)(m)
+	return json.Unmarshal(b, aux)
+}
+
 func (m *TriggerRun) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	err := (&jsonpb.Marshaler{
