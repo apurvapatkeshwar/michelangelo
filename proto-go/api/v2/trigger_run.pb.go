@@ -3687,19 +3687,29 @@ func (m *TriggerRunStatus) UnmarshalJSON(b []byte) error {
 }
 
 func (m *TriggerRun) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
+	// Proto3 canonical JSON (from connect-es/@bufbuild/protobuf) encodes int64/uint64
+	// as quoted strings; encoding/json cannot handle that, so unquote them first.
+	// metav1.Time arrives as RFC3339 and is handled correctly by metav1.Time.UnmarshalJSON
+	// when encoding/json is the decoder — no conversion needed.
+	msgType := reflect.TypeOf(m)
+	b, err := util.UnquoteInt64Fields(b, util.CollectInt64Fields(msgType))
+	if err != nil {
+		return err
+	}
+	// Apply inline field flattening (TypeMeta is tagged ",inline").
 	visited := make(map[reflect.Type]bool)
-	var paths []util.InlineFieldMapping
-	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
-	if len(paths) > 0 {
-		var err error
-		b, err = util.ApplyInlineFields(b, paths)
+	var inlinePaths []util.InlineFieldMapping
+	util.RemoveInlineFields(msgType, "", visited, &inlinePaths)
+	if len(inlinePaths) > 0 {
+		b, err = util.ApplyInlineFields(b, inlinePaths)
 		if err != nil {
 			return err
 		}
 	}
+	// Alias strips UnmarshalJSON/UnmarshalJSONPB from the method set so
+	// encoding/json processes fields directly without re-entering this function.
 	type Alias TriggerRun
-	aux := (*Alias)(m)
-	return json.Unmarshal(b, aux)
+	return json.Unmarshal(b, (*Alias)(m))
 }
 
 func (m *TriggerRun) MarshalJSON() ([]byte, error) {

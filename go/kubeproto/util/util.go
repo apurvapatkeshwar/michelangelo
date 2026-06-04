@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -380,6 +381,113 @@ func ApplyInlineFields(jsonData []byte, fields []InlineFieldMapping) ([]byte, er
 		}
 	}
 
+	return []byte(jsonStr), nil
+}
+
+var (
+	int64Fields sync.Map // map[reflect.Type][]string — cached JSON paths for int64/uint64 fields
+)
+
+// CollectInt64Fields returns the list of JSON field paths whose Go type is int64 or uint64.
+// Proto3 canonical JSON encodes these as quoted strings; encoding/json cannot handle that.
+func CollectInt64Fields(msgType reflect.Type) []string {
+	if v, ok := int64Fields.Load(msgType); ok {
+		return v.([]string)
+	}
+	var paths []string
+	visited := make(map[reflect.Type]bool)
+	collectTypedFieldsInto(msgType, "", visited, &paths, func(ft reflect.Type) bool {
+		return ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64
+	})
+	int64Fields.Store(msgType, paths)
+	return paths
+}
+
+func collectTypedFieldsInto(typ reflect.Type, prefix string, visited map[reflect.Type]bool, paths *[]string, match func(reflect.Type) bool) {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct || visited[typ] {
+		return
+	}
+	visited[typ] = true
+	defer delete(visited, typ)
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" { // unexported
+			continue
+		}
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "-" {
+			continue
+		}
+		name := strings.Split(jsonTag, ",")[0]
+		if name == "" {
+			name = field.Name
+		}
+
+		var fieldPath string
+		if jsonTag == ",inline" || name == "" {
+			fieldPath = prefix
+		} else if prefix != "" {
+			fieldPath = prefix + "." + name
+		} else {
+			fieldPath = name
+		}
+
+		ft := field.Type
+		for ft.Kind() == reflect.Ptr {
+			ft = ft.Elem()
+		}
+
+		if match(ft) {
+			if fieldPath != "" {
+				*paths = append(*paths, fieldPath)
+			}
+			continue
+		}
+		if ft.Kind() == reflect.Struct {
+			collectTypedFieldsInto(ft, fieldPath, visited, paths, match)
+		}
+	}
+}
+
+// UnquoteInt64Fields rewrites each field at the given JSON paths from a quoted string
+// (proto3 canonical JSON encoding of int64/uint64) to an unquoted number, which
+// encoding/json can decode into int64/uint64 struct fields.
+// Paths that are absent, already numbers, or not parseable as integers are left unchanged.
+func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
+	if len(paths) == 0 {
+		return jsonData, nil
+	}
+	jsonStr := string(jsonData)
+	for _, path := range paths {
+		val := gjson.Get(jsonStr, path)
+		if !val.Exists() || val.Type != gjson.String {
+			continue
+		}
+		raw := val.String()
+		// Keep as number literal only if the string contains only digits (possibly negative).
+		isInt := len(raw) > 0
+		for i, c := range raw {
+			if c == '-' && i == 0 {
+				continue
+			}
+			if c < '0' || c > '9' {
+				isInt = false
+				break
+			}
+		}
+		if !isInt {
+			continue
+		}
+		var err error
+		jsonStr, err = sjson.SetRaw(jsonStr, path, raw)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return []byte(jsonStr), nil
 }
 
