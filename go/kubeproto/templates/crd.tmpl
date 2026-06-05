@@ -395,14 +395,6 @@ func (m *{{.Name}}) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
 	return json.Unmarshal(b, (*Alias)(m))
 }
 
-func (m *{{.Name}}) MarshalJSON() ([]byte, error) {
-	// Use encoding/json so that json:",inline" on TypeMeta produces "kind"/"apiVersion"
-	// at the root level — required by the Kubernetes API server. Nested Spec/Status still
-	// use their own MarshalJSON (jsonpb), preserving proto3 field names and enum strings.
-	type Alias {{.Name}}
-	return json.Marshal((*Alias)(m))
-}
-
 func (in *{{.Name}}) DeepCopy() *{{.Name}} {
 	if in == nil {
 		return nil
