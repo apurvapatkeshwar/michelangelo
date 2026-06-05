@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -385,21 +386,21 @@ func ApplyInlineFields(jsonData []byte, fields []InlineFieldMapping) ([]byte, er
 }
 
 var (
-	int64Fields sync.Map // map[reflect.Type][]string — cached JSON paths for int64/uint64 fields
+	int64Fields sync.Map
 )
 
 // CollectInt64Fields returns the list of JSON field paths whose Go type is int64 or uint64.
 // Proto3 canonical JSON encodes these as quoted strings; encoding/json cannot handle that.
-func CollectInt64Fields(msgType reflect.Type) []string {
-	if v, ok := int64Fields.Load(msgType); ok {
+func CollectInt64Fields(structType reflect.Type) []string {
+	if v, ok := int64Fields.Load(structType); ok {
 		return v.([]string)
 	}
 	var paths []string
 	visited := make(map[reflect.Type]bool)
-	collectTypedFieldsInto(msgType, "", visited, &paths, func(ft reflect.Type) bool {
+	collectTypedFieldsInto(structType, "", visited, &paths, func(ft reflect.Type) bool {
 		return ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64
 	})
-	int64Fields.Store(msgType, paths)
+	int64Fields.Store(structType, paths)
 	return paths
 }
 
@@ -468,19 +469,10 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 			continue
 		}
 		raw := val.String()
-		// Keep as number literal only if the string contains only digits (possibly negative).
-		isInt := len(raw) > 0
-		for i, c := range raw {
-			if c == '-' && i == 0 {
+		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
+			if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
 				continue
 			}
-			if c < '0' || c > '9' {
-				isInt = false
-				break
-			}
-		}
-		if !isInt {
-			continue
 		}
 		var err error
 		jsonStr, err = sjson.SetRaw(jsonStr, path, raw)
