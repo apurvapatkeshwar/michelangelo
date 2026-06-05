@@ -397,59 +397,59 @@ func CollectInt64Fields(structType reflect.Type) []string {
 	}
 	var paths []string
 	visited := make(map[reflect.Type]bool)
-	collectInt64FieldsInto(structType, "", visited, &paths)
+	var walk func(typ reflect.Type, prefix string)
+	walk = func(typ reflect.Type, prefix string) {
+		for typ.Kind() == reflect.Ptr {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || visited[typ] {
+			return
+		}
+		visited[typ] = true
+		defer delete(visited, typ)
+
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			if field.PkgPath != "" { // unexported
+				continue
+			}
+			jsonTag := field.Tag.Get("json")
+			if jsonTag == "-" {
+				continue
+			}
+			name := strings.Split(jsonTag, ",")[0]
+			if name == "" {
+				name = field.Name
+			}
+
+			var fieldPath string
+			if jsonTag == ",inline" || name == "" {
+				fieldPath = prefix
+			} else if prefix != "" {
+				fieldPath = prefix + "." + name
+			} else {
+				fieldPath = name
+			}
+
+			ft := field.Type
+			for ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
+			}
+
+			if ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64 {
+				if fieldPath != "" {
+					paths = append(paths, fieldPath)
+				}
+				continue
+			}
+			if ft.Kind() == reflect.Struct {
+				walk(ft, fieldPath)
+			}
+		}
+	}
+	walk(structType, "")
 	int64Fields.Store(structType, paths)
 	return paths
-}
-
-func collectInt64FieldsInto(typ reflect.Type, prefix string, visited map[reflect.Type]bool, paths *[]string) {
-	for typ.Kind() == reflect.Ptr {
-		typ = typ.Elem()
-	}
-	if typ.Kind() != reflect.Struct || visited[typ] {
-		return
-	}
-	visited[typ] = true
-	defer delete(visited, typ)
-
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.PkgPath != "" { // unexported
-			continue
-		}
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "-" {
-			continue
-		}
-		name := strings.Split(jsonTag, ",")[0]
-		if name == "" {
-			name = field.Name
-		}
-
-		var fieldPath string
-		if jsonTag == ",inline" || name == "" {
-			fieldPath = prefix
-		} else if prefix != "" {
-			fieldPath = prefix + "." + name
-		} else {
-			fieldPath = name
-		}
-
-		ft := field.Type
-		for ft.Kind() == reflect.Ptr {
-			ft = ft.Elem()
-		}
-
-		if ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64 {
-			if fieldPath != "" {
-				*paths = append(*paths, fieldPath)
-			}
-			continue
-		}
-		if ft.Kind() == reflect.Struct {
-			collectInt64FieldsInto(ft, fieldPath, visited, paths)
-		}
-	}
 }
 
 // UnquoteInt64Fields rewrites each field at the given JSON paths from a quoted string
