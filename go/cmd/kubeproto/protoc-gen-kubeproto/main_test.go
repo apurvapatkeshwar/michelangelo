@@ -19,8 +19,10 @@ import (
 
 	"github.com/dave/dst"
 	"github.com/dave/dst/decorator"
+	"github.com/gogo/protobuf/jsonpb"
 	plugin_go "github.com/gogo/protobuf/protoc-gen-gogo/plugin"
 	"github.com/gogo/protobuf/types"
+	"github.com/michelangelo-ai/michelangelo/go/kubeproto/util"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,10 +77,14 @@ func TestGen(t *testing.T) {
 
 	var projectFile *plugin_go.CodeGeneratorResponse_File
 	var groupInfoFile *plugin_go.CodeGeneratorResponse_File
+	var int64JSONFile *plugin_go.CodeGeneratorResponse_File
 	var testObjectFile *plugin_go.CodeGeneratorResponse_File
 	for _, f := range resp.GetFile() {
 		if strings.HasSuffix(*f.Name, "project_ut.pb.go") {
 			projectFile = f
+		}
+		if strings.HasSuffix(*f.Name, "int64_json_ut.pb.go") {
+			int64JSONFile = f
 		}
 		if strings.HasSuffix(*f.Name, "testobject.pb.go") {
 			testObjectFile = f
@@ -111,6 +117,11 @@ func TestGen(t *testing.T) {
 	// This tests our fix for external package enum marshaling
 	assert.NotContains(t, c, `func (m *TestExtEnum) UnmarshalJSON(b []byte) error {`)
 	assert.NotContains(t, c, `func (m *SomeExternalEnum) UnmarshalJSON(b []byte) error {`)
+
+	assert.True(t, int64JSONFile != nil)
+	c = int64JSONFile.GetContent()
+	assert.Contains(t, c, `func (m *Int64JsonFixture) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {`)
+	assert.Contains(t, c, `b, err := util.UnquoteInt64Fields(b, util.CollectInt64Fields(msgType))`)
 
 	//TODO(https://github.com/michelangelo-ai/michelangelo/issues/924): assert.Contains(t, c, expectedCRDDescription)
 
@@ -314,6 +325,54 @@ func TestJSON(t *testing.T) {
 	assert.Equal(t, testStructBool, testPbWithStructDecode.Struct.Fields["boolValue"].GetBoolValue())
 	assert.True(t, testStructNestedStruct.Equal(testPbWithStructDecode.Struct.Fields["structValue"].GetStructValue()))
 	assert.True(t, testStructList.Equal(testPbWithStructDecode.Struct.Fields["listValue"].GetListValue()))
+}
+
+func TestSyntheticCRDJSONPBUnmarshalQuotedInt64Fields(t *testing.T) {
+	body := `{
+		"fixture": {
+			"metadata": {
+				"name": "fixture-01",
+				"namespace": "default",
+				"generation": "12",
+				"deletionGracePeriodSeconds": "30"
+			},
+			"spec": {
+				"nested": {
+					"count": "7",
+					"total": "8"
+				}
+			},
+			"status": {
+				"observedGeneration": "42",
+				"total": "43",
+				"conditions": [
+					{"observedGeneration": "9"},
+					{"observedGeneration": "10"}
+				]
+			}
+		}
+	}`
+
+	req := &testpb.UpdateInt64JsonFixtureRequest{}
+	err := (&jsonpb.Unmarshaler{
+		AllowUnknownFields: true,
+		AnyResolver:        &util.GenericResolver{},
+	}).Unmarshal(strings.NewReader(body), req)
+	assert.NoError(t, err)
+	if assert.NotNil(t, req.Fixture) {
+		assert.EqualValues(t, 12, req.Fixture.Generation)
+		if assert.NotNil(t, req.Fixture.DeletionGracePeriodSeconds) {
+			assert.EqualValues(t, 30, *req.Fixture.DeletionGracePeriodSeconds)
+		}
+		assert.EqualValues(t, 7, req.Fixture.Spec.Nested.Count)
+		assert.EqualValues(t, 8, req.Fixture.Spec.Nested.Total)
+		assert.EqualValues(t, 42, req.Fixture.Status.ObservedGeneration)
+		assert.EqualValues(t, 43, req.Fixture.Status.Total)
+		if assert.Len(t, req.Fixture.Status.Conditions, 2) {
+			assert.EqualValues(t, 9, req.Fixture.Status.Conditions[0].ObservedGeneration)
+			assert.EqualValues(t, 10, req.Fixture.Status.Conditions[1].ObservedGeneration)
+		}
+	}
 }
 
 func TestJSONPod(t *testing.T) {

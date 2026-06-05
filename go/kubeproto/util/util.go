@@ -442,6 +442,26 @@ func CollectInt64Fields(structType reflect.Type) []string {
 				}
 				continue
 			}
+			if ft.Kind() == reflect.Slice || ft.Kind() == reflect.Array {
+				elem := ft.Elem()
+				for elem.Kind() == reflect.Ptr {
+					elem = elem.Elem()
+				}
+				arrayPath := fieldPath
+				if arrayPath != "" {
+					arrayPath += ".#"
+				}
+				if elem.Kind() == reflect.Int64 || elem.Kind() == reflect.Uint64 {
+					if arrayPath != "" {
+						paths = append(paths, arrayPath)
+					}
+					continue
+				}
+				if elem.Kind() == reflect.Struct {
+					walk(elem, arrayPath)
+				}
+				continue
+			}
 			if ft.Kind() == reflect.Struct {
 				walk(ft, fieldPath)
 			}
@@ -461,21 +481,67 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 		return jsonData, nil
 	}
 	jsonStr := string(jsonData)
-	for _, path := range paths {
-		val := gjson.Get(jsonStr, path)
-		if !val.Exists() || val.Type != gjson.String {
-			continue
+	var resolvePaths func(path, current string, resolved *[]string)
+	resolvePaths = func(path, current string, resolved *[]string) {
+		tokens := strings.SplitN(path, ".", 2)
+		token := tokens[0]
+		rest := ""
+		if len(tokens) > 1 {
+			rest = tokens[1]
 		}
-		raw := val.String()
-		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
-			if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
+
+		if token == "#" {
+			array := gjson.Get(jsonStr, current)
+			if !array.IsArray() {
+				return
+			}
+			array.ForEach(func(index, _ gjson.Result) bool {
+				next := current
+				if next != "" {
+					next += "."
+				}
+				next += index.String()
+				if rest == "" {
+					*resolved = append(*resolved, next)
+				} else {
+					resolvePaths(rest, next, resolved)
+				}
+				return true
+			})
+			return
+		}
+
+		next := current
+		if next != "" {
+			next += "."
+		}
+		next += token
+		if rest == "" {
+			*resolved = append(*resolved, next)
+			return
+		}
+		resolvePaths(rest, next, resolved)
+	}
+
+	for _, path := range paths {
+		resolvedPaths := []string{}
+		resolvePaths(path, "", &resolvedPaths)
+		for _, resolvedPath := range resolvedPaths {
+			val := gjson.Get(jsonStr, resolvedPath)
+			if !val.Exists() || val.Type != gjson.String {
 				continue
 			}
-		}
-		var err error
-		jsonStr, err = sjson.SetRaw(jsonStr, path, raw)
-		if err != nil {
-			return nil, err
+			raw := val.String()
+			if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
+				if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
+					continue
+				}
+			}
+			var err error
+			jsonStr, err = sjson.SetRaw(jsonStr, resolvedPath, raw)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	return []byte(jsonStr), nil

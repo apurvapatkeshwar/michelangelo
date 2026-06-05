@@ -10,6 +10,7 @@ proto_library(
         "crd_info_ut.proto",
         "gogoproto_ut.proto",
         "groupversion_info_ut.proto",
+        "int64_json_ut.proto",
         "indexing.proto",
         "project_ut.proto",
         "testobject.proto",

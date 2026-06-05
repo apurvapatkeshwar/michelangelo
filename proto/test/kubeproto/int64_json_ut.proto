@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package michelangelo.test.kubeproto;
+
+import "k8s.io/apimachinery/pkg/apis/meta/v1/generated.proto";
+import "michelangelo/api/options.proto";
+
+option go_package = "kubeproto";
+
+message Int64JsonNested {
+  int64 count = 1;
+  int64 total = 2;
+}
+
+message Int64JsonCondition {
+  int64 observed_generation = 1;
+}
+
+message Int64JsonFixtureSpec {
+  Int64JsonNested nested = 1;
+}
+
+message Int64JsonFixtureStatus {
+  int64 observed_generation = 1;
+  int64 total = 2;
+  repeated Int64JsonCondition conditions = 3;
+}
+
+message Int64JsonFixture {
+  option (michelangelo.api.resource) = {
+    scope: "Namespaced";
+  };
+
+  k8s.io.apimachinery.pkg.apis.meta.v1.TypeMeta type_meta = 1;
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta metadata = 2;
+
+  Int64JsonFixtureSpec spec = 3;
+
+  Int64JsonFixtureStatus status = 4;
+}
+
+message UpdateInt64JsonFixtureRequest {
+  Int64JsonFixture fixture = 1;
+}
