@@ -3686,6 +3686,40 @@ func (m *TriggerRunStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
+func (m *TriggerRun) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
+	// Proto3 canonical JSON (from connect-es/@bufbuild/protobuf) encodes int64/uint64
+	// as quoted strings; encoding/json cannot handle that, so unquote them first.
+	// metav1.Time arrives as RFC3339 and is handled correctly by metav1.Time.UnmarshalJSON
+	// when encoding/json is the decoder — no conversion needed.
+	msgType := reflect.TypeOf(m)
+	b, err := util.UnquoteInt64Fields(b, util.CollectInt64Fields(msgType))
+	if err != nil {
+		return err
+	}
+	// Apply inline field flattening (TypeMeta is tagged ",inline").
+	visited := make(map[reflect.Type]bool)
+	var inlinePaths []util.InlineFieldMapping
+	util.RemoveInlineFields(msgType, "", visited, &inlinePaths)
+	if len(inlinePaths) > 0 {
+		b, err = util.ApplyInlineFields(b, inlinePaths)
+		if err != nil {
+			return err
+		}
+	}
+	// Alias strips UnmarshalJSONPB from the method set so encoding/json
+	// processes fields directly without re-entering this function.
+	type Alias TriggerRun
+	return json.Unmarshal(b, (*Alias)(m))
+}
+
+func (m *TriggerRun) MarshalJSON() ([]byte, error) {
+	// Use encoding/json so that json:",inline" on TypeMeta produces "kind"/"apiVersion"
+	// at the root level — required by the Kubernetes API server. Nested Spec/Status still
+	// use their own MarshalJSON (jsonpb), preserving proto3 field names and enum strings.
+	type Alias TriggerRun
+	return json.Marshal((*Alias)(m))
+}
+
 func (in *TriggerRun) DeepCopy() *TriggerRun {
 	if in == nil {
 		return nil

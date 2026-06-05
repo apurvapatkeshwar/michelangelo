@@ -9,17 +9,15 @@ import (
 )
 
 // TestUpdateTriggerRunUnmarshalRFC3339Timestamp reproduces the server-side bug
-// where the API cannot unmarshal a TriggerRun containing an RFC3339 creationTimestamp.
+// where the API returns 400 on UpdateTriggerRun when the request includes an
+// RFC3339 creationTimestamp (the format connect-es/@bufbuild/protobuf uses for
+// google.protobuf.Timestamp / metav1.Time).
 //
-// The server uses gogo's jsonpb to decode incoming JSON requests. When jsonpb
-// processes UpdateTriggerRunRequest, it delegates the "triggerRun" field to
-// TriggerRun's custom UnmarshalJSON (if present). Without that method, jsonpb
-// tries to decode the field itself and fails: it expects a JSON object for
-// metav1.Time (which is embedded in ObjectMeta) but receives an RFC3339 string.
-//
-// The fix adds UnmarshalJSON to TriggerRun, which catches that error and falls
-// back to encoding/json — which correctly handles metav1.Time via its own
-// UnmarshalJSON implementation.
+// gogo's jsonpb v1.3.2 dispatches to JSONPBUnmarshaler (UnmarshalJSONPB) on nested
+// messages, not json.Unmarshaler. Without UnmarshalJSONPB on TriggerRun, gogo tries
+// to decode creationTimestamp itself and fails: it expects a JSON object but receives
+// an RFC3339 string. The fix adds UnmarshalJSONPB, which pre-processes int64 fields
+// and then delegates to encoding/json (which handles metav1.Time.UnmarshalJSON).
 func TestUpdateTriggerRunUnmarshalRFC3339Timestamp(t *testing.T) {
 	// This is the JSON the UI sends when calling UpdateTriggerRun —
 	// a TriggerRun read from the API and sent back verbatim, including
