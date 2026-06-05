@@ -397,14 +397,12 @@ func CollectInt64Fields(structType reflect.Type) []string {
 	}
 	var paths []string
 	visited := make(map[reflect.Type]bool)
-	collectTypedFieldsInto(structType, "", visited, &paths, func(ft reflect.Type) bool {
-		return ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64
-	})
+	collectInt64FieldsInto(structType, "", visited, &paths)
 	int64Fields.Store(structType, paths)
 	return paths
 }
 
-func collectTypedFieldsInto(typ reflect.Type, prefix string, visited map[reflect.Type]bool, paths *[]string, match func(reflect.Type) bool) {
+func collectInt64FieldsInto(typ reflect.Type, prefix string, visited map[reflect.Type]bool, paths *[]string) {
 	for typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
@@ -442,14 +440,14 @@ func collectTypedFieldsInto(typ reflect.Type, prefix string, visited map[reflect
 			ft = ft.Elem()
 		}
 
-		if match(ft) {
+		if ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64 {
 			if fieldPath != "" {
 				*paths = append(*paths, fieldPath)
 			}
 			continue
 		}
 		if ft.Kind() == reflect.Struct {
-			collectTypedFieldsInto(ft, fieldPath, visited, paths, match)
+			collectInt64FieldsInto(ft, fieldPath, visited, paths)
 		}
 	}
 }
