@@ -3686,66 +3686,6 @@ func (m *TriggerRunStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
-func (m *TriggerRun) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
-	// Proto3 canonical JSON (from connect-es/@bufbuild/protobuf) encodes int64/uint64
-	// as quoted strings; encoding/json cannot handle that, so unquote them first.
-	// metav1.Time arrives as RFC3339 and is handled correctly by metav1.Time.UnmarshalJSON
-	// when encoding/json is the decoder — no conversion needed.
-	msgType := reflect.TypeOf(m)
-	b, err := util.UnquoteInt64Fields(b, util.CollectInt64Fields(msgType))
-	if err != nil {
-		return err
-	}
-	// Apply inline field flattening (TypeMeta is tagged ",inline").
-	visited := make(map[reflect.Type]bool)
-	var inlinePaths []util.InlineFieldMapping
-	util.RemoveInlineFields(msgType, "", visited, &inlinePaths)
-	if len(inlinePaths) > 0 {
-		b, err = util.ApplyInlineFields(b, inlinePaths)
-		if err != nil {
-			return err
-		}
-	}
-	// Alias strips UnmarshalJSON/UnmarshalJSONPB from the method set so
-	// encoding/json processes fields directly without re-entering this function.
-	type Alias TriggerRun
-	return json.Unmarshal(b, (*Alias)(m))
-}
-
-func (m *TriggerRun) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	err := (&jsonpb.Marshaler{
-		EnumsAsInts:  false,
-		EmitDefaults: false,
-		OrigName:     false,
-		AnyResolver:  &util.GenericResolver{},
-	}).Marshal(&buf, m)
-	return buf.Bytes(), err
-}
-
-func (m *TriggerRun) UnmarshalJSON(b []byte) error {
-	err := (&jsonpb.Unmarshaler{
-		AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
-		AnyResolver:        &util.GenericResolver{},
-	}).Unmarshal(bytes.NewReader(b), m)
-	if err == nil {
-		return nil
-	}
-	if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
-		strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
-		return err
-	}
-	visited := make(map[reflect.Type]bool)
-	var paths []util.InlineFieldMapping
-	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
-	if len(paths) > 0 {
-		b, err = util.ApplyInlineFields(b, paths)
-	}
-	type Alias TriggerRun
-	aux := (*Alias)(m)
-	return json.Unmarshal(b, aux)
-}
-
 func (in *TriggerRun) DeepCopy() *TriggerRun {
 	if in == nil {
 		return nil
