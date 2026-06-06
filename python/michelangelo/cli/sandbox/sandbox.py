@@ -696,15 +696,31 @@ def _helm_wait(ns: argparse.Namespace):
 
     # Stage 2: remaining Helm-managed Deployments
     print("Waiting for remaining control plane services...")
-    _exec(
-        "kubectl",
-        "wait",
-        "deployment",
-        "-l",
-        instance_selector,
-        "--for=condition=available",
-        f"--timeout={timeout}s",
+    wait_result = subprocess.run(
+        [
+            "kubectl", "wait", "deployment",
+            "-l", instance_selector,
+            "--for=condition=available",
+            f"--timeout={timeout}s",
+        ]
     )
+    if wait_result.returncode != 0:
+        # Print pod state so CI logs show why pods are not ready.
+        print("--- pod status at timeout ---")
+        subprocess.run(
+            ["kubectl", "get", "pods", "-n", "default", "-o", "wide"],
+            check=False,
+        )
+        print("--- non-ready deployments ---")
+        subprocess.run(
+            [
+                "kubectl", "get", "deployments", "-n", "default",
+                "-l", instance_selector,
+                "-o", "custom-columns=NAME:.metadata.name,READY:.status.readyReplicas,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas",
+            ],
+            check=False,
+        )
+        _err_exit("timed out waiting for control plane services to become available")
 
 
 def _build_helm_set_args(ns: argparse.Namespace) -> list[str]:
