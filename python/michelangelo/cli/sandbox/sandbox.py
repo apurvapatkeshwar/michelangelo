@@ -602,6 +602,12 @@ def _helm_adopt_orphaned_resources(helm_args: list[str]):
         namespace = (doc.get("metadata") or {}).get("namespace", "default")
         if not kind or not name:
             continue
+        # Skip Jobs: they are immutable once complete, and Helm would delete-and-
+        # recreate them if it adopts ownership — causing schema jobs to re-run
+        # against an already-initialised database, which breaks init containers
+        # that wait for those jobs to finish.
+        if kind.lower() == "job":
+            continue
         # Check if this resource exists and lacks Helm ownership annotations.
         get_result = subprocess.run(
             [
