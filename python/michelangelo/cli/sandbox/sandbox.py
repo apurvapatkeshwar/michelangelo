@@ -356,9 +356,7 @@ def _sync(ns: argparse.Namespace):
             ]
         )
         if ns.workflow == "cadence":
-            # Wait for the Cadence schema job to finish initialising the databases
-            # before starting app pods. Without this, workflows submitted right
-            # after the upgrade can fail if Cadence isn't yet fully initialised.
+            # Wait for the Cadence schema job to finish initialising the databases.
             print("Waiting for Cadence schema job to complete...")
             subprocess.run(
                 [
@@ -369,8 +367,32 @@ def _sync(ns: argparse.Namespace):
                 ],
                 check=False,
             )
-            # Re-register the Cadence domain. _refresh_cadence_schema() drops
-            # and recreates the databases, which deletes the domain registration.
+            # Restart Cadence pods NOW (after schema is applied) so they
+            # connect to the fresh databases. Restarting before schema completes
+            # would leave them stuck in Init waiting for the schema job.
+            print("Restarting Cadence pods to reconnect to fresh databases...")
+            for component in ("frontend", "history", "matching", "worker"):
+                subprocess.run(
+                    [
+                        "kubectl", "rollout", "restart",
+                        "deployment", "-n", "default",
+                        "-l", f"app.kubernetes.io/name=cadence,app.kubernetes.io/component={component}",
+                    ],
+                    capture_output=True,
+                    check=False,
+                )
+            # Wait for Cadence rollouts to complete before registering domain.
+            for component in ("frontend", "history", "matching", "worker"):
+                subprocess.run(
+                    [
+                        "kubectl", "rollout", "status",
+                        "deployment", "-n", "default",
+                        "-l", f"app.kubernetes.io/name=cadence,app.kubernetes.io/component={component}",
+                        "--timeout=180s",
+                    ],
+                    check=False,
+                )
+            # Re-register the Cadence domain (dropped with the databases).
             _create_cadence_domain(None)
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
@@ -483,16 +505,12 @@ def _refresh_mysql_schema():
 
 
 def _refresh_cadence_schema():
-    """Drop and recreate the Cadence databases so the schema job runs cleanly.
+    """Drop the Cadence databases and schema job so Helm reinitializes them.
 
-    This is the Cadence equivalent of _refresh_mysql_schema(). It drops the
-    cadence and cadence_visibility databases so the michelangelo-cadence-schema
-    Helm Job can re-initialize them on the next helm upgrade. Without this,
-    a previously re-run schema job may have left the databases in a partially-
-    modified state, causing cadence-web's init container to stall indefinitely.
-
-    The running cadence-frontend/history/matching pods are restarted so they
-    reconnect cleanly to the fresh databases after the schema job completes.
+    This drops cadence and cadence_visibility databases and deletes the
+    schema Job so the next helm upgrade recreates and applies the schema
+    to fresh databases. Cadence pod restarts are handled AFTER the schema
+    job completes (see the _sync flow) so the pods don't get stuck in Init.
     """
     print("Refreshing Cadence schema (drop + recreate cadence databases)...")
     subprocess.run(
@@ -513,20 +531,6 @@ def _refresh_cadence_schema():
         ],
         check=False,
     )
-    # Restart Cadence pods so they reconnect to the now-empty databases.
-    # Without this the still-running cadence-frontend has stale connections
-    # and rejects all requests (including domain registration) even after the
-    # schema job populates the fresh databases.
-    for component in ("frontend", "history", "matching", "worker"):
-        subprocess.run(
-            [
-                "kubectl", "rollout", "restart",
-                "-l", f"app.kubernetes.io/name=cadence,app.kubernetes.io/component={component}",
-                "deployment", "-n", "default",
-            ],
-            capture_output=True,
-            check=False,
-        )
 
 
 def _helm_ensure_repos():
