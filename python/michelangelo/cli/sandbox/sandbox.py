@@ -490,6 +490,9 @@ def _refresh_cadence_schema():
     Helm Job can re-initialize them on the next helm upgrade. Without this,
     a previously re-run schema job may have left the databases in a partially-
     modified state, causing cadence-web's init container to stall indefinitely.
+
+    The running cadence-frontend/history/matching pods are restarted so they
+    reconnect cleanly to the fresh databases after the schema job completes.
     """
     print("Refreshing Cadence schema (drop + recreate cadence databases)...")
     subprocess.run(
@@ -510,6 +513,20 @@ def _refresh_cadence_schema():
         ],
         check=False,
     )
+    # Restart Cadence pods so they reconnect to the now-empty databases.
+    # Without this the still-running cadence-frontend has stale connections
+    # and rejects all requests (including domain registration) even after the
+    # schema job populates the fresh databases.
+    for component in ("frontend", "history", "matching", "worker"):
+        subprocess.run(
+            [
+                "kubectl", "rollout", "restart",
+                "-l", f"app.kubernetes.io/name=cadence,app.kubernetes.io/component={component}",
+                "deployment", "-n", "default",
+            ],
+            capture_output=True,
+            check=False,
+        )
 
 
 def _helm_ensure_repos():
