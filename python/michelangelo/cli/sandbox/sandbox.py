@@ -571,6 +571,14 @@ def _helm_adopt_orphaned_resources(helm_args: list[str]):
     can adopt it without recreating it (avoids service disruption).
     Resources already managed by Helm (correct labels) are left untouched.
     """
+    # Ensure subchart archives are present so `helm template` can render them.
+    # CI removes helm/michelangelo/charts/ via git clean, so subcharts are
+    # absent until the actual `helm upgrade --dependency-update` runs. Without
+    # this step, `helm template` would fail and the function would return early.
+    subprocess.run(
+        ["helm", "dependency", "build", str(_chart_dir)],
+        capture_output=True,
+    )
     result = subprocess.run(
         [
             "helm",
