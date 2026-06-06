@@ -349,11 +349,20 @@ def _sync(ns: argparse.Namespace):
     # failures.  Force a full uninstall+reinstall so the schema Job runs
     # against completely fresh databases.
     if release_healthy and ns.workflow == "cadence" and not _cadence_rpc_available():
-        print("Cadence gRPC unresponsive — dropping databases and forcing full reinstall...")
+        print(
+            "Cadence gRPC unresponsive — dropping databases"
+            " and forcing full reinstall..."
+        )
         subprocess.run(
             [
-                "kubectl", "exec", "mysql", "--",
-                "mysql", "-uroot", "-proot", "-e",
+                "kubectl",
+                "exec",
+                "mysql",
+                "--",
+                "mysql",
+                "-uroot",
+                "-proot",
+                "-e",
                 "DROP DATABASE IF EXISTS cadence;"
                 " DROP DATABASE IF EXISTS cadence_visibility;",
             ],
@@ -365,9 +374,14 @@ def _sync(ns: argparse.Namespace):
         # Healthy release: upgrade in-place, keeping infra running.
         _helm_upgrade_with_adoption(
             [
-                "helm", "upgrade", "michelangelo", str(_chart_dir),
-                "-f", str(_chart_dir / "values-k3d.yaml"),
-                "--dependency-update", "--reuse-values",
+                "helm",
+                "upgrade",
+                "michelangelo",
+                str(_chart_dir),
+                "-f",
+                str(_chart_dir / "values-k3d.yaml"),
+                "--dependency-update",
+                "--reuse-values",
                 *helm_args,
             ]
         )
@@ -502,9 +516,16 @@ def _refresh_cadence_schema():
     print("Refreshing Cadence schema (drop + recreate cadence databases)...")
     subprocess.run(
         [
-            "kubectl", "exec", "mysql", "--",
-            "mysql", "-uroot", "-proot", "-e",
-            "DROP DATABASE IF EXISTS cadence; DROP DATABASE IF EXISTS cadence_visibility;",
+            "kubectl",
+            "exec",
+            "mysql",
+            "--",
+            "mysql",
+            "-uroot",
+            "-proot",
+            "-e",
+            "DROP DATABASE IF EXISTS cadence;"
+            " DROP DATABASE IF EXISTS cadence_visibility;",
         ],
         check=True,
     )
@@ -512,8 +533,11 @@ def _refresh_cadence_schema():
     # during the upgrade and properly reinitializes the databases.
     subprocess.run(
         [
-            "kubectl", "delete", "job",
-            "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+            "kubectl",
+            "delete",
+            "job",
+            "-l",
+            "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
             "--ignore-not-found=true",
         ],
         check=False,
@@ -529,8 +553,12 @@ def _cadence_rpc_available():
     """
     result = subprocess.run(
         [
-            "kubectl", "exec", "mysql", "--",
-            "bash", "-c",
+            "kubectl",
+            "exec",
+            "mysql",
+            "--",
+            "bash",
+            "-c",
             "timeout 3 bash -c"
             " 'echo >/dev/tcp/michelangelo-cadence-frontend/7833'"
             " 2>/dev/null && echo ok || echo fail",
@@ -667,7 +695,7 @@ def _helm_upgrade_with_adoption(upgrade_cmd: list[str], max_adoption_retries: in
     """
     import re
 
-    _OWNERSHIP_RE = re.compile(
+    ownership_re = re.compile(
         r'(\w+) "([^"]+)" in namespace "([^"]+)" exists and cannot be imported'
     )
 
@@ -686,7 +714,7 @@ def _helm_upgrade_with_adoption(upgrade_cmd: list[str], max_adoption_retries: in
         if attempt == max_adoption_retries:
             break
 
-        match = _OWNERSHIP_RE.search(result.stderr)
+        match = ownership_re.search(result.stderr)
         if not match:
             break  # not an ownership error — don't retry
 
@@ -704,7 +732,11 @@ def _helm_upgrade_with_adoption(upgrade_cmd: list[str], max_adoption_retries: in
         print(f"Adopting orphaned {kind} {namespace}/{name} into Helm release...")
         subprocess.run(
             [
-                "kubectl", "annotate", f"{kind.lower()}/{name}", "-n", namespace,
+                "kubectl",
+                "annotate",
+                f"{kind.lower()}/{name}",
+                "-n",
+                namespace,
                 "meta.helm.sh/release-name=michelangelo",
                 "meta.helm.sh/release-namespace=default",
                 "--overwrite",
@@ -713,7 +745,11 @@ def _helm_upgrade_with_adoption(upgrade_cmd: list[str], max_adoption_retries: in
         )
         subprocess.run(
             [
-                "kubectl", "label", f"{kind.lower()}/{name}", "-n", namespace,
+                "kubectl",
+                "label",
+                f"{kind.lower()}/{name}",
+                "-n",
+                namespace,
                 "app.kubernetes.io/managed-by=Helm",
                 "--overwrite",
             ],
@@ -730,8 +766,13 @@ def _deploy_app_services(ns: argparse.Namespace):
     helm_args = _build_helm_set_args(ns)
     _helm_upgrade_with_adoption(
         [
-            "helm", "upgrade", "--install", "michelangelo", str(_chart_dir),
-            "-f", str(_chart_dir / "values-k3d.yaml"),
+            "helm",
+            "upgrade",
+            "--install",
+            "michelangelo",
+            str(_chart_dir),
+            "-f",
+            str(_chart_dir / "values-k3d.yaml"),
             "--dependency-update",
             *helm_args,
         ]
@@ -776,8 +817,11 @@ def _helm_wait(ns: argparse.Namespace):
     print("Waiting for remaining control plane services...")
     wait_result = subprocess.run(
         [
-            "kubectl", "wait", "deployment",
-            "-l", app_selector,
+            "kubectl",
+            "wait",
+            "deployment",
+            "-l",
+            app_selector,
             "--for=condition=available",
             f"--timeout={timeout}s",
         ]
@@ -792,9 +836,15 @@ def _helm_wait(ns: argparse.Namespace):
         print("--- non-ready deployments ---")
         subprocess.run(
             [
-                "kubectl", "get", "deployments", "-n", "default",
-                "-l", app_selector,
-                "-o", "custom-columns=NAME:.metadata.name,READY:.status.readyReplicas,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas",
+                "kubectl",
+                "get",
+                "deployments",
+                "-n",
+                "default",
+                "-l",
+                app_selector,
+                "-o",
+                "custom-columns=NAME:.metadata.name,READY:.status.readyReplicas,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas",
             ],
             check=False,
         )
