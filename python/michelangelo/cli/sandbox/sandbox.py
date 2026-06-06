@@ -346,15 +346,25 @@ def _sync(ns: argparse.Namespace):
     if release_healthy:
         # Healthy release: upgrade in-place, keeping infra running.
 
-        # If a previous run dropped the Cadence databases, the schema Job is
-        # still marked "Completed" but the databases are empty. Helm won't
-        # recreate a Completed Job, so we must delete it first so the upgrade
-        # recreates and reapplies the schema.
+        # If a previous run dropped the Cadence databases, or the schema is
+        # version-mismatched (Cadence refuses to bind its gRPC port on start),
+        # we must drop and recreate the databases. The schema Job is still
+        # "Completed" in k8s, so Helm won't recreate it — delete it first so
+        # the upgrade creates a fresh Job that applies the correct schema.
         cadence_schema_missing = (
-            ns.workflow == "cadence" and not _cadence_schema_healthy()
+            ns.workflow == "cadence" and not _cadence_rpc_available()
         )
         if cadence_schema_missing:
-            print("Cadence schema missing — deleting schema Job for Helm to recreate...")
+            print("Cadence gRPC unavailable — dropping databases and schema Job for Helm to recreate...")
+            subprocess.run(
+                [
+                    "kubectl", "exec", "mysql", "--",
+                    "mysql", "-uroot", "-proot", "-e",
+                    "DROP DATABASE IF EXISTS cadence;"
+                    " DROP DATABASE IF EXISTS cadence_visibility;",
+                ],
+                check=False,
+            )
             subprocess.run(
                 [
                     "kubectl", "delete", "job",
@@ -551,21 +561,25 @@ def _refresh_cadence_schema():
     )
 
 
-def _cadence_schema_healthy():
-    """Return True if the cadence MySQL database has been initialized with schema tables."""
+def _cadence_rpc_available():
+    """Return True if the Cadence gRPC port (7833) is accepting connections.
+
+    Runs a TCP connect from the mysql pod using bash /dev/tcp so no extra
+    tooling is required.  A refused connection means Cadence failed to start
+    its gRPC server (likely due to a corrupt or version-mismatched schema).
+    """
     result = subprocess.run(
         [
             "kubectl", "exec", "mysql", "--",
-            "mysql", "-uroot", "-proot", "-Nse",
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='cadence';",
+            "bash", "-c",
+            "timeout 3 bash -c"
+            " 'echo >/dev/tcp/michelangelo-cadence-frontend/7833'"
+            " 2>/dev/null && echo ok || echo fail",
         ],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        return False
-    count_str = result.stdout.strip()
-    return count_str.isdigit() and int(count_str) > 0
+    return "ok" in result.stdout
 
 
 def _helm_ensure_repos():
