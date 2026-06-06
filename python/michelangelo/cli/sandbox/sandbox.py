@@ -355,6 +355,20 @@ def _sync(ns: argparse.Namespace):
                 *helm_args,
             ]
         )
+        if ns.workflow == "cadence":
+            # Wait for the Cadence schema job to finish initialising the databases
+            # before starting app pods. Without this, workflows submitted right
+            # after the upgrade can fail if Cadence isn't yet fully initialised.
+            print("Waiting for Cadence schema job to complete...")
+            subprocess.run(
+                [
+                    "kubectl", "wait", "--for=condition=complete",
+                    "job", "-l",
+                    "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+                    "--timeout=300s",
+                ],
+                check=False,
+            )
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
         # template spec changes, but values-only changes may not alter it).
