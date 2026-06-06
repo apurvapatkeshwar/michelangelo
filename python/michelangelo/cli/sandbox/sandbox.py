@@ -562,13 +562,13 @@ def _helm_delete_services(helm_args: list[str]):
 
 
 def _helm_adopt_orphaned_resources(helm_args: list[str]):
-    """Clean up resources that would block helm upgrade --install.
+    """Adopt resources that exist in the cluster without Helm ownership metadata.
 
     Helm 3 refuses to manage resources missing its ownership annotations.
     We render the chart manifests and for each resource that exists in the
-    cluster WITHOUT Helm ownership labels, we delete it so the install can
-    recreate it cleanly. Resources already managed by Helm (correct labels)
-    are left untouched.
+    cluster WITHOUT Helm ownership labels, we annotate and label it so Helm
+    can adopt it without recreating it (avoids service disruption).
+    Resources already managed by Helm (correct labels) are left untouched.
     """
     result = subprocess.run(
         [
@@ -611,15 +611,30 @@ def _helm_adopt_orphaned_resources(helm_args: list[str]):
             continue  # resource doesn't exist — no action needed
         if get_result.stdout.strip() == "michelangelo":
             continue  # already owned by this release — leave it
-        # Resource exists but is not owned by Helm — delete it so Helm can recreate.
+        # Resource exists but lacks Helm ownership metadata — annotate and label it
+        # so Helm can adopt it without recreating (avoids service disruption).
         subprocess.run(
             [
                 "kubectl",
-                "delete",
+                "annotate",
                 f"{kind.lower()}/{name}",
                 "-n",
                 namespace,
-                "--ignore-not-found=true",
+                "meta.helm.sh/release-name=michelangelo",
+                "meta.helm.sh/release-namespace=default",
+                "--overwrite",
+            ],
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "kubectl",
+                "label",
+                f"{kind.lower()}/{name}",
+                "-n",
+                namespace,
+                "app.kubernetes.io/managed-by=Helm",
+                "--overwrite",
             ],
             capture_output=True,
         )
