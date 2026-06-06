@@ -365,10 +365,13 @@ def _sync(ns: argparse.Namespace):
                 ],
                 check=False,
             )
+            # The chart names the schema Job with component=schema-server.
+            # It also sets ttlSecondsAfterFinished=60 so the job self-deletes
+            # 60 s after completion; it may already be gone.
             subprocess.run(
                 [
                     "kubectl", "delete", "job",
-                    "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+                    "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema-server",
                     "--ignore-not-found=true",
                 ],
                 check=False,
@@ -385,15 +388,18 @@ def _sync(ns: argparse.Namespace):
 
         if ns.workflow == "cadence":
             if cadence_schema_missing:
-                # Helm just recreated the schema Job; wait for it to finish.
+                # Helm recreated the schema Job (component=schema-server).
+                # The job self-deletes after 60 s (ttlSecondsAfterFinished),
+                # so the wait may find nothing if the job already completed;
+                # that is fine — it means the schema was applied successfully.
                 print("Waiting for Cadence schema Job to complete...")
                 subprocess.run(
                     [
                         "kubectl", "wait", "--for=condition=complete", "job",
-                        "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+                        "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema-server",
                         "--timeout=300s",
                     ],
-                    check=True,
+                    check=False,  # non-fatal: job may be TTL-deleted already
                 )
                 # Restart Cadence pods so they reconnect to the fresh schema.
                 for deploy in (
