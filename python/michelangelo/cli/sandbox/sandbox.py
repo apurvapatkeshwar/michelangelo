@@ -345,25 +345,24 @@ def _sync(ns: argparse.Namespace):
 
     if release_healthy:
         # Healthy release: upgrade in-place, keeping infra running.
-        _helm_adopt_orphaned_resources(helm_args)
-        _exec(
-            "helm",
-            "upgrade",
-            "michelangelo",
-            str(_chart_dir),
-            "-f",
-            str(_chart_dir / "values-k3d.yaml"),
-            "--dependency-update",
-            "--reuse-values",
-            *helm_args,
+        _helm_upgrade_with_adoption(
+            [
+                "helm", "upgrade", "michelangelo", str(_chart_dir),
+                "-f", str(_chart_dir / "values-k3d.yaml"),
+                "--dependency-update", "--reuse-values",
+                *helm_args,
+            ]
         )
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
         # template spec changes, but values-only changes may not alter it).
+        # Also restart cadence-web in case it is stuck in Init (e.g. after a
+        # previous run inadvertently caused the cadence-schema Job to re-run).
         for deploy in (
             "michelangelo-apiserver",
             "michelangelo-controllermgr",
             "michelangelo-worker",
+            "michelangelo-cadence-web",
         ):
             subprocess.run(
                 [
@@ -565,76 +564,69 @@ def _helm_delete_services(helm_args: list[str]):
 def _helm_adopt_orphaned_resources(helm_args: list[str]):
     """Adopt resources that exist in the cluster without Helm ownership metadata.
 
-    Helm 3 refuses to manage resources missing its ownership annotations.
-    We render the chart manifests and for each resource that exists in the
-    cluster WITHOUT Helm ownership labels, we annotate and label it so Helm
-    can adopt it without recreating it (avoids service disruption).
-    Resources already managed by Helm (correct labels) are left untouched.
+    Helm 3 refuses to manage resources that it did not create (missing
+    meta.helm.sh/* annotations). Rather than pre-scanning the entire chart,
+    we let helm upgrade fail, parse the error to find the specific blocking
+    resource, annotate only that resource, and retry — up to a small limit.
+
+    This surgical approach avoids side-effects from broad adoption (e.g.
+    causing Helm to delete-and-recreate immutable Jobs like cadence-schema).
     """
-    # Ensure subchart archives are present so `helm template` can render them.
-    # CI removes helm/michelangelo/charts/ via git clean, so subcharts are
-    # absent until the actual `helm upgrade --dependency-update` runs. Without
-    # this step, `helm template` would fail and the function would return early.
-    subprocess.run(
-        ["helm", "dependency", "build", str(_chart_dir)],
-        capture_output=True,
+    pass  # logic moved into _helm_upgrade_with_adoption
+
+
+def _helm_upgrade_with_adoption(upgrade_cmd: list[str], max_adoption_retries: int = 10):
+    """Run a helm upgrade command, adopting blocking orphaned resources on failure.
+
+    If helm exits with an "exists and cannot be imported" ownership error,
+    parse the blocking resource, add the Helm ownership annotations/labels to
+    it, and retry the upgrade. Repeat until the upgrade succeeds or retries
+    are exhausted.
+
+    Jobs are intentionally skipped: they are immutable once complete and Helm
+    would delete-and-recreate them on adoption, causing schema jobs to re-run
+    against an already-initialised database.
+    """
+    import re
+
+    _OWNERSHIP_RE = re.compile(
+        r'(\w+) "([^"]+)" in namespace "([^"]+)" exists and cannot be imported'
     )
-    result = subprocess.run(
-        [
-            "helm",
-            "template",
-            "michelangelo",
-            str(_chart_dir),
-            "-f",
-            str(_chart_dir / "values-k3d.yaml"),
-            *helm_args,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return
-    for doc in yaml.safe_load_all(result.stdout):
-        if not doc:
-            continue
-        kind = doc.get("kind", "")
-        name = (doc.get("metadata") or {}).get("name", "")
-        namespace = (doc.get("metadata") or {}).get("namespace", "default")
-        if not kind or not name:
-            continue
-        # Skip Jobs: they are immutable once complete, and Helm would delete-and-
-        # recreate them if it adopts ownership — causing schema jobs to re-run
-        # against an already-initialised database, which breaks init containers
-        # that wait for those jobs to finish.
+
+    for attempt in range(max_adoption_retries + 1):
+        print("[+]", " ".join(upgrade_cmd))
+        result = subprocess.run(upgrade_cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            print(result.stdout, end="")
+            return
+        # Print what helm said so it's visible in CI logs.
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+
+        if attempt == max_adoption_retries:
+            break
+
+        match = _OWNERSHIP_RE.search(result.stderr)
+        if not match:
+            break  # not an ownership error — don't retry
+
+        kind, name, namespace = match.group(1), match.group(2), match.group(3)
         if kind.lower() == "job":
-            continue
-        # Check if this resource exists and lacks Helm ownership annotations.
-        get_result = subprocess.run(
-            [
-                "kubectl",
-                "get",
-                f"{kind.lower()}/{name}",
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.metadata.annotations.meta\\.helm\\.sh/release-name}",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if get_result.returncode != 0:
-            continue  # resource doesn't exist — no action needed
-        if get_result.stdout.strip() == "michelangelo":
-            continue  # already owned by this release — leave it
-        # Resource exists but lacks Helm ownership metadata — annotate and label it
-        # so Helm can adopt it without recreating (avoids service disruption).
+            # Jobs are immutable; adoption would cause Helm to recreate them.
+            # Skip and let the upgrade fail — manual cleanup is needed.
+            print(
+                f"WARNING: Job {namespace}/{name} blocks helm upgrade but "
+                "cannot be safely adopted (immutable). Skipping.",
+                file=sys.stderr,
+            )
+            break
+
+        print(f"Adopting orphaned {kind} {namespace}/{name} into Helm release...")
         subprocess.run(
             [
-                "kubectl",
-                "annotate",
-                f"{kind.lower()}/{name}",
-                "-n",
-                namespace,
+                "kubectl", "annotate", f"{kind.lower()}/{name}", "-n", namespace,
                 "meta.helm.sh/release-name=michelangelo",
                 "meta.helm.sh/release-namespace=default",
                 "--overwrite",
@@ -643,16 +635,14 @@ def _helm_adopt_orphaned_resources(helm_args: list[str]):
         )
         subprocess.run(
             [
-                "kubectl",
-                "label",
-                f"{kind.lower()}/{name}",
-                "-n",
-                namespace,
+                "kubectl", "label", f"{kind.lower()}/{name}", "-n", namespace,
                 "app.kubernetes.io/managed-by=Helm",
                 "--overwrite",
             ],
             capture_output=True,
         )
+
+    _err_exit("helm upgrade failed after adoption retries")
 
 
 def _deploy_app_services(ns: argparse.Namespace):
@@ -660,17 +650,13 @@ def _deploy_app_services(ns: argparse.Namespace):
     _ensure_credentials_secret()
     _helm_ensure_repos()
     helm_args = _build_helm_set_args(ns)
-    _helm_adopt_orphaned_resources(helm_args)
-    _exec(
-        "helm",
-        "upgrade",
-        "--install",
-        "michelangelo",
-        str(_chart_dir),
-        "-f",
-        str(_chart_dir / "values-k3d.yaml"),
-        "--dependency-update",
-        *helm_args,
+    _helm_upgrade_with_adoption(
+        [
+            "helm", "upgrade", "--install", "michelangelo", str(_chart_dir),
+            "-f", str(_chart_dir / "values-k3d.yaml"),
+            "--dependency-update",
+            *helm_args,
+        ]
     )
     _helm_wait(ns)
 
