@@ -345,6 +345,7 @@ def _sync(ns: argparse.Namespace):
 
     if release_healthy:
         # Healthy release: upgrade in-place, keeping infra running.
+        _helm_adopt_orphaned_resources(helm_args)
         _exec(
             "helm",
             "upgrade",
