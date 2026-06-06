@@ -328,8 +328,6 @@ def _sync(ns: argparse.Namespace):
     # Infrastructure (mysql, cadence, minio, grafana, prometheus) is left running.
 
     _refresh_mysql_schema()
-    if ns.workflow == "cadence":
-        _refresh_cadence_schema()
 
     _ensure_credentials_secret()
     _helm_ensure_repos()
@@ -355,45 +353,6 @@ def _sync(ns: argparse.Namespace):
                 *helm_args,
             ]
         )
-        if ns.workflow == "cadence":
-            # Wait for the Cadence schema job to finish initialising the databases.
-            print("Waiting for Cadence schema job to complete...")
-            subprocess.run(
-                [
-                    "kubectl", "wait", "--for=condition=complete",
-                    "job", "-l",
-                    "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
-                    "--timeout=300s",
-                ],
-                check=False,
-            )
-            # Restart Cadence pods NOW (after schema is applied) so they
-            # connect to the fresh databases. Restarting before schema completes
-            # would leave them stuck in Init waiting for the schema job.
-            print("Restarting Cadence pods to reconnect to fresh databases...")
-            for component in ("frontend", "history", "matching", "worker"):
-                subprocess.run(
-                    [
-                        "kubectl", "rollout", "restart",
-                        "deployment", "-n", "default",
-                        "-l", f"app.kubernetes.io/name=cadence,app.kubernetes.io/component={component}",
-                    ],
-                    capture_output=True,
-                    check=False,
-                )
-            # Wait for Cadence rollouts to complete before registering domain.
-            for component in ("frontend", "history", "matching", "worker"):
-                subprocess.run(
-                    [
-                        "kubectl", "rollout", "status",
-                        "deployment", "-n", "default",
-                        "-l", f"app.kubernetes.io/name=cadence,app.kubernetes.io/component={component}",
-                        "--timeout=180s",
-                    ],
-                    check=False,
-                )
-            # Re-register the Cadence domain (dropped with the databases).
-            _create_cadence_domain(None)
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
         # template spec changes, but values-only changes may not alter it).
