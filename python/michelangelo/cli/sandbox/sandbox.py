@@ -369,6 +369,9 @@ def _sync(ns: argparse.Namespace):
                 ],
                 check=False,
             )
+            # Re-register the Cadence domain. _refresh_cadence_schema() drops
+            # and recreates the databases, which deletes the domain registration.
+            _create_cadence_domain(None)
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
         # template spec changes, but values-only changes may not alter it).
