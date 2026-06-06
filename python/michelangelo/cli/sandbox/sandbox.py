@@ -328,6 +328,8 @@ def _sync(ns: argparse.Namespace):
     # Infrastructure (mysql, cadence, minio, grafana, prometheus) is left running.
 
     _refresh_mysql_schema()
+    if ns.workflow == "cadence":
+        _refresh_cadence_schema()
 
     _ensure_credentials_secret()
     _helm_ensure_repos()
@@ -460,6 +462,36 @@ def _refresh_mysql_schema():
             "--timeout=120s",
         ],
         check=True,
+    )
+
+
+def _refresh_cadence_schema():
+    """Drop and recreate the Cadence databases so the schema job runs cleanly.
+
+    This is the Cadence equivalent of _refresh_mysql_schema(). It drops the
+    cadence and cadence_visibility databases so the michelangelo-cadence-schema
+    Helm Job can re-initialize them on the next helm upgrade. Without this,
+    a previously re-run schema job may have left the databases in a partially-
+    modified state, causing cadence-web's init container to stall indefinitely.
+    """
+    print("Refreshing Cadence schema (drop + recreate cadence databases)...")
+    subprocess.run(
+        [
+            "kubectl", "exec", "mysql", "--",
+            "mysql", "-uroot", "-proot", "-e",
+            "DROP DATABASE IF EXISTS cadence; DROP DATABASE IF EXISTS cadence_visibility;",
+        ],
+        check=True,
+    )
+    # Delete the completed/failed cadence schema Job so Helm recreates it
+    # during the upgrade and properly reinitializes the databases.
+    subprocess.run(
+        [
+            "kubectl", "delete", "job",
+            "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+            "--ignore-not-found=true",
+        ],
+        check=False,
     )
 
 
@@ -669,10 +701,18 @@ def _helm_wait(ns: argparse.Namespace):
        Deployment object (created immediately by Helm) so there is no
        'no matching resources found' race. The apiserver runs a schema-init
        container so it takes 30-60s longer than the other services.
-    2. Wait for all remaining Helm-managed Deployments to become Available.
+    2. Wait for Michelangelo app Deployments to become Available. Cadence
+       sub-chart components (cadence-web, cadence-worker) are intentionally
+       excluded: cadence-web is a UI-only component not required for
+       integration tests, and a single stuck pod would cause kubectl wait
+       to exit early and incorrectly report all other pods as timed-out.
     """
     timeout = getattr(ns, "wait_timeout", 600)
     instance_selector = "app.kubernetes.io/instance=michelangelo"
+    # Exclude Cadence sub-chart pods (app.kubernetes.io/name=cadence).
+    # They are infrastructure; cadence-web in particular can be stuck in
+    # Init:0/1 without affecting workflow functionality.
+    app_selector = f"{instance_selector},app.kubernetes.io/name!=cadence"
 
     # Stage 1: apiserver Deployment (schema-init can take 30-60s)
     print("Waiting for apiserver to become available (schema-init runs first)...")
@@ -691,7 +731,7 @@ def _helm_wait(ns: argparse.Namespace):
     wait_result = subprocess.run(
         [
             "kubectl", "wait", "deployment",
-            "-l", instance_selector,
+            "-l", app_selector,
             "--for=condition=available",
             f"--timeout={timeout}s",
         ]
@@ -707,7 +747,7 @@ def _helm_wait(ns: argparse.Namespace):
         subprocess.run(
             [
                 "kubectl", "get", "deployments", "-n", "default",
-                "-l", instance_selector,
+                "-l", app_selector,
                 "-o", "custom-columns=NAME:.metadata.name,READY:.status.readyReplicas,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas",
             ],
             check=False,
