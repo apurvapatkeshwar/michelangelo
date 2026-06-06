@@ -343,40 +343,26 @@ def _sync(ns: argparse.Namespace):
         status_result.returncode == 0 and '"status":"deployed"' in status_result.stdout
     )
 
+    # When Cadence gRPC is unresponsive (both ports refused), the schema is
+    # corrupt or version-mismatched.  A surgical schema repair via helm upgrade
+    # is unreliable because the schema Job's update-schema silently ignores
+    # failures.  Force a full uninstall+reinstall so the schema Job runs
+    # against completely fresh databases.
+    if release_healthy and ns.workflow == "cadence" and not _cadence_rpc_available():
+        print("Cadence gRPC unresponsive — dropping databases and forcing full reinstall...")
+        subprocess.run(
+            [
+                "kubectl", "exec", "mysql", "--",
+                "mysql", "-uroot", "-proot", "-e",
+                "DROP DATABASE IF EXISTS cadence;"
+                " DROP DATABASE IF EXISTS cadence_visibility;",
+            ],
+            check=False,
+        )
+        release_healthy = False
+
     if release_healthy:
         # Healthy release: upgrade in-place, keeping infra running.
-
-        # If a previous run dropped the Cadence databases, or the schema is
-        # version-mismatched (Cadence refuses to bind its gRPC port on start),
-        # we must drop and recreate the databases. The schema Job is still
-        # "Completed" in k8s, so Helm won't recreate it — delete it first so
-        # the upgrade creates a fresh Job that applies the correct schema.
-        cadence_schema_missing = (
-            ns.workflow == "cadence" and not _cadence_rpc_available()
-        )
-        if cadence_schema_missing:
-            print("Cadence gRPC unavailable — dropping databases and schema Job for Helm to recreate...")
-            subprocess.run(
-                [
-                    "kubectl", "exec", "mysql", "--",
-                    "mysql", "-uroot", "-proot", "-e",
-                    "DROP DATABASE IF EXISTS cadence;"
-                    " DROP DATABASE IF EXISTS cadence_visibility;",
-                ],
-                check=False,
-            )
-            # The chart names the schema Job with component=schema-server.
-            # It also sets ttlSecondsAfterFinished=60 so the job self-deletes
-            # 60 s after completion; it may already be gone.
-            subprocess.run(
-                [
-                    "kubectl", "delete", "job",
-                    "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema-server",
-                    "--ignore-not-found=true",
-                ],
-                check=False,
-            )
-
         _helm_upgrade_with_adoption(
             [
                 "helm", "upgrade", "michelangelo", str(_chart_dir),
@@ -387,43 +373,6 @@ def _sync(ns: argparse.Namespace):
         )
 
         if ns.workflow == "cadence":
-            if cadence_schema_missing:
-                # Helm recreated the schema Job (component=schema-server).
-                # The job self-deletes after 60 s (ttlSecondsAfterFinished),
-                # so the wait may find nothing if the job already completed;
-                # that is fine — it means the schema was applied successfully.
-                print("Waiting for Cadence schema Job to complete...")
-                subprocess.run(
-                    [
-                        "kubectl", "wait", "--for=condition=complete", "job",
-                        "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema-server",
-                        "--timeout=300s",
-                    ],
-                    check=False,  # non-fatal: job may be TTL-deleted already
-                )
-                # Restart Cadence pods so they reconnect to the fresh schema.
-                for deploy in (
-                    "michelangelo-cadence-frontend",
-                    "michelangelo-cadence-history",
-                    "michelangelo-cadence-matching",
-                    "michelangelo-cadence-worker",
-                ):
-                    subprocess.run(
-                        [
-                            "kubectl", "rollout", "restart",
-                            f"deployment/{deploy}", "-n", "default",
-                        ],
-                        capture_output=True,
-                    )
-                # Wait for Cadence frontend to be running before registering domain.
-                subprocess.run(
-                    [
-                        "kubectl", "wait", "--for=condition=available", "deployment",
-                        "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=frontend",
-                        "--timeout=300s",
-                    ],
-                    check=False,
-                )
             # Ensure the Cadence domain exists. This is idempotent — if the
             # domain is already registered, _create_cadence_domain returns
             # immediately.
@@ -488,6 +437,10 @@ def _sync(ns: argparse.Namespace):
             "--dependency-update",
             *helm_args,
         )
+        if ns.workflow == "cadence":
+            # Fresh install: wait for schema Job + Cadence to come up,
+            # then register the domain.
+            _create_cadence_domain(None)
 
     _helm_wait(ns)
 
