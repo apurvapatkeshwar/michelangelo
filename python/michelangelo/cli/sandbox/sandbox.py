@@ -345,6 +345,25 @@ def _sync(ns: argparse.Namespace):
 
     if release_healthy:
         # Healthy release: upgrade in-place, keeping infra running.
+
+        # If a previous run dropped the Cadence databases, the schema Job is
+        # still marked "Completed" but the databases are empty. Helm won't
+        # recreate a Completed Job, so we must delete it first so the upgrade
+        # recreates and reapplies the schema.
+        cadence_schema_missing = (
+            ns.workflow == "cadence" and not _cadence_schema_healthy()
+        )
+        if cadence_schema_missing:
+            print("Cadence schema missing — deleting schema Job for Helm to recreate...")
+            subprocess.run(
+                [
+                    "kubectl", "delete", "job",
+                    "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+                    "--ignore-not-found=true",
+                ],
+                check=False,
+            )
+
         _helm_upgrade_with_adoption(
             [
                 "helm", "upgrade", "michelangelo", str(_chart_dir),
@@ -353,11 +372,45 @@ def _sync(ns: argparse.Namespace):
                 *helm_args,
             ]
         )
+
         if ns.workflow == "cadence":
+            if cadence_schema_missing:
+                # Helm just recreated the schema Job; wait for it to finish.
+                print("Waiting for Cadence schema Job to complete...")
+                subprocess.run(
+                    [
+                        "kubectl", "wait", "--for=condition=complete", "job",
+                        "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=schema",
+                        "--timeout=300s",
+                    ],
+                    check=True,
+                )
+                # Restart Cadence pods so they reconnect to the fresh schema.
+                for deploy in (
+                    "michelangelo-cadence-frontend",
+                    "michelangelo-cadence-history",
+                    "michelangelo-cadence-matching",
+                    "michelangelo-cadence-worker",
+                ):
+                    subprocess.run(
+                        [
+                            "kubectl", "rollout", "restart",
+                            f"deployment/{deploy}", "-n", "default",
+                        ],
+                        capture_output=True,
+                    )
+                # Wait for Cadence frontend to be running before registering domain.
+                subprocess.run(
+                    [
+                        "kubectl", "wait", "--for=condition=available", "deployment",
+                        "-l", "app.kubernetes.io/name=cadence,app.kubernetes.io/component=frontend",
+                        "--timeout=300s",
+                    ],
+                    check=False,
+                )
             # Ensure the Cadence domain exists. This is idempotent — if the
             # domain is already registered, _create_cadence_domain returns
-            # immediately. If a previous sync deleted the databases, this
-            # restores the domain registration.
+            # immediately.
             _create_cadence_domain(None)
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
@@ -496,6 +549,23 @@ def _refresh_cadence_schema():
         ],
         check=False,
     )
+
+
+def _cadence_schema_healthy():
+    """Return True if the cadence MySQL database has been initialized with schema tables."""
+    result = subprocess.run(
+        [
+            "kubectl", "exec", "mysql", "--",
+            "mysql", "-uroot", "-proot", "-Nse",
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='cadence';",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    count_str = result.stdout.strip()
+    return count_str.isdigit() and int(count_str) > 0
 
 
 def _helm_ensure_repos():
