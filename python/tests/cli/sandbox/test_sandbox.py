@@ -76,7 +76,6 @@ class CreateFunctionTest(TestCase):
         mock_apply_rbac.assert_called_once_with("test-compute-cluster")
         mock_create_secrets.assert_called_once_with("test-compute-cluster")
 
-
     @patch("michelangelo.cli.sandbox.sandbox._kube_wait")
     @patch("michelangelo.cli.sandbox.sandbox._create_cadence_domain")
     @patch("michelangelo.cli.sandbox.sandbox._create_spark_operator")
