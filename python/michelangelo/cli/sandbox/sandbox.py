@@ -1196,7 +1196,11 @@ def _create_cadence_domain(links):
         "--stdin",
         "--image",
         "ubercadence/cli:v1.2.6",
-        "--env=CADENCE_CLI_ADDRESS=michelangelo-cadence-frontend:7933",
+        # The Cadence helm chart defaults to rpcTransport=grpc so the server
+        # only binds gRPC (port 7833). TChannel (port 7933) is not started.
+        # Use grpc transport so the CLI can reach the frontend.
+        "--env=CADENCE_CLI_ADDRESS=michelangelo-cadence-frontend:7833",
+        "--env=CADENCE_CLI_TRANSPORT_PROTOCOL=grpc",
         "--command",
         "--",
         "cadence",
