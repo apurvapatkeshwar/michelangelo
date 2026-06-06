@@ -353,6 +353,12 @@ def _sync(ns: argparse.Namespace):
                 *helm_args,
             ]
         )
+        if ns.workflow == "cadence":
+            # Ensure the Cadence domain exists. This is idempotent — if the
+            # domain is already registered, _create_cadence_domain returns
+            # immediately. If a previous sync deleted the databases, this
+            # restores the domain registration.
+            _create_cadence_domain(None)
         # Force-restart app deployments so they always pick up the latest
         # configmap values (helm upgrade only restarts pods when the pod
         # template spec changes, but values-only changes may not alter it).
