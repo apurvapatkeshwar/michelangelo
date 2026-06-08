@@ -272,6 +272,10 @@ def _create(ns: argparse.Namespace):
     for p in ports:
         args += ["-p", f"{p}@agent:0"]
 
+    ca_bundle = Path.home() / ".michelangelo-k3d-ca-bundle.pem"
+    if ca_bundle.exists():
+        args += ["--volume", f"{ca_bundle}:/etc/ssl/certs/ca-certificates.crt:ro"]
+
     _exec(*args)
 
     _deploy_services(ns)
