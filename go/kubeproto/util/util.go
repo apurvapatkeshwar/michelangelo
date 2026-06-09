@@ -389,6 +389,42 @@ var (
 	int64Fields sync.Map
 )
 
+// getJSONFieldName returns the JSON key for a struct field and whether the field should be skipped.
+// Returns name="" with skip=false for inline fields (json:",inline"), which use the parent path.
+func getJSONFieldName(field reflect.StructField) (name string, skip bool) {
+	jsonTag := field.Tag.Get("json")
+	if jsonTag == "-" {
+		return "", true
+	}
+	if jsonTag == ",inline" {
+		return "", false
+	}
+	name = strings.Split(jsonTag, ",")[0]
+	if name == "" {
+		name = field.Name
+	}
+	return name, false
+}
+
+// joinPath concatenates two JSON path segments with a "." separator.
+// Returns suffix alone when prefix is empty.
+func joinPath(prefix, suffix string) string {
+	if prefix == "" {
+		return suffix
+	}
+	return prefix + "." + suffix
+}
+
+// derefType unwraps pointer indirections to reach the underlying concrete type.
+// Proto-generated Go code wraps optional nested message fields as pointers (*SomeMessage),
+// so we must deref to inspect the Kind and dispatch correctly.
+func derefType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t
+}
+
 // CollectInt64Fields returns the list of JSON field paths whose Go type is int64 or uint64.
 // Proto3 canonical JSON encodes these as quoted strings; encoding/json cannot handle that.
 func CollectInt64Fields(structType reflect.Type) []string {
@@ -399,9 +435,7 @@ func CollectInt64Fields(structType reflect.Type) []string {
 	visited := make(map[reflect.Type]bool)
 	var walk func(typ reflect.Type, prefix string)
 	walk = func(typ reflect.Type, prefix string) {
-		for typ.Kind() == reflect.Ptr {
-			typ = typ.Elem()
-		}
+		typ = derefType(typ)
 		if typ.Kind() != reflect.Struct || visited[typ] {
 			return
 		}
@@ -413,56 +447,40 @@ func CollectInt64Fields(structType reflect.Type) []string {
 			if field.PkgPath != "" { // unexported
 				continue
 			}
-			jsonTag := field.Tag.Get("json")
-			if jsonTag == "-" {
+			name, skip := getJSONFieldName(field)
+			if skip {
 				continue
-			}
-			name := strings.Split(jsonTag, ",")[0]
-			if name == "" {
-				name = field.Name
 			}
 
 			var fieldPath string
-			if jsonTag == ",inline" || name == "" {
+			if name == "" { // inline field: use parent path
 				fieldPath = prefix
-			} else if prefix != "" {
-				fieldPath = prefix + "." + name
 			} else {
-				fieldPath = name
+				fieldPath = joinPath(prefix, name)
 			}
 
-			ft := field.Type
-			for ft.Kind() == reflect.Ptr {
-				ft = ft.Elem()
-			}
+			ft := derefType(field.Type)
 
-			if ft.Kind() == reflect.Int64 || ft.Kind() == reflect.Uint64 {
+			switch ft.Kind() {
+			case reflect.Int64, reflect.Uint64:
 				if fieldPath != "" {
 					paths = append(paths, fieldPath)
 				}
-				continue
-			}
-			if ft.Kind() == reflect.Slice || ft.Kind() == reflect.Array {
-				elem := ft.Elem()
-				for elem.Kind() == reflect.Ptr {
-					elem = elem.Elem()
+			case reflect.Slice, reflect.Array:
+				elem := derefType(ft.Elem())
+				arrayPath := ""
+				if fieldPath != "" {
+					arrayPath = joinPath(fieldPath, "#")
 				}
-				arrayPath := fieldPath
-				if arrayPath != "" {
-					arrayPath += ".#"
-				}
-				if elem.Kind() == reflect.Int64 || elem.Kind() == reflect.Uint64 {
+				switch elem.Kind() {
+				case reflect.Int64, reflect.Uint64:
 					if arrayPath != "" {
 						paths = append(paths, arrayPath)
 					}
-					continue
-				}
-				if elem.Kind() == reflect.Struct {
+				case reflect.Struct:
 					walk(elem, arrayPath)
 				}
-				continue
-			}
-			if ft.Kind() == reflect.Struct {
+			case reflect.Struct:
 				walk(ft, fieldPath)
 			}
 		}
@@ -470,6 +488,26 @@ func CollectInt64Fields(structType reflect.Type) []string {
 	walk(structType, "")
 	int64Fields.Store(structType, paths)
 	return paths
+}
+
+// splitDotPath splits a dotted JSON path into the first segment and the remainder.
+// e.g. "foo.bar.baz" → ("foo", "bar.baz"); "foo" → ("foo", "")
+func splitDotPath(path string) (token, rest string) {
+	tokens := strings.SplitN(path, ".", 2)
+	token = tokens[0]
+	if len(tokens) > 1 {
+		rest = tokens[1]
+	}
+	return
+}
+
+// isQuotedInteger reports whether s is a valid decimal integer (int64 or uint64 range).
+func isQuotedInteger(s string) bool {
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return true
+	}
+	_, err := strconv.ParseUint(s, 10, 64)
+	return err == nil
 }
 
 // UnquoteInt64Fields rewrites each field at the given JSON paths from a quoted string
@@ -483,24 +521,16 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 	jsonStr := string(jsonData)
 	var resolvePaths func(path, current string, resolved *[]string)
 	resolvePaths = func(path, current string, resolved *[]string) {
-		tokens := strings.SplitN(path, ".", 2)
-		token := tokens[0]
-		rest := ""
-		if len(tokens) > 1 {
-			rest = tokens[1]
-		}
+		token, rest := splitDotPath(path)
 
-		if token == "#" {
+		switch token {
+		case "#":
 			array := gjson.Get(jsonStr, current)
 			if !array.IsArray() {
 				return
 			}
 			array.ForEach(func(index, _ gjson.Result) bool {
-				next := current
-				if next != "" {
-					next += "."
-				}
-				next += index.String()
+				next := joinPath(current, index.String())
 				if rest == "" {
 					*resolved = append(*resolved, next)
 				} else {
@@ -508,23 +538,18 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 				}
 				return true
 			})
-			return
+		default:
+			next := joinPath(current, token)
+			if rest == "" {
+				*resolved = append(*resolved, next)
+			} else {
+				resolvePaths(rest, next, resolved)
+			}
 		}
-
-		next := current
-		if next != "" {
-			next += "."
-		}
-		next += token
-		if rest == "" {
-			*resolved = append(*resolved, next)
-			return
-		}
-		resolvePaths(rest, next, resolved)
 	}
 
 	for _, path := range paths {
-		resolvedPaths := []string{}
+		var resolvedPaths []string
 		resolvePaths(path, "", &resolvedPaths)
 		for _, resolvedPath := range resolvedPaths {
 			val := gjson.Get(jsonStr, resolvedPath)
@@ -532,10 +557,8 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 				continue
 			}
 			raw := val.String()
-			if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
-				if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
-					continue
-				}
+			if !isQuotedInteger(raw) {
+				continue
 			}
 			var err error
 			jsonStr, err = sjson.SetRaw(jsonStr, resolvedPath, raw)
