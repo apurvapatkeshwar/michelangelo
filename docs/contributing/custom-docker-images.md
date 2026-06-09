@@ -102,3 +102,53 @@ Useful operations:
 ```bash
 ma sandbox delete
 ```
+
+---
+
+## UI Branch Images
+
+The same branch-tagging approach works for the Michelangelo UI. Use this when you want to test UI changes end-to-end in the sandbox without running a local dev server.
+
+### 1) Trigger the UI image build
+
+The UI release workflow (`.github/workflows/ui-release.yml`) builds and pushes an image tagged with your branch name. It runs automatically on push when `javascript/app/package.json` version changes. For development branches, trigger it manually:
+
+1. Go to **Actions → UI Release** in the GitHub repository.
+2. Click **Run workflow**, select your branch, and run it.
+
+The image tag is your branch name with `/` replaced by `-`. For example, branch `craig/my-feature` produces:
+
+```
+ghcr.io/michelangelo-ai/ui:craig-my-feature
+```
+
+### 2) Update the sandbox UI manifest
+
+Edit `python/michelangelo/cli/sandbox/resources/michelangelo-ui.yaml`:
+
+```yaml
+containers:
+- name: ui
+  image: ghcr.io/michelangelo-ai/ui:craig-my-feature  # was: main
+```
+
+### 3) Apply and restart
+
+```bash
+kubectl apply -f python/michelangelo/cli/sandbox/resources/michelangelo-ui.yaml
+kubectl rollout restart deployment/michelangelo-ui
+kubectl rollout status deployment/michelangelo-ui
+```
+
+The sandbox UI at http://localhost:8090 will now serve your branch build.
+
+### Reverting to main
+
+```yaml
+image: ghcr.io/michelangelo-ai/ui:main
+```
+
+```bash
+kubectl apply -f python/michelangelo/cli/sandbox/resources/michelangelo-ui.yaml
+kubectl rollout restart deployment/michelangelo-ui
+```

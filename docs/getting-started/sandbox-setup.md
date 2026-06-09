@@ -186,6 +186,35 @@ ma sandbox demo pipeline    # registers and runs a sample pipeline
 ma sandbox demo inference   # sets up demo inference server
 ```
 
+#### Resetting demo resources
+
+Demo resources like trigger runs can end up in a terminal state (failed, killed, completed) after running. To reset them back to a fresh state, delete and recreate them with `kubectl`:
+
+```bash
+# Reset trigger run demo data
+kubectl delete -f python/michelangelo/cli/sandbox/demo/trigger_run/
+kubectl apply -f python/michelangelo/cli/sandbox/demo/trigger_run/
+
+# Reset pipeline demo data
+kubectl delete -f python/michelangelo/cli/sandbox/demo/pipeline/
+
+# Or reset everything under demo/ at once
+kubectl delete -f python/michelangelo/cli/sandbox/demo/
+kubectl apply -f python/michelangelo/cli/sandbox/demo/
+```
+
+To check the current state of resources:
+
+```bash
+# See all trigger runs and their status
+kubectl get triggerruns -n ma-dev-test
+
+# See all pods across namespaces
+kubectl get pods -A
+```
+
+> **Note:** `kubectl apply` won't reset a resource that already exists with the same spec — you need to `delete` first so it gets recreated from scratch.
+
 ---
 
 ## Smoke test: run the BERT CoLA example
