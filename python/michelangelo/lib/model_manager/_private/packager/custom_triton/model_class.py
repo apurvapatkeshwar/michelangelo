@@ -17,6 +17,8 @@ def serialize_model_class(
     target_dir: str,
     model_file_name: str,
     include_import_prefixes: Optional[list[str]] = None,
+    serialize_interface: bool = True,
+    write_txt_file: bool = True,
 ):
     """Serialize the model class to the target dir.
 
@@ -37,6 +39,10 @@ def serialize_model_class(
             e.g. ['uber', 'data.michelangelo'] only imports starting
             with 'uber' or 'data.michelangelo' will be saved in the
             model package. If not specified, save all imports
+        serialize_interface: Whether to include the custom model interface
+            compatibility files in the serialized definition directory.
+        write_txt_file: Whether to write the text file containing
+            ``model_class``. Set to False when serializing dependency classes.
 
     Returns:
         None
@@ -50,9 +56,11 @@ def serialize_model_class(
     files = find_dependency_files(module_def, prefixes=include_import_prefixes)
     save_module_files(files, target_dir)
 
-    # create the model class file
-    with open(os.path.join(target_dir, model_file_name), "w") as f:
-        f.write(model_class)
+    if write_txt_file:
+        # create the model class file
+        with open(os.path.join(target_dir, model_file_name), "w") as f:
+            f.write(model_class)
 
-    # serialize the model interface
-    serialize_model_interface(target_dir)
+    if serialize_interface:
+        # serialize the model interface
+        serialize_model_interface(target_dir)

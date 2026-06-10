@@ -1,8 +1,10 @@
 """Generate the model package content."""
 
+from __future__ import annotations
+
 import os
 import tempfile
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from michelangelo.lib.model_manager._private.packager.custom_triton.config_pbtxt import (  # noqa: E501
     generate_config_pbtxt_content,
@@ -28,11 +30,14 @@ from michelangelo.lib.model_manager._private.packager.custom_triton.user_model_p
 from michelangelo.lib.model_manager._private.packager.custom_triton.validation import (
     validate_model_files,
 )
-from michelangelo.lib.model_manager._private.packager.template_renderer import (
-    TritonTemplateRenderer,
-)
 from michelangelo.lib.model_manager._private.utils.asset_utils import download_assets
 from michelangelo.lib.model_manager.constants import StorageType
+
+if TYPE_CHECKING:
+    from michelangelo.lib.artifact_manager import StorageBackend
+    from michelangelo.lib.model_manager._private.packager.template_renderer import (
+        TritonTemplateRenderer,
+    )
 
 
 def generate_model_package_content(
@@ -43,10 +48,11 @@ def generate_model_package_content(
     model_class: str,
     input_schema: dict,
     output_schema: dict,
-    model_path_source_type: Optional[str] = StorageType.LOCAL,
-    root_path: Optional[str] = None,
-    include_import_prefixes: Optional[list[str]] = None,
-    custom_batch_processing: Optional[bool] = False,
+    model_path_source_type: str | None = StorageType.LOCAL,
+    root_path: str | None = None,
+    include_import_prefixes: list[str] | None = None,
+    custom_batch_processing: bool | None = False,
+    storage_backend: StorageBackend | None = None,
 ) -> dict:
     """Generate the model package content.
 
@@ -72,6 +78,8 @@ def generate_model_package_content(
             class, and the model input/output will have an additional batch
             dimension on top of the existing model schema. For example, the
             schema shape [1] will be converted to [-1, 1].
+        storage_backend: Optional storage backend used to download ``model_path``
+            when it is not a local filesystem path.
 
     Returns:
         The model package content as a dictionary
@@ -106,6 +114,7 @@ def generate_model_package_content(
         model_path,
         target_model_path,
         model_path_source_type,
+        storage_backend=storage_backend,
     )
 
     os.makedirs(target_model_path, exist_ok=True)

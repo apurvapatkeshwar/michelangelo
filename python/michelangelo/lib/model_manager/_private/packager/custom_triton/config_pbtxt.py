@@ -35,17 +35,20 @@ def generate_config_pbtxt_content(
     ):
         model_name = f"{model_name}-{model_revision}"
 
-    return gen.render(
-        "config.pbtxt.tmpl",
-        {
-            "model_name": model_name,
-            "backend": TritonBackendType.PYTHON,
-            "max_batch_size": 256,
-            "enable_dynamic_batching": True,
-            "preferred_batch_size": 10,
-            "max_queue_delay_microseconds": 300,
-            "instance_count": 1,
-            "inputs": input_schema,
-            "outputs": output_schema,
-        },
+    return (
+        gen.render(
+            "config.pbtxt.tmpl",
+            {
+                "model_name": model_name,
+                "backend": TritonBackendType.PYTHON,
+                "max_batch_size": 256,
+                "enable_dynamic_batching": True,
+                "preferred_batch_size": 10,
+                "max_queue_delay_microseconds": 300,
+                "instance_count": 1,
+                "inputs": input_schema,
+                "outputs": output_schema,
+            },
+        ).rstrip()
+        + "\n"
     )

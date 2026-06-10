@@ -1,6 +1,9 @@
 """Packager for custom Triton models."""
 
+from __future__ import annotations
+
 import tempfile
+from typing import TYPE_CHECKING
 from typing import Optional, Union
 
 from numpy import ndarray
@@ -26,6 +29,9 @@ from michelangelo.lib.model_manager._private.utils.data_utils import (
 from michelangelo.lib.model_manager.constants import StorageType
 from michelangelo.lib.model_manager.schema import ModelSchema
 
+if TYPE_CHECKING:
+    from michelangelo.lib.artifact_manager import StorageBackend
+
 
 class CustomTritonPackager:
     """Packager for custom Triton Python models.
@@ -45,7 +51,11 @@ class CustomTritonPackager:
             the model implementation.
     """
 
-    def __init__(self, custom_batch_processing: Optional[bool] = False):
+    def __init__(
+        self,
+        custom_batch_processing: Optional[bool] = False,
+        storage_backend: StorageBackend | None = None,
+    ):
         """Create a CustomTritonPackager instance.
 
         Args:
@@ -61,9 +71,13 @@ class CustomTritonPackager:
                 additional leading batch dimension. For example, if the schema
                 specifies shape [n, ..., m], the actual input shape will be
                 [batch_size, n, ..., m].
+            storage_backend: Optional storage backend used to download model
+                artifacts when ``model_path`` is a backend URI. If omitted,
+                ``model_path`` is treated as a local filesystem path.
         """
         self.gen = TritonTemplateRenderer()
         self.custom_batch_processing = custom_batch_processing
+        self.storage_backend = storage_backend
 
     def create_model_package(
         self,
@@ -109,6 +123,10 @@ class CustomTritonPackager:
                 example, ['uber', 'data.michelangelo'] will only include modules
                 starting with 'uber' or 'data.michelangelo'. If None or empty,
                 all imported modules will be included.
+            storage_backend: Configure this on the packager constructor when
+                ``model_path`` points to non-local artifact storage. The
+                packager downloads through that backend and still returns a
+                local package path for pusher upload.
 
         Returns:
             The absolute path to the generated model package directory.
@@ -146,6 +164,7 @@ class CustomTritonPackager:
             root_path=dest_model_path,
             include_import_prefixes=include_import_prefixes,
             custom_batch_processing=self.custom_batch_processing,
+            storage_backend=self.storage_backend,
         )
 
         generate_folder(content, dest_model_path)
@@ -207,6 +226,10 @@ class CustomTritonPackager:
                 example, ['uber', 'data.michelangelo'] will only include modules
                 starting with 'uber' or 'data.michelangelo'. If None or empty,
                 all imported modules will be included.
+            storage_backend: Configure this on the packager constructor when
+                ``model_path`` points to non-local artifact storage. The
+                packager downloads through that backend and still returns a
+                local package path for pusher upload.
 
         Returns:
             The absolute path to the generated raw model package directory.
@@ -257,6 +280,7 @@ class CustomTritonPackager:
             root_path=dest_model_path,
             include_import_prefixes=include_import_prefixes,
             batch_inference=batch_inference,
+            storage_backend=self.storage_backend,
         )
 
         generate_folder(content, dest_model_path)

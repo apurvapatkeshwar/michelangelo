@@ -1,0 +1,91 @@
+import importlib
+import json
+import os
+
+import numpy as np
+import torch
+import yaml
+
+
+def _instantiate(spec):
+    if not isinstance(spec, dict) or "_target_" not in spec:
+        return spec
+    target = spec["_target_"]
+    module_name, class_name = target.rsplit(".", 1)
+    model_type = getattr(importlib.import_module(module_name), class_name)
+    kwargs = {
+        key: _instantiate(value) if isinstance(value, dict) else value
+        for key, value in spec.items()
+        if key != "_target_"
+    }
+    return model_type(**kwargs)
+
+
+def load_model(model_path):
+    with open(os.path.join(model_path, "model_class.txt")) as f:
+        model_class = f.read().strip()
+    module_name, class_name = model_class.rsplit(".", 1)
+    model_type = getattr(importlib.import_module(module_name), class_name)
+
+    skeleton_path = os.path.join(model_path, "skeleton.yaml")
+    legacy_hyperparameters_path = os.path.join(model_path, "hyperparameters.json")
+    if os.path.exists(skeleton_path):
+        with open(skeleton_path) as f:
+            spec = yaml.safe_load(f) or {}
+    elif os.path.exists(legacy_hyperparameters_path):
+        with open(legacy_hyperparameters_path) as f:
+            spec = json.load(f) or {}
+    else:
+        spec = {}
+
+    model = _instantiate(spec) if "_target_" in spec else model_type(**spec)
+    state_dict = torch.load(
+        os.path.join(model_path, "model", "model.pt"),
+        map_location="cpu",
+        weights_only=True,
+    )
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model
+
+
+class Model:
+    def __init__(self):
+        self.model_path = os.path.dirname(os.path.realpath(__file__))
+        self.model = load_model(self.model_path)
+
+    def execute(self, inputs):
+        tensor_inputs = {
+            name: torch.from_numpy(value) if isinstance(value, np.ndarray) else value
+            for name, value in inputs.items()
+        }
+        with torch.no_grad():
+            output = self.model(**tensor_inputs)
+
+        output_names = {{ output_names }}
+        if isinstance(output, dict):
+            return {
+                key: value.detach().cpu().numpy()
+                if isinstance(value, torch.Tensor)
+                else value
+                for key, value in output.items()
+            }
+        if isinstance(output, (tuple, list)):
+            return {
+                output_names[index] if index < len(output_names) else f"output_{index}": (
+                    value.detach().cpu().numpy()
+                    if isinstance(value, torch.Tensor)
+                    else value
+                )
+                for index, value in enumerate(output)
+            }
+        name = output_names[0] if output_names else "output"
+        return {
+            name: output.detach().cpu().numpy()
+            if isinstance(output, torch.Tensor)
+            else output
+        }
+
+
+def get_model():
+    return Model()

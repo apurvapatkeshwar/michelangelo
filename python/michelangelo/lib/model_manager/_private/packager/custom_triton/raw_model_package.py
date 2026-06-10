@@ -1,10 +1,10 @@
 """Generate the raw model package content."""
 
+from __future__ import annotations
+
 import os
 import tempfile
-from typing import Optional, Union
-
-from numpy import ndarray
+from typing import TYPE_CHECKING
 
 from michelangelo.lib.model_manager._private.packager.custom_triton.constants import (
     MODEL_CLASS_FILE_NAME,
@@ -28,7 +28,12 @@ from michelangelo.lib.model_manager._private.schema.common import schema_to_yaml
 from michelangelo.lib.model_manager._private.serde.data import dump_model_data
 from michelangelo.lib.model_manager._private.utils.asset_utils import download_assets
 from michelangelo.lib.model_manager.constants import StorageType
-from michelangelo.lib.model_manager.schema import ModelSchema
+
+if TYPE_CHECKING:
+    from numpy import ndarray
+
+    from michelangelo.lib.artifact_manager import StorageBackend
+    from michelangelo.lib.model_manager.schema import ModelSchema
 
 
 def generate_raw_model_package_content(
@@ -36,11 +41,12 @@ def generate_raw_model_package_content(
     model_class: str,
     model_schema: ModelSchema,
     sample_data: list[dict[str, ndarray]],
-    model_path_source_type: Optional[str] = StorageType.LOCAL,
-    requirements: Optional[Union[list[str], str]] = None,
-    root_path: Optional[str] = None,
-    include_import_prefixes: Optional[list[str]] = None,
-    batch_inference: Optional[bool] = False,
+    model_path_source_type: str | None = StorageType.LOCAL,
+    requirements: list[str] | str | None = None,
+    root_path: str | None = None,
+    include_import_prefixes: list[str] | None = None,
+    batch_inference: bool | None = False,
+    storage_backend: StorageBackend | None = None,
 ) -> dict:
     """Generate the raw model package content.
 
@@ -72,6 +78,8 @@ def generate_raw_model_package_content(
             batch dimension on top of the existing model schema.
             For example, if the model schema specifies the input shape to be
             [n, m], the model expects the input shape to be [-1, n, m].
+        storage_backend: Optional storage backend used to download ``model_path``
+            when it is not a local filesystem path.
 
     Returns:
         The raw model package content
@@ -87,6 +95,7 @@ def generate_raw_model_package_content(
         model_path,
         target_model_path,
         model_path_source_type,
+        storage_backend=storage_backend,
     )
 
     os.makedirs(target_model_path, exist_ok=True)
