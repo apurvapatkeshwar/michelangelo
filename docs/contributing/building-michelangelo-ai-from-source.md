@@ -52,6 +52,7 @@ Ensure you have the following installed before building:
 - **[Go](https://go.dev/doc/install)** — version `1.24.0+` (see `go/go.mod`)
 - **[Python](https://www.python.org/downloads/)** — version `3.9+`
 - **[Poetry](https://python-poetry.org/docs/#installation)** — for Python dependency management
+- **Bash 4+** — the pre-commit hooks use `readarray` which requires bash 4+. macOS ships bash 3.2; install a newer version with `brew install bash` and ensure it precedes `/bin/bash` on your `PATH`.
 
 For the full sandbox environment (Docker, kubectl, k3d, GitHub token), see the [Sandbox Setup Guide](../getting-started/sandbox-setup.md).
 

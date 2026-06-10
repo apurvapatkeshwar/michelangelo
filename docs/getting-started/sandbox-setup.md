@@ -82,6 +82,14 @@ cd <repo-root>/python
 poetry install
 ```
 
+**Development extras:** If you plan to work on pipelines that use Ray or Spark compute, install the `plugin` extra:
+
+```bash
+poetry install --extras plugin
+```
+
+This adds `ray` and `pyspark` to your environment. Skip this if you're only doing UI or apiserver work.
+
 ---
 
 ## Quick start
