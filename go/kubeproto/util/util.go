@@ -389,6 +389,78 @@ var (
 	int64Fields sync.Map
 )
 
+// CollectInt64Fields returns the list of JSON field paths whose Go type is int64 or uint64.
+// Proto3 canonical JSON encodes these as quoted strings; encoding/json cannot handle that.
+func CollectInt64Fields(structType reflect.Type) []string {
+	if v, ok := int64Fields.Load(structType); ok {
+		return v.([]string)
+	}
+	var paths []string
+	visited := make(map[reflect.Type]bool)
+	var walk func(typ reflect.Type, prefix string)
+	walk = func(typ reflect.Type, prefix string) {
+		typ = derefType(typ)
+		if typ.Kind() != reflect.Struct || visited[typ] {
+			return
+		}
+		visited[typ] = true
+		defer delete(visited, typ)
+
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			// PkgPath is non-empty for unexported (lowercase) fields; encoding/json ignores them too.
+			if field.PkgPath != "" {
+				continue
+			}
+			name, skip := getJSONFieldName(field)
+			if skip {
+				continue
+			}
+
+			var fieldPath string
+			// name=="" means json:",inline" on an embedded struct (valid: its fields promote
+			// into the parent JSON object and share the parent's path prefix).
+			if name == "" {
+				fieldPath = prefix
+			} else {
+				fieldPath = joinPath(prefix, name)
+			}
+
+			ft := derefType(field.Type)
+
+			switch ft.Kind() {
+			case reflect.Int64, reflect.Uint64:
+				// fieldPath is empty only when json:",inline" appears on a scalar at the root —
+				// inline is only meaningful on embedded structs, so this is a malformed tag.
+				// Appending "" to paths would corrupt UnquoteInt64Fields.
+				if fieldPath != "" {
+					paths = append(paths, fieldPath)
+				}
+			case reflect.Slice, reflect.Array:
+				elem := derefType(ft.Elem())
+				arrayPath := ""
+				if fieldPath != "" {
+					// "#" is array wildcard — resolvePaths expands it to concrete indices
+					arrayPath = joinPath(fieldPath, "#")
+				}
+				switch elem.Kind() {
+				case reflect.Int64, reflect.Uint64:
+					if arrayPath != "" {
+						paths = append(paths, arrayPath)
+					}
+				case reflect.Struct:
+					walk(elem, arrayPath)
+				}
+			case reflect.Struct:
+				walk(ft, fieldPath)
+			}
+		}
+	}
+	walk(structType, "")
+	int64Fields.Store(structType, paths)
+	return paths
+}
+
 // getJSONFieldName returns the JSON key for a struct field and whether the field should be skipped.
 // Returns name="" with skip=false for inline fields (json:",inline"), which use the parent path.
 func getJSONFieldName(field reflect.StructField) (name string, skip bool) {
@@ -423,91 +495,6 @@ func derefType(t reflect.Type) reflect.Type {
 		t = t.Elem()
 	}
 	return t
-}
-
-// CollectInt64Fields returns the list of JSON field paths whose Go type is int64 or uint64.
-// Proto3 canonical JSON encodes these as quoted strings; encoding/json cannot handle that.
-func CollectInt64Fields(structType reflect.Type) []string {
-	if v, ok := int64Fields.Load(structType); ok {
-		return v.([]string)
-	}
-	var paths []string
-	visited := make(map[reflect.Type]bool)
-	var walk func(typ reflect.Type, prefix string)
-	walk = func(typ reflect.Type, prefix string) {
-		typ = derefType(typ)
-		if typ.Kind() != reflect.Struct || visited[typ] {
-			return
-		}
-		visited[typ] = true
-		defer delete(visited, typ)
-
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if field.PkgPath != "" { // unexported
-				continue
-			}
-			name, skip := getJSONFieldName(field)
-			if skip {
-				continue
-			}
-
-			var fieldPath string
-			if name == "" { // inline field: use parent path
-				fieldPath = prefix
-			} else {
-				fieldPath = joinPath(prefix, name)
-			}
-
-			ft := derefType(field.Type)
-
-			switch ft.Kind() {
-			case reflect.Int64, reflect.Uint64:
-				if fieldPath != "" {
-					paths = append(paths, fieldPath)
-				}
-			case reflect.Slice, reflect.Array:
-				elem := derefType(ft.Elem())
-				arrayPath := ""
-				if fieldPath != "" {
-					arrayPath = joinPath(fieldPath, "#")
-				}
-				switch elem.Kind() {
-				case reflect.Int64, reflect.Uint64:
-					if arrayPath != "" {
-						paths = append(paths, arrayPath)
-					}
-				case reflect.Struct:
-					walk(elem, arrayPath)
-				}
-			case reflect.Struct:
-				walk(ft, fieldPath)
-			}
-		}
-	}
-	walk(structType, "")
-	int64Fields.Store(structType, paths)
-	return paths
-}
-
-// splitDotPath splits a dotted JSON path into the first segment and the remainder.
-// e.g. "foo.bar.baz" → ("foo", "bar.baz"); "foo" → ("foo", "")
-func splitDotPath(path string) (token, rest string) {
-	tokens := strings.SplitN(path, ".", 2)
-	token = tokens[0]
-	if len(tokens) > 1 {
-		rest = tokens[1]
-	}
-	return
-}
-
-// isQuotedInteger reports whether s is a valid decimal integer (int64 or uint64 range).
-func isQuotedInteger(s string) bool {
-	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return true
-	}
-	_, err := strconv.ParseUint(s, 10, 64)
-	return err == nil
 }
 
 // UnquoteInt64Fields rewrites each field at the given JSON paths from a quoted string
@@ -568,6 +555,25 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 		}
 	}
 	return []byte(jsonStr), nil
+}
+
+// splitDotPath splits a dotted JSON path into the first segment and the remainder.
+// e.g. "foo.bar.baz" → ("foo", "bar.baz"); "foo" → ("foo", "")
+func splitDotPath(path string) (string, string) {
+	tokens := strings.SplitN(path, ".", 2)
+	if len(tokens) > 1 {
+		return tokens[0], tokens[1]
+	}
+	return tokens[0], ""
+}
+
+// isQuotedInteger reports whether s is a valid decimal integer (int64 or uint64 range).
+func isQuotedInteger(s string) bool {
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return true
+	}
+	_, err := strconv.ParseUint(s, 10, 64)
+	return err == nil
 }
 
 // ReadRequest reads the protoc request from stdin and returns it as a byte slice.
