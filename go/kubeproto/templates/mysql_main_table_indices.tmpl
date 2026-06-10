@@ -3,4 +3,5 @@
     KEY    `{{.TableName}}_create_time` (`create_time`),
     KEY    `{{.TableName}}_update_time` (`update_time`),
     KEY    `{{.TableName}}_delete_time` (`delete_time`),
-    KEY    `{{.TableName}}_namespace_timestamp` (`namespace`, `delete_time`, `create_time`, `update_time`)
+    KEY    `{{.TableName}}_namespace_timestamp` (`namespace`, `delete_time`, `create_time`, `update_time`){{if eq .TableName "pipeline_run"}},
+    KEY    `pipeline_run_namespace_delete_pipeline_type_create` (`namespace`, `delete_time`, `pipeline_type`, `create_time`){{end}}
