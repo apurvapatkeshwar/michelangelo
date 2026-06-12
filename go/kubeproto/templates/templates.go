@@ -150,3 +150,12 @@ var mysqlLabelAnnotationTables string
 
 // CRDMySQLLabelAnnotationTable is a template of a CRD's label and annotation table schema.
 var CRDMySQLLabelAnnotationTable = template.Must(template.New("MySQLLabelAnnotationTable").Parse(mysqlLabelAnnotationTables))
+
+//go:embed mysql_unmarshalled_table.tmpl
+var mysqlUnmarshalledTable string
+
+// CRDMySQLUnmarshalledTable is the header of a content_index sidecar
+// ("*_unmarshalled") table: the table name and the foreign-key column back to
+// the wrapper CRD's uid. The indexed columns, primary key, and per-column
+// indexes are appended by protoc-gen-sql from the parsed content_index fields.
+var CRDMySQLUnmarshalledTable = template.Must(template.New("MySQLUnmarshalledTable").Parse(mysqlUnmarshalledTable))

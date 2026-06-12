@@ -168,6 +168,17 @@ message TestIndexing {
     type_override: "VARCHAR(768)",
   };
 
+  // content_index: indexes on fields inside a (hypothetical) Any content field,
+  // resolved against the SampleMessage base type. Generates a sidecar
+  // "sample_message_test_indexing_unmarshalled" table.
+  option (michelangelo.api.content_index) = {
+    content_path: "spec.content"
+    base_type: "michelangelo.test.kubeproto.SampleMessage"
+    index { path: "indexed_string" key: "content_string" }
+    index { path: "indexed_int32" key: "content_int32" }
+    index { path: "indexed_long_string" key: "content_long_string" type_override: "VARCHAR(768)" }
+  };
+
   k8s.io.apimachinery.pkg.apis.meta.v1.TypeMeta type_meta = 1;
   k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta metadata = 2;
 

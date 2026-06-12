@@ -22,7 +22,7 @@ func provideMetadataStorage(
 		return nil, fmt.Errorf("metadata storage is enabled but mysql config is empty")
 	}
 
-	return mysqlstorage.NewMetadataStorage(mysqlConfig.ToMySQLConfig(), scheme, nil)
+	return mysqlstorage.NewMetadataStorage(mysqlConfig.ToMySQLConfig(), scheme, nil, nil)
 }
 
 func mysqlConfigEnabled(config baseconfig.MySQLConfig) bool {

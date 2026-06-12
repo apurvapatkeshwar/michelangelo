@@ -81,3 +81,14 @@ CREATE TABLE `test_indexing_annotations`
     PRIMARY KEY (`id`),
     KEY    `test_indexing_annotations_uid` (`obj_uid`)
 );
+CREATE TABLE `sample_message_test_indexing_unmarshalled`
+(
+    `test_indexing_uid` VARCHAR(255) NOT NULL,
+    `content_string`    VARCHAR(255),
+    `content_int32`    INT,
+    `content_long_string`    VARCHAR(768),
+    PRIMARY KEY (`test_indexing_uid`),
+    KEY    `sample_message_test_indexing_unmarshalled_content_string` (`content_string`),
+    KEY    `sample_message_test_indexing_unmarshalled_content_int32` (`content_int32`),
+    KEY    `sample_message_test_indexing_unmarshalled_content_long_string` (`content_long_string`)
+);

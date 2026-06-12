@@ -90,78 +90,169 @@ func ParseIndexedFields(crdRootMsg *protogen.Message, crdOptions *pboptions.Opti
 		}
 		indexedKeys[key] = true
 
-		parsedGoPaths, field, leafMsg := validateIndex(key, path, crdRootMsg)
+		newIndexedField := buildIndexedField(key, path, typeOverride, crdRootMsg)
 
-		newIndexedField := IndexedField{}
-		newIndexedField.Key = key
-		newIndexedField.GoPaths = parsedGoPaths
-		newIndexedField.ProtoPath = path
-
-		if leafMsg == nil {
-			// primitive type field
-			// If type_override is specified, use the specified type.
-			if typeOverride != "" {
-				newIndexedField.Type = typeOverride
-			} else {
-				switch field.Desc.Kind() {
-				case protoreflect.StringKind:
-					newIndexedField.Type = "VARCHAR(255)"
-				case protoreflect.Int32Kind, protoreflect.Fixed32Kind, protoreflect.Sint32Kind:
-					newIndexedField.Type = "INT"
-				case protoreflect.Int64Kind, protoreflect.Fixed64Kind, protoreflect.Sint64Kind:
-					newIndexedField.Type = "BIGINT"
-				case protoreflect.EnumKind:
-					newIndexedField.Type = "VARCHAR(255)"
-					newIndexedField.Flag |= IndexFlagEnum
-				case protoreflect.BoolKind:
-					newIndexedField.Type = "BOOLEAN"
-				default:
-					logger.Panicf("Invalid index annotation. Unsupported primitive type: %v, key: %v, path: %v",
-						field.Desc.Kind(), key, path)
-				}
+		for _, subField := range newIndexedField.SubFields {
+			if _, found := indexedKeys[subField.Key]; found {
+				logger.Panicf("Invalid index annotation. Duplicated key. key: %v, path: %v, subKey: %v",
+					key, path, subField.Key)
 			}
-
-			newIndexedField.Flag |= IndexFlagPrimitive
-		} else {
-			switch leafMsg.Desc.FullName() {
-			case "michelangelo.api.ResourceIdentifier":
-				newIndexedField.Flag |= IndexFlagCompositeKey
-				newIndexedField.SubFields = append(newIndexedField.SubFields,
-					IndexedSubField{Key: buildSubKey(key, "namespace"), GoPath: "Namespace",
-						ProtoPath: buildSubKeyProtoPath(path, "namespace"), Type: "VARCHAR(255)"})
-				newIndexedField.SubFields = append(newIndexedField.SubFields,
-					IndexedSubField{Key: buildSubKey(key, "name"), GoPath: "Name",
-						ProtoPath: buildSubKeyProtoPath(path, "name"), Type: "VARCHAR(255)"})
-			case "michelangelo.api.v2beta1.UserInfo", "michelangelo.api.v2.UserInfo":
-				newIndexedField.SubFields = append(newIndexedField.SubFields,
-					IndexedSubField{Key: buildSubKey(key, "name"), GoPath: "Name",
-						ProtoPath: buildSubKeyProtoPath(path, "name"), Type: "VARCHAR(255)"})
-				newIndexedField.SubFields = append(newIndexedField.SubFields,
-					IndexedSubField{Key: buildSubKey(key, "proxy_user"), GoPath: "ProxyUser",
-						ProtoPath: buildSubKeyProtoPath(path, "proxy_user"), Type: "VARCHAR(255)"})
-			case "google.protobuf.Timestamp":
-				newIndexedField.Type = "DATETIME"
-				newIndexedField.Flag |= IndexFlagPrimitive
-			case "k8s.io.apimachinery.pkg.apis.meta.v1.Time":
-				newIndexedField.Type = "DATETIME"
-				newIndexedField.Flag |= IndexFlagPrimitive
-			default:
-				logger.Panicf("Invalid index annotation. Unsupported message type: %v. key: %v, path: %v",
-					leafMsg.Desc.FullName(), key, path)
-			}
-
-			for _, subField := range newIndexedField.SubFields {
-				if _, found := indexedKeys[subField.Key]; found {
-					logger.Panicf("Invalid index annotation. Duplicated key. key: %v, path: %v, subKey: %v",
-						key, path, subField.Key)
-				}
-				indexedKeys[subField.Key] = true
-			}
+			indexedKeys[subField.Key] = true
 		}
 		indexedFields[i] = newIndexedField
 	}
 
 	return indexedFields
+}
+
+// ContentIndex is one resolved content_index annotation: a wrapper CRD's Any
+// content field, the concrete base type it unmarshals to, and the indexed fields
+// within that base type. protoc-gen-sql emits one sidecar table per ContentIndex.
+type ContentIndex struct {
+	// ContentPath is the path to the google.protobuf.Any content field on the
+	// wrapper CRD, e.g. "spec.content".
+	ContentPath string
+	// BaseType is the fully-qualified message name the content unmarshals to,
+	// e.g. "michelangelo.api.v2.Pipeline".
+	BaseType string
+	// BaseTypeShortName is the unqualified message name, e.g. "Pipeline" — used
+	// to derive the sidecar table name.
+	BaseTypeShortName string
+	// Fields are the indexed fields within the base type.
+	Fields []IndexedField
+}
+
+// ParseContentIndexedFields parses and validates the content_index annotations on
+// a CRD. Each annotation's index paths are resolved against its base_type message
+// (looked up in msgByName), not the wrapper CRD — the wrapped content is an
+// opaque Any the framework can't otherwise traverse.
+func ParseContentIndexedFields(crdOptions *pboptions.Options, msgByName map[protoreflect.FullName]*protogen.Message) []ContentIndex {
+	if !crdOptions.Bool("has_content_index[0]") {
+		return nil
+	}
+
+	count := int(crdOptions.Int64("len(content_index)"))
+	contentIndexes := make([]ContentIndex, 0, count)
+	for i := 0; i < count; i++ {
+		prefix := "content_index[" + strconv.Itoa(i) + "]"
+		contentPath := crdOptions.String(prefix + ".content_path")
+		baseType := crdOptions.String(prefix + ".base_type")
+		if contentPath == "" || baseType == "" {
+			logger.Panicf("Invalid content_index annotation. content_path and base_type are required. "+
+				"content_path: %v, base_type: %v", contentPath, baseType)
+		}
+		baseMsg, ok := msgByName[protoreflect.FullName(baseType)]
+		if !ok {
+			logger.Panicf("Invalid content_index annotation. base_type %q not found among compiled protos. "+
+				"Ensure the base type's proto is imported.", baseType)
+		}
+
+		ci := ContentIndex{
+			ContentPath:       contentPath,
+			BaseType:          baseType,
+			BaseTypeShortName: string(baseMsg.Desc.Name()),
+		}
+
+		// Keys are unique per sidecar table.
+		indexedKeys := make(map[string]bool)
+		fieldCount := int(crdOptions.Int64(prefix + ".len(index)"))
+		for j := 0; j < fieldCount; j++ {
+			fprefix := prefix + ".index[" + strconv.Itoa(j) + "]"
+			key := crdOptions.String(fprefix + ".key")
+			path := crdOptions.String(fprefix + ".path")
+			typeOverride := crdOptions.String(fprefix + ".type_override")
+
+			if key == "" || path == "" {
+				logger.Panicf("Invalid content_index annotation. Either key or path is not specified. "+
+					"base_type: %v, key: %v, path: %v", baseType, key, path)
+			}
+			if _, found := indexedKeys[key]; found {
+				logger.Panicf("Invalid content_index annotation. Duplicated key. base_type: %v, key: %v, path: %v",
+					baseType, key, path)
+			}
+			indexedKeys[key] = true
+
+			// Paths are resolved against the base type message, not the wrapper.
+			field := buildIndexedField(key, path, typeOverride, baseMsg)
+			for _, subField := range field.SubFields {
+				if _, found := indexedKeys[subField.Key]; found {
+					logger.Panicf("Invalid content_index annotation. Duplicated key. base_type: %v, key: %v, subKey: %v",
+						baseType, key, subField.Key)
+				}
+				indexedKeys[subField.Key] = true
+			}
+			ci.Fields = append(ci.Fields, field)
+		}
+		contentIndexes = append(contentIndexes, ci)
+	}
+
+	return contentIndexes
+}
+
+// buildIndexedField resolves a single (key, path) against rootMsg and returns the
+// fully-typed IndexedField (primitive type, enum flag, or composite message
+// subfields). Shared by ParseIndexedFields (paths relative to the CRD) and
+// ParseContentIndexedFields (paths relative to a content base type).
+func buildIndexedField(key, path, typeOverride string, rootMsg *protogen.Message) IndexedField {
+	parsedGoPaths, field, leafMsg := validateIndex(key, path, rootMsg)
+
+	newIndexedField := IndexedField{Key: key, GoPaths: parsedGoPaths, ProtoPath: path}
+
+	if leafMsg == nil {
+		// primitive type field
+		// If type_override is specified, use the specified type.
+		if typeOverride != "" {
+			newIndexedField.Type = typeOverride
+		} else {
+			switch field.Desc.Kind() {
+			case protoreflect.StringKind:
+				newIndexedField.Type = "VARCHAR(255)"
+			case protoreflect.Int32Kind, protoreflect.Fixed32Kind, protoreflect.Sint32Kind:
+				newIndexedField.Type = "INT"
+			case protoreflect.Int64Kind, protoreflect.Fixed64Kind, protoreflect.Sint64Kind:
+				newIndexedField.Type = "BIGINT"
+			case protoreflect.EnumKind:
+				newIndexedField.Type = "VARCHAR(255)"
+				newIndexedField.Flag |= IndexFlagEnum
+			case protoreflect.BoolKind:
+				newIndexedField.Type = "BOOLEAN"
+			default:
+				logger.Panicf("Invalid index annotation. Unsupported primitive type: %v, key: %v, path: %v",
+					field.Desc.Kind(), key, path)
+			}
+		}
+
+		newIndexedField.Flag |= IndexFlagPrimitive
+	} else {
+		switch leafMsg.Desc.FullName() {
+		case "michelangelo.api.ResourceIdentifier":
+			newIndexedField.Flag |= IndexFlagCompositeKey
+			newIndexedField.SubFields = append(newIndexedField.SubFields,
+				IndexedSubField{Key: buildSubKey(key, "namespace"), GoPath: "Namespace",
+					ProtoPath: buildSubKeyProtoPath(path, "namespace"), Type: "VARCHAR(255)"})
+			newIndexedField.SubFields = append(newIndexedField.SubFields,
+				IndexedSubField{Key: buildSubKey(key, "name"), GoPath: "Name",
+					ProtoPath: buildSubKeyProtoPath(path, "name"), Type: "VARCHAR(255)"})
+		case "michelangelo.api.v2beta1.UserInfo", "michelangelo.api.v2.UserInfo":
+			newIndexedField.SubFields = append(newIndexedField.SubFields,
+				IndexedSubField{Key: buildSubKey(key, "name"), GoPath: "Name",
+					ProtoPath: buildSubKeyProtoPath(path, "name"), Type: "VARCHAR(255)"})
+			newIndexedField.SubFields = append(newIndexedField.SubFields,
+				IndexedSubField{Key: buildSubKey(key, "proxy_user"), GoPath: "ProxyUser",
+					ProtoPath: buildSubKeyProtoPath(path, "proxy_user"), Type: "VARCHAR(255)"})
+		case "google.protobuf.Timestamp":
+			newIndexedField.Type = "DATETIME"
+			newIndexedField.Flag |= IndexFlagPrimitive
+		case "k8s.io.apimachinery.pkg.apis.meta.v1.Time":
+			newIndexedField.Type = "DATETIME"
+			newIndexedField.Flag |= IndexFlagPrimitive
+		default:
+			logger.Panicf("Invalid index annotation. Unsupported message type: %v. key: %v, path: %v",
+				leafMsg.Desc.FullName(), key, path)
+		}
+	}
+
+	return newIndexedField
 }
 
 func validateIndex(key, fullPath string, curMsg *protogen.Message) ([]string, *protogen.Field, *protogen.Message) {

@@ -12,6 +12,7 @@ import (
 	"github.com/michelangelo-ai/michelangelo/go/kubeproto/util"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
@@ -22,7 +23,7 @@ func getIndexName(tableName, key string) string {
 	return tableName + "_" + key
 }
 
-func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Options) []byte {
+func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Options, msgByName map[protoreflect.FullName]*protogen.Message) []byte {
 	var buf bytes.Buffer
 	indexedFields := util.ParseIndexedFields(crdRootMsg, crdOptions)
 	crdName := strings.ToUpper(crdRootMsg.GoIdent.GoName[:1]) + crdRootMsg.GoIdent.GoName[1:]
@@ -82,13 +83,69 @@ func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Optio
 	buf.Write([]byte("\n);"))
 
 	templates.CRDMySQLLabelAnnotationTable.Execute(&buf, typeInfo)
+
+	// Generate content_index sidecar ("*_unmarshalled") tables — one per
+	// content_index annotation, holding the columns extracted from the wrapped
+	// google.protobuf.Any content so the framework can filter on them via JOIN.
+	for _, ci := range util.ParseContentIndexedFields(crdOptions, msgByName) {
+		emitUnmarshalledTable(&buf, crdTableName, ci)
+	}
 	return buf.Bytes()
+}
+
+// emitUnmarshalledTable writes one content_index sidecar table:
+//
+//	CREATE TABLE `<base_type>_<crd>_unmarshalled` (
+//	    `<crd>_uid`  VARCHAR(255) NOT NULL,
+//	    `<key>`      <type>, ...
+//	    PRIMARY KEY (`<crd>_uid`),
+//	    KEY `..._<key>` (`<key>`), ...
+//	);
+func emitUnmarshalledTable(buf *bytes.Buffer, crdTableName string, ci util.ContentIndex) {
+	tableName := utils.ToSnakeCase(ci.BaseTypeShortName) + "_" + crdTableName + "_unmarshalled"
+	uidColumn := crdTableName + "_uid"
+
+	templates.CRDMySQLUnmarshalledTable.Execute(buf, struct {
+		TableName string
+		UIDColumn string
+	}{tableName, uidColumn})
+
+	// Indexed columns (primitive fields directly; composite message fields as
+	// one column per subfield) — same shape as the main table's indexed columns.
+	for _, field := range ci.Fields {
+		if field.Flag&util.IndexFlagPrimitive != 0 {
+			buf.Write([]byte("    `" + field.Key + "`    " + field.Type + ",\n"))
+		} else {
+			for _, subField := range field.SubFields {
+				buf.Write([]byte("    `" + subField.Key + "`    " + subField.Type + ",\n"))
+			}
+		}
+	}
+
+	buf.Write([]byte("    PRIMARY KEY (`" + uidColumn + "`)"))
+	for _, field := range ci.Fields {
+		if field.Flag&util.IndexFlagPrimitive != 0 {
+			buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, field.Key) + "` (`" + field.Key + "`)"))
+		} else {
+			for _, subField := range field.SubFields {
+				buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, subField.Key) + "` (`" + subField.Key + "`)"))
+			}
+		}
+	}
+	buf.Write([]byte("\n);\n"))
 }
 
 func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 	gen, extTypes, err := util.GetPluginAndExtensions(reqData, true)
 	if err != nil {
 		logger.Panic(err)
+	}
+
+	// Index every message across all files (generated + imported) by full name,
+	// so content_index annotations can resolve their base_type to a descriptor.
+	msgByName := make(map[protoreflect.FullName]*protogen.Message)
+	for _, f := range gen.Files {
+		registerMessages(msgByName, f.Messages)
 	}
 
 	for _, f := range gen.Files {
@@ -109,7 +166,7 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 			}
 
 			if options.Bool("has_resource") {
-				buf = generateSQLSchema(msg, options)
+				buf = generateSQLSchema(msg, options, msgByName)
 			}
 		}
 
@@ -120,6 +177,14 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 	}
 
 	return gen.Response()
+}
+
+// registerMessages records each message (and its nested messages) by full name.
+func registerMessages(byName map[protoreflect.FullName]*protogen.Message, msgs []*protogen.Message) {
+	for _, msg := range msgs {
+		byName[msg.Desc.FullName()] = msg
+		registerMessages(byName, msg.Messages)
+	}
 }
 
 func main() {
