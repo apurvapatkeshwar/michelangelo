@@ -81,14 +81,133 @@ CREATE TABLE `test_indexing_annotations`
     PRIMARY KEY (`id`),
     KEY    `test_indexing_annotations_uid` (`obj_uid`)
 );
-CREATE TABLE `sample_message_test_indexing_unmarshalled`
+CREATE TABLE `mini_base`
 (
-    `test_indexing_uid` VARCHAR(255) NOT NULL,
-    `content_string`    VARCHAR(255),
-    `content_int32`    INT,
-    `content_long_string`    VARCHAR(768),
-    PRIMARY KEY (`test_indexing_uid`),
-    KEY    `sample_message_test_indexing_unmarshalled_content_string` (`content_string`),
-    KEY    `sample_message_test_indexing_unmarshalled_content_int32` (`content_int32`),
-    KEY    `sample_message_test_indexing_unmarshalled_content_long_string` (`content_long_string`)
+    `uid`         VARCHAR(255) NOT NULL,
+    `group_ver`   VARCHAR(255) NOT NULL,
+    `namespace`   VARCHAR(255) NOT NULL,
+    `name`        VARCHAR(255) NOT NULL,
+    `res_version` BIGINT UNSIGNED NOT NULL,
+    `create_time` DATETIME     NOT NULL,
+    `update_time` DATETIME,
+    `delete_time` DATETIME,
+    `proto`       MEDIUMBLOB,
+    `json`        JSON,
+    `mini_name`    VARCHAR(255),
+    `mini_ref_namespace`    VARCHAR(255),
+    `mini_ref_name`    VARCHAR(255),
+    PRIMARY KEY   (`uid`),
+    KEY    `mini_base_namespace_name` (`namespace`, `name`),
+    KEY    `mini_base_create_time` (`create_time`),
+    KEY    `mini_base_update_time` (`update_time`),
+    KEY    `mini_base_delete_time` (`delete_time`),
+    KEY    `mini_base_namespace_timestamp` (`namespace`, `delete_time`, `create_time`, `update_time`),
+    KEY    `mini_base_mini_name` (`mini_name`),
+    KEY    `mini_base_mini_ref` (`mini_ref_namespace`, `mini_ref_name`)
+);
+CREATE TABLE `mini_base_labels`
+(
+    `id`      BIGINT       NOT NULL AUTO_INCREMENT,
+    `obj_uid` VARCHAR(255) NOT NULL,
+    `key`     VARCHAR(255) NOT NULL,
+    `value`   VARCHAR(63),
+    PRIMARY KEY (`id`),
+    KEY    `mini_base_labels_uid` (`obj_uid`),
+    KEY    `mini_base_labels_value` (`key`, `value`)
+);
+CREATE TABLE `mini_base_annotations`
+(
+    `id`      BIGINT       NOT NULL AUTO_INCREMENT,
+    `obj_uid` VARCHAR(255) NOT NULL,
+    `key`     VARCHAR(255) NOT NULL,
+    `value`   TEXT,
+    PRIMARY KEY (`id`),
+    KEY    `mini_base_annotations_uid` (`obj_uid`)
+);
+CREATE TABLE `mini_wrapper`
+(
+    `uid`         VARCHAR(255) NOT NULL,
+    `group_ver`   VARCHAR(255) NOT NULL,
+    `namespace`   VARCHAR(255) NOT NULL,
+    `name`        VARCHAR(255) NOT NULL,
+    `res_version` BIGINT UNSIGNED NOT NULL,
+    `create_time` DATETIME     NOT NULL,
+    `update_time` DATETIME,
+    `delete_time` DATETIME,
+    `proto`       MEDIUMBLOB,
+    `json`        JSON,
+    PRIMARY KEY   (`uid`),
+    KEY    `mini_wrapper_namespace_name` (`namespace`, `name`),
+    KEY    `mini_wrapper_create_time` (`create_time`),
+    KEY    `mini_wrapper_update_time` (`update_time`),
+    KEY    `mini_wrapper_delete_time` (`delete_time`),
+    KEY    `mini_wrapper_namespace_timestamp` (`namespace`, `delete_time`, `create_time`, `update_time`)
+);
+CREATE TABLE `mini_wrapper_labels`
+(
+    `id`      BIGINT       NOT NULL AUTO_INCREMENT,
+    `obj_uid` VARCHAR(255) NOT NULL,
+    `key`     VARCHAR(255) NOT NULL,
+    `value`   VARCHAR(63),
+    PRIMARY KEY (`id`),
+    KEY    `mini_wrapper_labels_uid` (`obj_uid`),
+    KEY    `mini_wrapper_labels_value` (`key`, `value`)
+);
+CREATE TABLE `mini_wrapper_annotations`
+(
+    `id`      BIGINT       NOT NULL AUTO_INCREMENT,
+    `obj_uid` VARCHAR(255) NOT NULL,
+    `key`     VARCHAR(255) NOT NULL,
+    `value`   TEXT,
+    PRIMARY KEY (`id`),
+    KEY    `mini_wrapper_annotations_uid` (`obj_uid`)
+);
+CREATE TABLE `mini_base_mini_wrapper_unmarshalled`
+(
+    `mini_wrapper_uid` VARCHAR(255) NOT NULL,
+    `mini_name`    VARCHAR(255),
+    `mini_ref_namespace`    VARCHAR(255),
+    `mini_ref_name`    VARCHAR(255),
+    PRIMARY KEY (`mini_wrapper_uid`),
+    KEY    `mini_base_mini_wrapper_unmarshalled_mini_name` (`mini_name`),
+    KEY    `mini_base_mini_wrapper_unmarshalled_mini_ref_namespace` (`mini_ref_namespace`),
+    KEY    `mini_base_mini_wrapper_unmarshalled_mini_ref_name` (`mini_ref_name`)
+);
+CREATE TABLE `mini_draft`
+(
+    `uid`         VARCHAR(255) NOT NULL,
+    `group_ver`   VARCHAR(255) NOT NULL,
+    `namespace`   VARCHAR(255) NOT NULL,
+    `name`        VARCHAR(255) NOT NULL,
+    `res_version` BIGINT UNSIGNED NOT NULL,
+    `create_time` DATETIME     NOT NULL,
+    `update_time` DATETIME,
+    `delete_time` DATETIME,
+    `proto`       MEDIUMBLOB,
+    `json`        JSON,
+    PRIMARY KEY   (`uid`),
+    KEY    `mini_draft_namespace_name` (`namespace`, `name`),
+    KEY    `mini_draft_create_time` (`create_time`),
+    KEY    `mini_draft_update_time` (`update_time`),
+    KEY    `mini_draft_delete_time` (`delete_time`),
+    KEY    `mini_draft_namespace_timestamp` (`namespace`, `delete_time`, `create_time`, `update_time`)
+);
+CREATE TABLE `mini_draft_labels`
+(
+    `id`      BIGINT       NOT NULL AUTO_INCREMENT,
+    `obj_uid` VARCHAR(255) NOT NULL,
+    `key`     VARCHAR(255) NOT NULL,
+    `value`   VARCHAR(63),
+    PRIMARY KEY (`id`),
+    KEY    `mini_draft_labels_uid` (`obj_uid`),
+    KEY    `mini_draft_labels_value` (`key`, `value`)
+);
+CREATE TABLE `mini_draft_annotations`
+(
+    `id`      BIGINT       NOT NULL AUTO_INCREMENT,
+    `obj_uid` VARCHAR(255) NOT NULL,
+    `key`     VARCHAR(255) NOT NULL,
+    `value`   TEXT,
+    PRIMARY KEY (`id`),
+    KEY    `mini_draft_annotations_uid` (`obj_uid`)
 );

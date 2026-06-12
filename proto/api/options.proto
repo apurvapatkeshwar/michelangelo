@@ -17,12 +17,12 @@ extend google.protobuf.MessageOptions {
   string rename_to = 1060;
   // ignore_unmapped_hub_fields specifies a list of fields in the hub version that are not mapped in this spoke version.
   repeated string ignore_unmapped_hub_fields = 1061;
-  // content_index marks indexes on fields buried inside a google.protobuf.Any
-  // content field of a wrapper CRD (e.g. Revision/Draft wrapping a Pipeline).
-  // The framework can't index through an opaque Any, so each content_index
-  // generates a per-base-type sidecar ("*_unmarshalled") table that the
-  // framework JOINs against for server-side filtering. See ContentIndexDescriptor.
-  repeated ContentIndexDescriptor content_index = 1062;
+  // content_wrapper marks this CRD as a wrapper that stores an arbitrary base
+  // resource inside a google.protobuf.Any content field (e.g. Revision, Draft).
+  // Combined with base types marked `revisioned`, protoc-gen-sql generates a
+  // sidecar "<base>_<wrapper>_unmarshalled" table per (wrapper, revisioned base)
+  // pair. The wrapper does not need to know which base types it can hold.
+  ContentWrapperDescriptor content_wrapper = 1062;
 }
 
 // An annotation that describes an API resource definition
@@ -98,6 +98,15 @@ message ResourceDescriptor {
   // the message type of the same name in the hub version.
   // If the current version is hub version, the generated go code will contain the Hub() function.
   bool conversion = 102;
+
+  // revisioned_in lists the content-wrapper kinds this CRD is snapshotted into
+  // (e.g. "revision", "draft"). A non-empty list marks this CRD as a revisioned
+  // base type. For each listed wrapper kind, protoc-gen-sql generates a sidecar
+  // "<base>_<wrapper>_unmarshalled" table whose columns are inherited from this
+  // message's own michelangelo.api.index annotations. The kind strings match a
+  // wrapper's content_wrapper.kind, so a base type opts into revision and/or
+  // draft explicitly without either side naming the other's message.
+  repeated string revisioned_in = 103;
 }
 
 // An annotation for CRD list message
@@ -167,44 +176,35 @@ message IndexDescriptor {
   string type_override = 3;
 }
 
-// ContentIndexDescriptor describes indexes on fields that live inside a wrapper
-// CRD's google.protobuf.Any content field. A wrapper CRD (e.g. Revision, Draft)
-// stores its base resource as an opaque Any in spec.content, so the framework
-// can't reach owner / branch / type / etc. to index or filter on them.
+// ContentWrapperDescriptor marks a CRD that stores a base resource inside a
+// google.protobuf.Any content field (e.g. Revision, Draft). It only declares
+// *where* the content blob lives; which base types may be stored is determined
+// independently by the base types themselves (via `revisioned`), so the wrapper
+// and the base types never have to name each other.
 //
-// Each ContentIndexDescriptor names the Any content field (content_path) and the
-// concrete message the content unmarshals to (base_type), plus the fields within
-// that base type to index. protoc-gen-sql emits one sidecar table per descriptor,
-// named "<base_type>_<crd>_unmarshalled" (e.g. pipeline_revision_unmarshalled),
-// with a foreign-key column back to the CRD's uid and one column per indexed
-// field. The framework JOINs against this table to serve content-field filters.
+// For every (wrapper, revisioned base type) pair, protoc-gen-sql emits a sidecar
+// table "<base_type>_<crd>_unmarshalled" (e.g. pipeline_revision_unmarshalled)
+// whose columns are inherited from the base type's michelangelo.api.index set.
 //
 // Example:
 //    message Revision {
 //      option (michelangelo.api.resource) = {};
-//      option (michelangelo.api.content_index) = {
-//        content_path: "spec.content",
-//        base_type: "michelangelo.api.v2.Pipeline",
-//        index: { path: "spec.type",          key: "pipeline_type" },
-//        index: { path: "spec.owner.name",    key: "owner" },
-//        index: { path: "spec.commit.branch", key: "branch" },
-//      };
+//      option (michelangelo.api.content_wrapper) = { content_path: "spec.content" };
 //      ...
 //      RevisionSpec spec = 3;  // spec.content is a google.protobuf.Any
 //    }
-message ContentIndexDescriptor {
+message ContentWrapperDescriptor {
   // "content_path" locates the google.protobuf.Any content field on the wrapper
-  // CRD, relative to the top-level CRD object (e.g. "spec.content").
+  // CRD, relative to the top-level CRD object (e.g. "spec.content"). Used by the
+  // write path to decode the wrapped resource; not needed for schema generation.
   string content_path = 1;
 
-  // "base_type" is the fully-qualified proto message name the content unmarshals
-  // to (e.g. "michelangelo.api.v2.Pipeline"). Index paths are resolved against
-  // this message's descriptor.
-  string base_type = 2;
-
-  // "index" lists the indexed fields within base_type. Same schematic as the
-  // top-level index annotation, but each path is relative to base_type.
-  repeated IndexDescriptor index = 3;
+  // "kind" is this wrapper's kind name (e.g. "revision", "draft"). A base type
+  // opts into a wrapper by listing this string in its resource.revisioned_in, so
+  // the wrapper and base type share a vocabulary without naming each other's
+  // message. A sidecar table is generated only for (wrapper, base) pairs where
+  // the base's revisioned_in contains this kind.
+  string kind = 2;
 }
 
 // RelationshipDescriptor describes the relationship between the top level CRD (i.e. the subject CRD) and its resource

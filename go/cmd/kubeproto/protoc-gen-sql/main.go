@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/michelangelo-ai/michelangelo/go/api/utils"
@@ -12,18 +13,34 @@ import (
 	"github.com/michelangelo-ai/michelangelo/go/kubeproto/util"
 
 	"google.golang.org/protobuf/compiler/protogen"
-	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
 var logger = log.New(os.Stderr, "", 0)
 
+// revisionedBaseType is a CRD with a non-empty resource.revisioned_in: a base
+// resource snapshotted into the listed content-wrapper kinds (e.g. "revision",
+// "draft"). Its own michelangelo.api.index annotations are inherited by each
+// matching wrapper's sidecar table, so there is no separate field list to maintain.
+type revisionedBaseType struct {
+	// shortName is the CRD message's Go name (e.g. "Pipeline"), snake-cased into
+	// the sidecar table name.
+	shortName string
+	// wrapperKinds is the set of wrapper kinds this base type opts into (from
+	// resource.revisioned_in). A sidecar is emitted only for wrappers whose
+	// content_wrapper.kind is in this set.
+	wrapperKinds map[string]bool
+	// fields are the base type's indexed fields — the same set its own main table uses.
+	fields []util.IndexedField
+}
+
 func getIndexName(tableName, key string) string {
 	return tableName + "_" + key
 }
 
-func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Options, msgByName map[protoreflect.FullName]*protogen.Message) []byte {
+func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Options, revisionedBaseTypes []revisionedBaseType) []byte {
 	var buf bytes.Buffer
 	indexedFields := util.ParseIndexedFields(crdRootMsg, crdOptions)
 	crdName := strings.ToUpper(crdRootMsg.GoIdent.GoName[:1]) + crdRootMsg.GoIdent.GoName[1:]
@@ -84,35 +101,43 @@ func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Optio
 
 	templates.CRDMySQLLabelAnnotationTable.Execute(&buf, typeInfo)
 
-	// Generate content_index sidecar ("*_unmarshalled") tables — one per
-	// content_index annotation, holding the columns extracted from the wrapped
-	// google.protobuf.Any content so the framework can filter on them via JOIN.
-	for _, ci := range util.ParseContentIndexedFields(crdOptions, msgByName) {
-		emitUnmarshalledTable(&buf, crdTableName, ci)
+	// Content wrappers (marked content_wrapper) get one sidecar
+	// "<base>_<wrapper>_unmarshalled" table per revisioned base type that opted
+	// this wrapper's kind into its revisioned_in. Columns are inherited from the
+	// base type's own index annotations, so the wrapper and base type never have
+	// to name each other — they only share the wrapper-kind string.
+	if crdOptions.Bool("has_content_wrapper") {
+		wrapperKind := crdOptions.String("content_wrapper.kind")
+		for _, base := range revisionedBaseTypes {
+			if base.wrapperKinds[wrapperKind] {
+				emitUnmarshalledTable(&buf, crdTableName, base)
+			}
+		}
 	}
 	return buf.Bytes()
 }
 
-// emitUnmarshalledTable writes one content_index sidecar table:
+// emitUnmarshalledTable writes one content sidecar table for a (wrapper, base)
+// pair, inheriting the base type's indexed columns:
 //
-//	CREATE TABLE `<base_type>_<crd>_unmarshalled` (
-//	    `<crd>_uid`  VARCHAR(255) NOT NULL,
+//	CREATE TABLE `<base>_<wrapper>_unmarshalled` (
+//	    `<wrapper>_uid`  VARCHAR(255) NOT NULL,
 //	    `<key>`      <type>, ...
-//	    PRIMARY KEY (`<crd>_uid`),
+//	    PRIMARY KEY (`<wrapper>_uid`),
 //	    KEY `..._<key>` (`<key>`), ...
 //	);
-func emitUnmarshalledTable(buf *bytes.Buffer, crdTableName string, ci util.ContentIndex) {
-	tableName := utils.ToSnakeCase(ci.BaseTypeShortName) + "_" + crdTableName + "_unmarshalled"
-	uidColumn := crdTableName + "_uid"
+func emitUnmarshalledTable(buf *bytes.Buffer, wrapperTableName string, base revisionedBaseType) {
+	tableName := utils.ToSnakeCase(base.shortName) + "_" + wrapperTableName + "_unmarshalled"
+	uidColumn := wrapperTableName + "_uid"
 
 	templates.CRDMySQLUnmarshalledTable.Execute(buf, struct {
 		TableName string
 		UIDColumn string
 	}{tableName, uidColumn})
 
-	// Indexed columns (primitive fields directly; composite message fields as
-	// one column per subfield) — same shape as the main table's indexed columns.
-	for _, field := range ci.Fields {
+	// Indexed columns (primitive fields directly; composite message fields as one
+	// column per subfield) — same shape as the base type's own main-table columns.
+	for _, field := range base.fields {
 		if field.Flag&util.IndexFlagPrimitive != 0 {
 			buf.Write([]byte("    `" + field.Key + "`    " + field.Type + ",\n"))
 		} else {
@@ -123,7 +148,7 @@ func emitUnmarshalledTable(buf *bytes.Buffer, crdTableName string, ci util.Conte
 	}
 
 	buf.Write([]byte("    PRIMARY KEY (`" + uidColumn + "`)"))
-	for _, field := range ci.Fields {
+	for _, field := range base.fields {
 		if field.Flag&util.IndexFlagPrimitive != 0 {
 			buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, field.Key) + "` (`" + field.Key + "`)"))
 		} else {
@@ -141,11 +166,12 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 		logger.Panic(err)
 	}
 
-	// Index every message across all files (generated + imported) by full name,
-	// so content_index annotations can resolve their base_type to a descriptor.
-	msgByName := make(map[protoreflect.FullName]*protogen.Message)
+	// Collect every revisioned base type across all files (generated + imported),
+	// so each content wrapper can emit a sidecar table per base type inheriting
+	// that base type's own index annotations.
+	var revisionedBaseTypes []revisionedBaseType
 	for _, f := range gen.Files {
-		registerMessages(msgByName, f.Messages)
+		collectRevisionedBaseTypes(&revisionedBaseTypes, extTypes, f.Messages)
 	}
 
 	for _, f := range gen.Files {
@@ -166,7 +192,7 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 			}
 
 			if options.Bool("has_resource") {
-				buf = generateSQLSchema(msg, options, msgByName)
+				buf = append(buf, generateSQLSchema(msg, options, revisionedBaseTypes)...)
 			}
 		}
 
@@ -179,12 +205,38 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 	return gen.Response()
 }
 
-// registerMessages records each message (and its nested messages) by full name.
-func registerMessages(byName map[protoreflect.FullName]*protogen.Message, msgs []*protogen.Message) {
+// collectRevisionedBaseTypes appends every message (recursively) with a non-empty
+// resource.revisioned_in, recording which wrapper kinds it opts into and parsing
+// its index fields so matching wrapper sidecar tables can inherit them.
+func collectRevisionedBaseTypes(out *[]revisionedBaseType, extTypes *protoregistry.Types, msgs []*protogen.Message) {
 	for _, msg := range msgs {
-		byName[msg.Desc.FullName()] = msg
-		registerMessages(byName, msg.Messages)
+		pbOptions := msg.Desc.Options().(*descriptorpb.MessageOptions)
+		options, err := pboptions.ReadOptions(extTypes, pbOptions)
+		if err != nil {
+			logger.Panicf("Failed to parse the options of message %v: %v", msg.GoIdent.GoName, err)
+		}
+		if kinds := readRevisionedIn(options); len(kinds) > 0 {
+			*out = append(*out, revisionedBaseType{
+				shortName:    msg.GoIdent.GoName,
+				wrapperKinds: kinds,
+				fields:       util.ParseIndexedFields(msg, options),
+			})
+		}
+		collectRevisionedBaseTypes(out, extTypes, msg.Messages)
 	}
+}
+
+// readRevisionedIn returns the set of wrapper kinds listed in resource.revisioned_in.
+func readRevisionedIn(options *pboptions.Options) map[string]bool {
+	count := int(options.Int64("resource.len(revisioned_in)"))
+	if count == 0 {
+		return nil
+	}
+	kinds := make(map[string]bool, count)
+	for i := 0; i < count; i++ {
+		kinds[options.String("resource.revisioned_in["+strconv.Itoa(i)+"]")] = true
+	}
+	return kinds
 }
 
 func main() {
