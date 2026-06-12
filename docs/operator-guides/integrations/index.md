@@ -6,6 +6,7 @@ Before configuring any tool below, complete [Experiment Tracking Setup](../exper
 
 | Guide | Description |
 |-------|-------------|
+| [Comet ML](comet.md) | Connect Comet ML for experiment tracking, sliced evaluation, and model management — credentials, network setup, and Comet vs Michelangelo registry comparison |
 | [MLflow](mlflow.md) | Connect a self-hosted or Databricks-managed MLflow Tracking Server — network setup, auth, and MLflow vs Michelangelo registry comparison |
 
 ## Next Steps
