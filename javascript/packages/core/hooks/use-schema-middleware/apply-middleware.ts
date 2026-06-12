@@ -11,11 +11,14 @@ export function applyMiddleware<T extends object>(
   context?: StudioParamsBase,
   options?: MiddlewareOptions
 ): T {
-  const clone = applyScaffold(cloneDeep(record), schema);
+  const base = schema.startEmpty ? ({} as T) : cloneDeep(record);
+  const clone = applyScaffold(base, schema);
 
   if (!schema.operations) return clone;
 
-  const sourceObject = options?.sourceFromObject ?? clone;
+  // When startEmpty, read sources from the original record so operations can
+  // pull field values from it while building a fresh payload.
+  const sourceObject = options?.sourceFromObject ?? (schema.startEmpty ? record : clone);
 
   for (const op of schema.operations) {
     if (op.subTypes && !op.subTypes.includes(get(clone, schema.subTypePath!) as string)) {
@@ -29,9 +32,11 @@ export function applyMiddleware<T extends object>(
 
     const sourceValue: unknown = op.source !== undefined ? get(sourceObject, op.source) : undefined;
 
-    if (!isNil(sourceValue) && typeof op.transformation === 'function') {
-      set(clone, op.destination, op.transformation(sourceValue));
-    } else if (isNil(sourceValue) && 'default' in op) {
+    if (!isNil(sourceValue)) {
+      const transformed =
+        typeof op.transformation === 'function' ? op.transformation(sourceValue) : sourceValue;
+      set(clone, op.destination, transformed);
+    } else if ('default' in op) {
       const defaultVal =
         typeof op.default === 'function'
           ? (op.default as (args: { studio: StudioParamsBase }) => unknown)({ studio: context! })

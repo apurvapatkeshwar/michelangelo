@@ -21,6 +21,13 @@ export type MiddlewareOperation = {
 export type MiddlewareSchema = {
   operations?: MiddlewareOperation[];
   /**
+   * When true, the middleware starts from an empty object rather than a clone
+   * of the record. Source paths still read from the original record. Use for
+   * CREATE mutations where the action record and the mutation payload are
+   * different types.
+   */
+  startEmpty?: boolean;
+  /**
    * YAML string merged into the record as defaults before operations run.
    * Existing data values always win over scaffold values.
    */

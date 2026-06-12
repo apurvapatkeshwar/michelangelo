@@ -115,7 +115,7 @@ describe('useSchemaMiddleware', () => {
     });
   });
 
-  it('does not write destination when source is present but no transformation is defined', () => {
+  it('copies source to destination when no transformation is defined', () => {
     const { result } = renderHook(
       () =>
         useSchemaMiddleware({
@@ -124,7 +124,7 @@ describe('useSchemaMiddleware', () => {
       { wrapper: getRouterWrapper({ location: '/test-project/train/model' }) }
     );
     expect(result.current.applyMiddleware({ spec: { action: 'run' } })).toEqual({
-      spec: { action: 'run' },
+      spec: { action: 'run', result: 'run' },
     });
   });
 

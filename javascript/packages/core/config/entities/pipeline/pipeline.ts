@@ -1,9 +1,11 @@
 import { ActionHierarchy } from '#core/components/actions/types';
-import { CreatePipelineRunForm } from './create-pipeline-run-form';
+import { interpolate } from '#core/interpolation/interpolate';
+import { generateSuffix } from '#core/utils/name-utils';
 import { PIPELINE_DETAIL_CONFIG } from './detail';
 import { PIPELINE_LIST_CONFIG } from './list';
 
 import type { PhaseEntityConfig } from '#core/types/common/studio-types';
+import type { Pipeline } from '#core/config/entities/pipeline/types';
 
 export const PIPELINE_ENTITY_CONFIG: PhaseEntityConfig = {
   id: 'pipelines',
@@ -15,7 +17,29 @@ export const PIPELINE_ENTITY_CONFIG: PhaseEntityConfig = {
     {
       display: { label: 'Run', icon: 'playerPlay' },
       hierarchy: ActionHierarchy.PRIMARY,
-      modal: { type: 'custom', component: CreatePipelineRunForm },
+      operation: {
+        type: 'mutation',
+        mutation: { mutationName: 'CreatePipelineRun' },
+        middleware: {
+          startEmpty: true,
+          operations: [
+            {
+              destination: 'metadata.name',
+              default: () => `run${generateSuffix({ withDate: true })}`,
+            },
+            { destination: 'metadata.namespace', default: ({ studio }) => studio.projectId },
+            { destination: 'spec.actor.name', default: 'mastudio-user' },
+            { destination: 'spec.pipeline.name', source: 'metadata.name' },
+            { destination: 'spec.pipeline.namespace', default: ({ studio }) => studio.projectId },
+          ],
+        },
+      },
+      modal: {
+        type: 'confirm',
+        header: { title: 'Start new pipeline run' },
+        body: interpolate(({ data }) => `Run pipeline **${(data as Pipeline).metadata.name}**?`),
+        button: { label: 'Run' },
+      },
     },
   ],
 };
