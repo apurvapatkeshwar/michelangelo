@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["mysql.go"],
+    srcs = [
+        "content_index_write.go",
+        "mysql.go",
+    ],
     importpath = "github.com/michelangelo-ai/michelangelo/go/storage/mysql",
     visibility = ["//visibility:public"],
     deps = [
@@ -24,7 +27,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["mysql_test.go"],
+    srcs = [
+        "content_index_write_test.go",
+        "mysql_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//proto/api:go_default_library",
@@ -33,5 +39,6 @@ go_test(
         "@com_github_stretchr_testify//require:go_default_library",
         "@io_k8s_apimachinery//pkg/apis/meta/v1:go_default_library",
         "@io_k8s_apimachinery//pkg/runtime:go_default_library",
+        "@io_k8s_apimachinery//pkg/runtime/schema:go_default_library",
     ],
 )

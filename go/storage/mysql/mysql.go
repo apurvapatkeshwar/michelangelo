@@ -66,6 +66,10 @@ type mysqlMetadataStorage struct {
 	// can index the same path (e.g. owner). Each base type gets its own sidecar
 	// table, so a shared path resolves to one candidate per table.
 	contentIndexMaps map[schema.GroupVersionKind]map[string][]contentIndexEntry
+	// contentIndexWriteSpecs drives sidecar population on Upsert: per wrapper GVK,
+	// where its content blob is and which sidecar table each wrapped base kind
+	// populates. Built alongside contentIndexMaps from the same ContentIndex.
+	contentIndexWriteSpecs map[schema.GroupVersionKind]contentIndexWriteSpec
 }
 
 // contentIndexEntry locates a content-indexed field in one base type's sidecar table.
@@ -89,10 +93,11 @@ type contentIndexEntry struct {
 // ListOptionsExt). When provided, it constrains the field names allowed per
 // GVK. See mysqlMetadataStorage.indexPathToKeyMaps for details.
 //
-// contentIndexMaps may be nil (no content-indexed fields). When provided, it
-// routes content-path criteria to sidecar-table subqueries per GVK. See
-// mysqlMetadataStorage.contentIndexMaps.
-func NewMetadataStorage(config Config, scheme *runtime.Scheme, indexPathToKeyMaps map[schema.GroupVersionKind]map[string]string, contentIndexMaps map[schema.GroupVersionKind]map[string][]contentIndexEntry) (storage.MetadataStorage, error) {
+// contentIndex may be nil (no content sidecar indexing). When provided, its
+// ReadMaps route content-path criteria to sidecar subqueries (reads) and its
+// WriteSpecs drive sidecar population on Upsert (writes). Build it with
+// BuildContentIndex.
+func NewMetadataStorage(config Config, scheme *runtime.Scheme, indexPathToKeyMaps map[schema.GroupVersionKind]map[string]string, contentIndex *ContentIndex) (storage.MetadataStorage, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC",
 		config.User, config.Password, config.Host, config.Port, config.Database)
 
@@ -126,12 +131,27 @@ func NewMetadataStorage(config Config, scheme *runtime.Scheme, indexPathToKeyMap
 	}
 
 	return &mysqlMetadataStorage{
-		db:                 db,
-		config:             config,
-		scheme:             scheme,
-		indexPathToKeyMaps: indexPathToKeyMaps,
-		contentIndexMaps:   contentIndexMaps,
+		db:                     db,
+		config:                 config,
+		scheme:                 scheme,
+		indexPathToKeyMaps:     indexPathToKeyMaps,
+		contentIndexMaps:       contentIndexReadMaps(contentIndex),
+		contentIndexWriteSpecs: contentIndexWriteSpecs(contentIndex),
 	}, nil
+}
+
+func contentIndexReadMaps(ci *ContentIndex) map[schema.GroupVersionKind]map[string][]contentIndexEntry {
+	if ci == nil {
+		return nil
+	}
+	return ci.ReadMaps
+}
+
+func contentIndexWriteSpecs(ci *ContentIndex) map[schema.GroupVersionKind]contentIndexWriteSpec {
+	if ci == nil {
+		return nil
+	}
+	return ci.WriteSpecs
 }
 
 // Upsert adds a new object or updates an existing one
@@ -194,6 +214,16 @@ func (m *mysqlMetadataStorage) Upsert(ctx context.Context, object runtime.Object
 	// Upsert annotations
 	err = m.upsertAnnotations(ctx, tx, tableName, string(metaObj.GetUID()), metaObj.GetAnnotations())
 	if err != nil {
+		return err
+	}
+
+	// Populate content sidecar ("*_unmarshalled") tables for wrapper CRDs, in the
+	// same transaction so they can't drift from the main row. No-op for non-wrappers.
+	contentRows, err := m.contentIndexRows(object)
+	if err != nil {
+		return err
+	}
+	if err := m.upsertContentIndex(ctx, tx, contentRows); err != nil {
 		return err
 	}
 
