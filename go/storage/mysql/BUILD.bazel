@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "content_index_build.go",
         "content_index_write.go",
         "mysql.go",
     ],
@@ -14,6 +15,7 @@ go_library(
         "//proto/api:go_default_library",
         "@com_github_go_sql_driver_mysql//:go_default_library",
         "@com_github_gogo_protobuf//proto:go_default_library",
+        "@com_github_gogo_protobuf//protoc-gen-gogo/descriptor:go_default_library",
         "@com_github_gogo_protobuf//types:go_default_library",
         "@io_k8s_apimachinery//pkg/apis/meta/v1:go_default_library",
         "@io_k8s_apimachinery//pkg/labels:go_default_library",
@@ -28,6 +30,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "content_index_build_test.go",
         "content_index_write_test.go",
         "mysql_test.go",
     ],

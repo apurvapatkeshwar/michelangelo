@@ -23,7 +23,7 @@ func provideMetadataStorage(
 		return nil, fmt.Errorf("metadata storage is enabled but mysql config is empty")
 	}
 
-	return mysqlstorage.NewMetadataStorage(mysqlConfig.ToMySQLConfig(), scheme, nil, nil)
+	return mysqlstorage.NewMetadataStorage(mysqlConfig.ToMySQLConfig(), scheme, nil, mysqlstorage.BuildContentIndexFromScheme(scheme))
 }
 
 func provideIngesterConfig(config baseconfig.IngesterConfig) ingester.Config {
