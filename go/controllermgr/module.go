@@ -18,6 +18,7 @@ import (
 
 	"github.com/michelangelo-ai/michelangelo/go/base/blobstore"
 	"github.com/michelangelo-ai/michelangelo/go/base/blobstore/minio"
+	"github.com/michelangelo-ai/michelangelo/go/controllermgr/resilientcache"
 	"github.com/michelangelo-ai/michelangelo/go/kubeproto/metrics"
 )
 
@@ -77,6 +78,7 @@ func create(p params) (result, error) {
 		HealthProbeBindAddress: p.Config.HealthProbeBindAddress,
 		LeaderElection:         p.Config.LeaderElection,
 		LeaderElectionID:       p.Config.LeaderElectionID,
+		NewCache:               resilientcache.NewCacheFunc(),
 	})
 	if err != nil {
 		return result{}, err
