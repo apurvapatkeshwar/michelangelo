@@ -23,7 +23,7 @@ var logger = log.New(os.Stderr, "", 0)
 // revisionedBaseType is a CRD with a non-empty resource.revisioned_in: a base
 // resource snapshotted into the listed content-wrapper kinds (e.g. "revision",
 // "draft"). Its own michelangelo.api.index annotations are inherited by each
-// matching wrapper's sidecar table, so there is no separate field list to maintain.
+// matching wrapper's sidecar table so there is no separate field list to maintain.
 type revisionedBaseType struct {
 	// shortName is the CRD message's Go name (e.g. "Pipeline"), snake-cased into
 	// the sidecar table name.
