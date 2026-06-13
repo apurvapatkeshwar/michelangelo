@@ -78,7 +78,7 @@ func create(p params) (result, error) {
 		HealthProbeBindAddress: p.Config.HealthProbeBindAddress,
 		LeaderElection:         p.Config.LeaderElection,
 		LeaderElectionID:       p.Config.LeaderElectionID,
-		NewCache:               resilientcache.NewCacheFunc(),
+		NewCache:               resilientcache.NewCacheFunc(ctrl.Log.WithName("cache")),
 	})
 	if err != nil {
 		return result{}, err
