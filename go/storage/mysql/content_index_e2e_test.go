@@ -16,12 +16,13 @@ import (
 // content blob and reusing Pipeline's own indexed extractor.
 //
 // NOTE: this deliberately uses BuildContentIndex with explicit specs rather than
-// BuildContentIndexFromScheme. Local testing showed BuildContentIndexFromScheme
-// can't read content_wrapper/revisioned_in off gogo types at runtime — gogo's
-// generated descriptor drops those newly-added custom options (GetExtension
-// returns "missing extension"). So the ContentIndex must be produced by codegen,
-// not runtime reflection. The plan's read/write logic below is independent of
-// that and works on real types.
+// BuildContentIndexFromScheme, so the write-path assertions stay independent of
+// whether gogo's runtime reflection surfaces the resource.revisioned_in field on
+// the existing resource extension. (The earlier blocker was the separate
+// content_wrapper *extension*, which gogo's registry dropped at runtime; that
+// extension has since been removed — wrappers are now derived purely from base
+// types' revisioned_in.) The read/write logic below is independent of how the
+// ContentIndex is produced and works on real types.
 func TestContentIndexWritePathRealTypes(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(v2.GroupVersion, &v2.Pipeline{}, &v2.PipelineList{}, &v2.Revision{}, &v2.RevisionList{})

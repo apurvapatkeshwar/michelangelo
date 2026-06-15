@@ -230,8 +230,9 @@ message MiniBaseList {
 }
 
 // MiniWrapperSpec is the spec of a content wrapper. In real wrappers the content
-// is a google.protobuf.Any at content_path; for schema generation only the
-// content_wrapper marker matters, so a plain field stands in here.
+// is a google.protobuf.Any at spec.content; for schema generation the wrapper
+// needs no annotation at all — the sidecar is driven by the base type's
+// revisioned_in — so a plain field stands in here.
 message MiniWrapperSpec {
   string content = 1;
 }
@@ -241,15 +242,12 @@ message MiniWrapperStatus {
   int32 count = 1;
 }
 
-// MiniWrapper is a content wrapper of kind "mini_wrapper". MiniBase opts into it,
-// so it gets a "mini_base_mini_wrapper_unmarshalled" sidecar inheriting MiniBase's
-// columns.
+// MiniWrapper is an ordinary CRD that happens to be the "mini_wrapper" wrapper.
+// MiniBase opts into "mini_wrapper" via revisioned_in, so a
+// "mini_base_mini_wrapper_unmarshalled" sidecar (inheriting MiniBase's columns)
+// is generated off MiniBase — MiniWrapper itself needs no special annotation.
 message MiniWrapper {
   option (michelangelo.api.resource) = {};
-  option (michelangelo.api.content_wrapper) = {
-    content_path: "spec.content"
-    kind: "mini_wrapper"
-  };
 
   k8s.io.apimachinery.pkg.apis.meta.v1.TypeMeta type_meta = 1;
   k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta metadata = 2;
@@ -275,15 +273,12 @@ message MiniDraftStatus {
   int32 count = 1;
 }
 
-// MiniDraft is a content wrapper of kind "mini_draft". MiniBase does NOT opt into
-// it, so NO "mini_base_mini_draft_unmarshalled" sidecar should be generated —
-// only MiniDraft's own main/label/annotation tables.
+// MiniDraft is an ordinary CRD that happens to be the "mini_draft" wrapper.
+// MiniBase does NOT list "mini_draft" in revisioned_in, so NO
+// "mini_base_mini_draft_unmarshalled" sidecar should be generated — only
+// MiniDraft's own main/label/annotation tables.
 message MiniDraft {
   option (michelangelo.api.resource) = {};
-  option (michelangelo.api.content_wrapper) = {
-    content_path: "spec.content"
-    kind: "mini_draft"
-  };
 
   k8s.io.apimachinery.pkg.apis.meta.v1.TypeMeta type_meta = 1;
   k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta metadata = 2;

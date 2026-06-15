@@ -124,6 +124,17 @@ CREATE TABLE `mini_base_annotations`
     PRIMARY KEY (`id`),
     KEY    `mini_base_annotations_uid` (`obj_uid`)
 );
+CREATE TABLE `mini_base_mini_wrapper_unmarshalled`
+(
+    `mini_wrapper_uid` VARCHAR(255) NOT NULL,
+    `mini_name`    VARCHAR(255),
+    `mini_ref_namespace`    VARCHAR(255),
+    `mini_ref_name`    VARCHAR(255),
+    PRIMARY KEY (`mini_wrapper_uid`),
+    KEY    `mini_base_mini_wrapper_unmarshalled_mini_name` (`mini_name`),
+    KEY    `mini_base_mini_wrapper_unmarshalled_mini_ref_namespace` (`mini_ref_namespace`),
+    KEY    `mini_base_mini_wrapper_unmarshalled_mini_ref_name` (`mini_ref_name`)
+);
 CREATE TABLE `mini_wrapper`
 (
     `uid`         VARCHAR(255) NOT NULL,
@@ -161,17 +172,6 @@ CREATE TABLE `mini_wrapper_annotations`
     `value`   TEXT,
     PRIMARY KEY (`id`),
     KEY    `mini_wrapper_annotations_uid` (`obj_uid`)
-);
-CREATE TABLE `mini_base_mini_wrapper_unmarshalled`
-(
-    `mini_wrapper_uid` VARCHAR(255) NOT NULL,
-    `mini_name`    VARCHAR(255),
-    `mini_ref_namespace`    VARCHAR(255),
-    `mini_ref_name`    VARCHAR(255),
-    PRIMARY KEY (`mini_wrapper_uid`),
-    KEY    `mini_base_mini_wrapper_unmarshalled_mini_name` (`mini_name`),
-    KEY    `mini_base_mini_wrapper_unmarshalled_mini_ref_namespace` (`mini_ref_namespace`),
-    KEY    `mini_base_mini_wrapper_unmarshalled_mini_ref_name` (`mini_ref_name`)
 );
 CREATE TABLE `mini_draft`
 (

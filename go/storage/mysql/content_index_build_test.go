@@ -7,18 +7,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// TestCrossJoinContentSpecs proves the (wrapper x revisioned base) cross-join:
-// a base that opts a wrapper kind in gets a spec (with derived table/uid/paths),
-// and a base that doesn't opt a wrapper kind in is excluded.
+// TestCrossJoinContentSpecs proves the base x revisioned_in expansion: a base
+// type emits one spec per wrapper kind it lists in revisioned_in, with the wrapper
+// GVK resolved by convention and the table/uid/paths derived from the base's own
+// index annotations.
 func TestCrossJoinContentSpecs(t *testing.T) {
 	revisionGVK := schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2beta1", Kind: "Revision"}
-	draftGVK := schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2beta1", Kind: "Draft"}
 	pipelineGVK := schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2beta1", Kind: "Pipeline"}
 
-	wrappers := []contentWrapperInfo{
-		{gvk: revisionGVK, contentPath: "spec.content", kind: "revision"},
-		{gvk: draftGVK, contentPath: "spec.content", kind: "draft"},
-	}
 	bases := []contentBaseInfo{
 		{
 			gvk:          pipelineGVK,
@@ -30,7 +26,7 @@ func TestCrossJoinContentSpecs(t *testing.T) {
 		},
 	}
 
-	specs := crossJoinContentSpecs(wrappers, bases)
+	specs := crossJoinContentSpecs(bases)
 
 	// Pipeline opted into "revision" only -> exactly one spec, for the revision wrapper.
 	require.Len(t, specs, 1)
