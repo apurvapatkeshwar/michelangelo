@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/michelangelo-ai/michelangelo/go/api/utils"
@@ -86,12 +85,15 @@ func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Optio
 
 	// If this CRD is a revisioned base type (resource.revisioned_in non-empty),
 	// emit one sidecar "<base>_<wrapper>_unmarshalled" table per wrapper kind it
-	// opts into. Columns are inherited from this base type's own index annotations.
-	// The wrapper kind resolves to a wrapper CRD by convention (e.g. "revision" ->
-	// keyed on revision_uid; the wrapped resource always lives at spec.content), so
-	// the base type and wrapper never have to name each other.
-	for _, wrapperKind := range readRevisionedIn(crdOptions) {
-		emitUnmarshalledTable(&buf, crdTableName, indexedFields, wrapperKind)
+	// opts into. Unlike the base table, each sidecar's columns come from that
+	// wrapper's own content_index list — resolved against this base message (the
+	// wrapped content) — so wrappers can declare different column subsets and the
+	// base index set is left to drive only the base table. The wrapper kind
+	// resolves to a wrapper CRD by convention (e.g. "revision" -> keyed on
+	// revision_uid; the wrapped resource always lives at spec.content), so the
+	// base type and wrapper never have to name each other.
+	for _, wrapper := range util.ParseContentIndexedFields(crdRootMsg, crdOptions) {
+		emitUnmarshalledTable(&buf, crdTableName, wrapper.Fields, wrapper.Kind)
 	}
 	return buf.Bytes()
 }
@@ -174,20 +176,6 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 	}
 
 	return gen.Response()
-}
-
-// readRevisionedIn returns the wrapper kinds listed in resource.revisioned_in, in
-// declaration order. An empty result means the CRD is not a revisioned base type.
-func readRevisionedIn(options *pboptions.Options) []string {
-	count := int(options.Int64("resource.len(revisioned_in)"))
-	if count == 0 {
-		return nil
-	}
-	kinds := make([]string, 0, count)
-	for i := 0; i < count; i++ {
-		kinds = append(kinds, options.String("resource.revisioned_in["+strconv.Itoa(i)+"]"))
-	}
-	return kinds
 }
 
 func main() {

@@ -9,7 +9,6 @@ import (
 
 	proto "github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/michelangelo-ai/michelangelo/go/storage"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,6 +63,19 @@ type contentIndexWriteSpec struct {
 type contentIndexTarget struct {
 	table  string
 	uidCol string
+	// fields tells the write path which content-relative path to extract from the
+	// decoded base message for each sidecar column, e.g. {"spec.owner.name" ->
+	// "owner"}. Paths are relative to the decoded content (the spec.content prefix
+	// is stripped), so they navigate the base message directly.
+	fields []contentExtractField
+}
+
+type contentExtractField struct {
+	// contentPath is the dotted path within the decoded content message, e.g.
+	// "metadata.name" or "spec.owner.name".
+	contentPath string
+	// column is the sidecar column the extracted value is written to.
+	column string
 }
 
 // BuildContentIndex derives the read maps and write specs from the field specs.
@@ -93,7 +105,14 @@ func BuildContentIndex(specs []ContentIndexFieldSpec) *ContentIndex {
 		if !ok {
 			ws = contentIndexWriteSpec{contentPath: s.ContentPath, targets: map[string]contentIndexTarget{}}
 		}
-		ws.targets[s.BaseKind] = contentIndexTarget{table: s.Table, uidCol: s.UIDCol}
+		target := contentIndexTarget{table: s.Table, uidCol: s.UIDCol}
+		for _, f := range s.Fields {
+			// The write path navigates the decoded content directly, so strip the
+			// wrapper content prefix (e.g. "spec.content.") off the criterion path.
+			contentPath := strings.TrimPrefix(f.Path, s.ContentPath+".")
+			target.fields = append(target.fields, contentExtractField{contentPath: contentPath, column: f.Column})
+		}
+		ws.targets[s.BaseKind] = target
 		ci.WriteSpecs[s.WrapperGVK] = ws
 	}
 	return ci
@@ -153,17 +172,13 @@ func (m *mysqlMetadataStorage) upsertContentIndex(ctx context.Context, tx *sql.T
 	return nil
 }
 
-// indexedPairsGetter is implemented by every generated CRD type; we reuse the
-// base type's own indexed-field extractor to populate the sidecar columns,
-// rather than generating a second extractor.
-type indexedPairsGetter interface {
-	GetIndexedKeyValuePairs() []storage.IndexedField
-}
-
 // contentIndexRows derives the sidecar rows for a wrapper object: it locates the
-// wrapper's content blob, decodes it to the concrete base type, and reuses that
-// base type's GetIndexedKeyValuePairs to get the column values. Returns nil (no
-// error) when the object isn't a configured wrapper, has no content, holds a
+// wrapper's content blob, decodes it to the concrete base type, and extracts each
+// configured content_index column value by navigating the decoded message via
+// reflection. Unlike the base index extractor (GetIndexedKeyValuePairs), this is
+// driven by the per-wrapper content_index paths/keys, so it can project fields
+// the base type doesn't index and use sidecar-specific column names. Returns nil
+// (no error) when the object isn't a configured wrapper, has no content, holds a
 // base kind the wrapper didn't opt into, or whose content can't be decoded —
 // none of those are write failures.
 func (m *mysqlMetadataStorage) contentIndexRows(object runtime.Object) ([]ContentIndexRow, error) {
@@ -193,19 +208,14 @@ func (m *mysqlMetadataStorage) contentIndexRows(object runtime.Object) ([]Conten
 		return nil, nil // this wrapper didn't opt this base kind in
 	}
 
-	getter, ok := baseMsg.(indexedPairsGetter)
-	if !ok {
-		return nil, nil
-	}
 	metaObj, err := getObjectMeta(object)
 	if err != nil {
 		return nil, err
 	}
 
-	pairs := getter.GetIndexedKeyValuePairs()
-	cols := make([]contentIndexColumn, 0, len(pairs))
-	for _, p := range pairs {
-		cols = append(cols, contentIndexColumn{Name: p.Key, Value: p.Value})
+	cols := make([]contentIndexColumn, 0, len(target.fields))
+	for _, f := range target.fields {
+		cols = append(cols, contentIndexColumn{Name: f.column, Value: contentValueAtPath(baseMsg, f.contentPath)})
 	}
 	return []ContentIndexRow{{
 		Table:   target.table,
@@ -213,6 +223,67 @@ func (m *mysqlMetadataStorage) contentIndexRows(object runtime.Object) ([]Conten
 		UID:     string(metaObj.GetUID()),
 		Columns: cols,
 	}}, nil
+}
+
+// contentValueAtPath navigates a dotted content path (e.g. "spec.owner.name")
+// over a decoded base proto message via reflection and returns the leaf value in
+// the form the sidecar column stores. It mirrors the generated
+// GetIndexedKeyValuePairs conventions: enum fields are stored as their String()
+// name, strings/ints/bools as-is. Returns nil (SQL NULL) when any link in the
+// path is a nil pointer or the leaf is absent — never panics on a missing field.
+func contentValueAtPath(msg proto.Message, path string) interface{} {
+	v := reflect.ValueOf(msg)
+	for _, seg := range strings.Split(path, ".") {
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return nil
+			}
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct {
+			return nil
+		}
+		v = v.FieldByName(pascalCase(seg))
+		if !v.IsValid() {
+			return nil
+		}
+	}
+	return contentLeafValue(v)
+}
+
+// contentLeafValue converts a resolved leaf reflect.Value into a SQL-storable
+// scalar. Enums (and any other Stringer) are stored by their String() name to
+// match the generated base extractor and the enum-name filter values the FE
+// sends; primitive kinds are stored directly.
+func contentLeafValue(v reflect.Value) interface{} {
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if v.CanInterface() {
+		if s, ok := v.Interface().(fmt.Stringer); ok {
+			return s.String()
+		}
+	}
+	switch v.Kind() {
+	case reflect.String:
+		return v.String()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint()
+	case reflect.Bool:
+		return v.Bool()
+	case reflect.Float32, reflect.Float64:
+		return v.Float()
+	default:
+		if v.CanInterface() {
+			return v.Interface()
+		}
+		return nil
+	}
 }
 
 // gvkForObject resolves the object's GVK, falling back to the scheme when the

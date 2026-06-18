@@ -8,36 +8,68 @@ import (
 )
 
 // TestCrossJoinContentSpecs proves the base x revisioned_in expansion: a base
-// type emits one spec per wrapper kind it lists in revisioned_in, with the wrapper
-// GVK resolved by convention and the table/uid/paths derived from the base's own
-// index annotations.
+// type emits one spec per wrapper kind it lists in revisioned_in, with the
+// wrapper GVK resolved by convention, the table/uid derived from the base kind
+// and wrapper kind, and — crucially — each spec's columns coming from that
+// wrapper's own content_index list. The two wrappers carry asymmetric subsets to
+// prove per-wrapper column selection (revision indexes status.state; draft does
+// not).
 func TestCrossJoinContentSpecs(t *testing.T) {
 	revisionGVK := schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2beta1", Kind: "Revision"}
+	draftGVK := schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2beta1", Kind: "Draft"}
 	pipelineGVK := schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2beta1", Kind: "Pipeline"}
 
 	bases := []contentBaseInfo{
 		{
-			gvk:          pipelineGVK,
-			revisionedIn: []string{"revision"}, // opts into revision only, NOT draft
-			indexFields: []indexField{
-				{path: "spec.type", key: "pipeline_type"},
-				{path: "status.state", key: "state"},
+			gvk: pipelineGVK,
+			wrappers: []wrapperContentInfo{
+				{
+					kind: "revision",
+					fields: []indexField{
+						{path: "metadata.name", key: "name"},
+						{path: "spec.type", key: "type"},
+						{path: "status.state", key: "state"},
+					},
+				},
+				{
+					kind: "draft",
+					fields: []indexField{
+						{path: "metadata.name", key: "name"},
+						{path: "spec.type", key: "type"},
+						// no state: draft's sidecar is intentionally a subset.
+					},
+				},
 			},
 		},
 	}
 
 	specs := crossJoinContentSpecs(bases)
 
-	// Pipeline opted into "revision" only -> exactly one spec, for the revision wrapper.
-	require.Len(t, specs, 1)
-	got := specs[0]
-	require.Equal(t, revisionGVK, got.WrapperGVK)
-	require.Equal(t, "spec.content", got.ContentPath)
-	require.Equal(t, "Pipeline", got.BaseKind)
-	require.Equal(t, "pipeline_revision_unmarshalled", got.Table)
-	require.Equal(t, "revision_uid", got.UIDCol)
+	// One spec per wrapper entry.
+	require.Len(t, specs, 2)
+
+	byKind := map[schema.GroupVersionKind]ContentIndexFieldSpec{}
+	for _, s := range specs {
+		byKind[s.WrapperGVK] = s
+	}
+
+	rev := byKind[revisionGVK]
+	require.Equal(t, "spec.content", rev.ContentPath)
+	require.Equal(t, "Pipeline", rev.BaseKind)
+	require.Equal(t, "pipeline_revision_unmarshalled", rev.Table)
+	require.Equal(t, "revision_uid", rev.UIDCol)
 	require.Equal(t, []ContentIndexField{
-		{Path: "spec.content.spec.type", Column: "pipeline_type"},
+		{Path: "spec.content.metadata.name", Column: "name"},
+		{Path: "spec.content.spec.type", Column: "type"},
 		{Path: "spec.content.status.state", Column: "state"},
-	}, got.Fields)
+	}, rev.Fields)
+
+	draft := byKind[draftGVK]
+	require.Equal(t, "pipeline_draft_unmarshalled", draft.Table)
+	require.Equal(t, "draft_uid", draft.UIDCol)
+	// Draft carries the asymmetric subset: name + type, but NOT state.
+	require.Equal(t, []ContentIndexField{
+		{Path: "spec.content.metadata.name", Column: "name"},
+		{Path: "spec.content.spec.type", Column: "type"},
+	}, draft.Fields)
 }

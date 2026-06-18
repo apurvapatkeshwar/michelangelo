@@ -18,16 +18,20 @@ import (
 const contentWrapperContentPath = "spec.content"
 
 // BuildContentIndexFromScheme constructs the ContentIndex by reading the
-// resource.revisioned_in / index annotations off every CRD type registered in the
+// resource.revisioned_in annotations off every CRD type registered in the
 // scheme. A base type's revisioned_in lists the wrapper kinds it is snapshotted
-// into (e.g. "revision", "draft"); each kind resolves to a wrapper CRD by
-// convention (same group/version, Kind = TitleCase(kind), keyed on <kind>_uid) and
-// the wrapped resource always lives at spec.content. Returns nil when no content
-// sidecars apply, so the storage stays in plain mode.
+// into (e.g. "revision", "draft"); each entry carries its own content_index list
+// declaring the content fields to project into that wrapper's sidecar. Each kind
+// resolves to a wrapper CRD by convention (same group/version, Kind =
+// TitleCase(kind), keyed on <kind>_uid) and the wrapped resource always lives at
+// spec.content. Returns nil when no content sidecars apply, so the storage stays
+// in plain mode.
 //
 // This is the runtime equivalent of what protoc-gen-sql does at codegen time:
-// the same revisioned_in / index annotations that generate the "*_unmarshalled"
-// tables also tell the storage how to populate (writes) and filter (reads) them.
+// the same revisioned_in[].content_index annotations that generate the
+// "*_unmarshalled" tables also tell the storage how to populate (writes) and
+// filter (reads) them. The base type's own index annotations are NOT consulted
+// here — they drive only the base table.
 func BuildContentIndexFromScheme(scheme *runtime.Scheme) *ContentIndex {
 	if scheme == nil {
 		return nil
@@ -39,17 +43,19 @@ func BuildContentIndexFromScheme(scheme *runtime.Scheme) *ContentIndex {
 		if opts == nil {
 			continue
 		}
-		if res := resourceOf(opts); res != nil && len(res.GetRevisionedIn()) > 0 {
-			var fields []indexField
-			for _, ix := range indexesOf(opts) {
-				fields = append(fields, indexField{path: ix.GetPath(), key: ix.GetKey()})
-			}
-			bases = append(bases, contentBaseInfo{
-				gvk:          gvk,
-				revisionedIn: res.GetRevisionedIn(),
-				indexFields:  fields,
-			})
+		res := resourceOf(opts)
+		if res == nil || len(res.GetRevisionedIn()) == 0 {
+			continue
 		}
+		var wrappers []wrapperContentInfo
+		for _, ri := range res.GetRevisionedIn() {
+			var fields []indexField
+			for _, ci := range ri.GetContentIndex() {
+				fields = append(fields, indexField{path: ci.GetPath(), key: ci.GetKey()})
+			}
+			wrappers = append(wrappers, wrapperContentInfo{kind: ri.GetKind(), fields: fields})
+		}
+		bases = append(bases, contentBaseInfo{gvk: gvk, wrappers: wrappers})
 	}
 
 	specs := crossJoinContentSpecs(bases)
@@ -60,9 +66,16 @@ func BuildContentIndexFromScheme(scheme *runtime.Scheme) *ContentIndex {
 }
 
 type contentBaseInfo struct {
-	gvk          schema.GroupVersionKind
-	revisionedIn []string
-	indexFields  []indexField
+	gvk      schema.GroupVersionKind
+	wrappers []wrapperContentInfo
+}
+
+// wrapperContentInfo is one revisioned_in entry: the wrapper kind plus the
+// content fields (paths relative to the decoded content) projected into its
+// sidecar table.
+type wrapperContentInfo struct {
+	kind   string
+	fields []indexField
 }
 
 type indexField struct {
@@ -70,19 +83,19 @@ type indexField struct {
 	key  string
 }
 
-// crossJoinContentSpecs emits one ContentIndexFieldSpec per (base, wrapper-kind)
-// pair listed in each base type's revisioned_in. The wrapper kind resolves to a
-// wrapper CRD by convention; the table name, uid column, and filterable field
-// paths are derived exactly as the codegen does:
-// table = <baseKind>_<wrapperKind>_unmarshalled, uid col = <wrapperKind>_uid,
-// field path = spec.content.<base index path>, column = base index key. Pure so it
-// is unit-testable without proto descriptors.
+// crossJoinContentSpecs emits one ContentIndexFieldSpec per (base, wrapper)
+// entry. Each wrapper carries its own content_index list, so wrappers can have
+// different column subsets. The wrapper kind resolves to a wrapper CRD by
+// convention; the table name, uid column, and filterable field paths are derived
+// exactly as the codegen does: table = <baseKind>_<wrapperKind>_unmarshalled,
+// uid col = <wrapperKind>_uid, field path = spec.content.<content path>, column =
+// content key. Pure so it is unit-testable without proto descriptors.
 func crossJoinContentSpecs(bases []contentBaseInfo) []ContentIndexFieldSpec {
 	var specs []ContentIndexFieldSpec
 	for _, b := range bases {
-		for _, kind := range b.revisionedIn {
-			fields := make([]ContentIndexField, 0, len(b.indexFields))
-			for _, f := range b.indexFields {
+		for _, w := range b.wrappers {
+			fields := make([]ContentIndexField, 0, len(w.fields))
+			for _, f := range w.fields {
 				fields = append(fields, ContentIndexField{
 					Path:   contentWrapperContentPath + "." + f.path,
 					Column: f.key,
@@ -92,12 +105,12 @@ func crossJoinContentSpecs(bases []contentBaseInfo) []ContentIndexFieldSpec {
 				WrapperGVK: schema.GroupVersionKind{
 					Group:   b.gvk.Group,
 					Version: b.gvk.Version,
-					Kind:    titleKind(kind),
+					Kind:    titleKind(w.kind),
 				},
 				ContentPath: contentWrapperContentPath,
 				BaseKind:    b.gvk.Kind,
-				Table:       utils.ToSnakeCase(b.gvk.Kind) + "_" + kind + "_unmarshalled",
-				UIDCol:      kind + "_uid",
+				Table:       utils.ToSnakeCase(b.gvk.Kind) + "_" + w.kind + "_unmarshalled",
+				UIDCol:      w.kind + "_uid",
 				Fields:      fields,
 			})
 		}
@@ -135,13 +148,4 @@ func resourceOf(opts *gogodesc.MessageOptions) *apipb.ResourceDescriptor {
 	}
 	res, _ := v.(*apipb.ResourceDescriptor)
 	return res
-}
-
-func indexesOf(opts *gogodesc.MessageOptions) []*apipb.IndexDescriptor {
-	v, err := gogoproto.GetExtension(opts, apipb.E_Index)
-	if err != nil {
-		return nil
-	}
-	idx, _ := v.([]*apipb.IndexDescriptor)
-	return idx
 }

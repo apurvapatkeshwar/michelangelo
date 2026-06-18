@@ -200,11 +200,16 @@ message MiniBaseStatus {
 
 // MiniBase is a revisioned base type. It opts into the "mini_wrapper" wrapper
 // kind only (NOT "mini_draft"), so a sidecar is generated for MiniWrapper but
-// not for MiniDraft — proving per-wrapper scoping. Its index annotations are
-// inherited by the generated sidecar.
+// not for MiniDraft — proving per-wrapper scoping. The sidecar's columns are
+// declared by mini_wrapper's own content_index list (paths resolved against this
+// base message), independent of MiniBase's own index annotations.
 message MiniBase {
   option (michelangelo.api.resource) = {
-    revisioned_in: "mini_wrapper"
+    revisioned_in: {
+      kind: "mini_wrapper"
+      content_index: { path: "spec.name", key: "mini_name" }
+      content_index: { path: "spec.ref",  key: "mini_ref" }
+    }
   };
   option (michelangelo.api.index) = {
     path: "spec.name",
