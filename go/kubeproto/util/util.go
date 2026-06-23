@@ -428,6 +428,15 @@ func CollectInt64Fields(structType reflect.Type) []string {
 
 			ft := derefType(field.Type)
 
+			// reflect.Interface (proto oneof) is intentionally not handled in the switch below.
+			// Two reasons:
+			//  1. Standard reflection cannot enumerate the concrete types that implement
+			//     an interface, so the oneof arm structs are unreachable from the field
+			//     type alone without proto-registry knowledge.
+			//  2. encoding/json silently skips interface-typed struct fields, so even if
+			//     the paths were known, the final json.Unmarshal in UnmarshalJSONPB would
+			//     still fail to populate them. A complete fix would require replacing
+			//     json.Unmarshal with jsonpb for the oneof case in the generated template.
 			switch ft.Kind() {
 			case reflect.Int64, reflect.Uint64:
 				// fieldPath is empty only when json:",inline" appears on a scalar at the root —
@@ -468,15 +477,6 @@ func CollectInt64Fields(structType reflect.Type) []string {
 				}
 			case reflect.Struct:
 				walk(ft, fieldPath)
-			// reflect.Interface (proto oneof) is intentionally not traversed.
-			// Two reasons:
-			//  1. Standard reflection cannot enumerate the concrete types that implement
-			//     an interface, so the oneof arm structs are unreachable from the field
-			//     type alone without proto-registry knowledge.
-			//  2. encoding/json silently skips interface-typed struct fields, so even if
-			//     the paths were known, the final json.Unmarshal in UnmarshalJSONPB would
-			//     still fail to populate them. A complete fix would require replacing
-			//     json.Unmarshal with jsonpb for the oneof case in the generated template.
 			}
 		}
 	}
