@@ -349,13 +349,13 @@ func ApplyInlineFields(jsonData []byte, fields []InlineFieldMapping) ([]byte, er
 				original := gjson.Get(jsonStr, match.Path)
 				var obj map[string]interface{}
 				if err = json.Unmarshal([]byte(original.Raw), &obj); err != nil {
-					return nil, err
+					return nil, fmt.Errorf("applying inline field %q at %q: %w", field.FieldToBeTrimmed, match.Path, err)
 				}
 
 				// Apply match.Value to the existing object
 				var patch map[string]interface{}
 				if err = json.Unmarshal([]byte(match.Value.Raw), &patch); err != nil {
-					return nil, err
+					return nil, fmt.Errorf("applying inline field %q at %q: %w", field.FieldToBeTrimmed, match.Path, err)
 				}
 				for k, v := range patch {
 					obj[k] = v // overwrite or add
@@ -364,19 +364,19 @@ func ApplyInlineFields(jsonData []byte, fields []InlineFieldMapping) ([]byte, er
 				// Marshal the updated object
 				updatedBytes, jErr := json.Marshal(obj)
 				if jErr != nil {
-					return nil, jErr
+					return nil, fmt.Errorf("applying inline field %q at %q: %w", field.FieldToBeTrimmed, match.Path, jErr)
 				}
 
 				// Replace the full element at match.Path
 				jsonStr, err = sjson.SetRaw(jsonStr, match.Path, string(updatedBytes))
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("applying inline field %q at %q: %w", field.FieldToBeTrimmed, match.Path, err)
 				}
 			} else {
 				// Normal non-array update
 				jsonStr, err = sjson.SetRaw(jsonStr, match.Path, match.Value.Raw)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("applying inline field %q at %q: %w", field.FieldToBeTrimmed, match.Path, err)
 				}
 			}
 		}
@@ -451,8 +451,32 @@ func CollectInt64Fields(structType reflect.Type) []string {
 				case reflect.Struct:
 					walk(elem, arrayPath)
 				}
+			case reflect.Map:
+				elem := derefType(ft.Elem())
+				mapPath := ""
+				if fieldPath != "" {
+					// "*" is the object-key wildcard — resolvePaths expands it to concrete keys
+					mapPath = joinPath(fieldPath, "*")
+				}
+				switch elem.Kind() {
+				case reflect.Int64, reflect.Uint64:
+					if mapPath != "" {
+						paths = append(paths, mapPath)
+					}
+				case reflect.Struct:
+					walk(elem, mapPath)
+				}
 			case reflect.Struct:
 				walk(ft, fieldPath)
+			// reflect.Interface (proto oneof) is intentionally not traversed.
+			// Two reasons:
+			//  1. Standard reflection cannot enumerate the concrete types that implement
+			//     an interface, so the oneof arm structs are unreachable from the field
+			//     type alone without proto-registry knowledge.
+			//  2. encoding/json silently skips interface-typed struct fields, so even if
+			//     the paths were known, the final json.Unmarshal in UnmarshalJSONPB would
+			//     still fail to populate them. A complete fix would require replacing
+			//     json.Unmarshal with jsonpb for the oneof case in the generated template.
 			}
 		}
 	}
@@ -525,6 +549,20 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 				}
 				return true
 			})
+		case "*":
+			obj := gjson.Get(jsonStr, current)
+			if obj.IsArray() {
+				return
+			}
+			obj.ForEach(func(key, _ gjson.Result) bool {
+				next := joinPath(current, key.String())
+				if rest == "" {
+					*resolved = append(*resolved, next)
+				} else {
+					resolvePaths(rest, next, resolved)
+				}
+				return true
+			})
 		default:
 			next := joinPath(current, token)
 			if rest == "" {
@@ -550,7 +588,7 @@ func UnquoteInt64Fields(jsonData []byte, paths []string) ([]byte, error) {
 			var err error
 			jsonStr, err = sjson.SetRaw(jsonStr, resolvedPath, raw)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("unquoting int64 field %q: %w", resolvedPath, err)
 			}
 		}
 	}
