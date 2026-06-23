@@ -3686,6 +3686,8 @@ func (m *TriggerRunStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
+// UnmarshalJSONPB implements jsonpb.JSONPBUnmarshaler.
+// generated from go/kubeproto/templates/crd.tmpl — edit the template, not this file.
 func (m *TriggerRun) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
 	// Proto3 canonical JSON encodes int64/uint64 as quoted strings;
 	// unquote them before delegating to encoding/json.
@@ -3709,6 +3711,10 @@ func (m *TriggerRun) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
 	type Alias TriggerRun
 	return json.Unmarshal(b, (*Alias)(m))
 }
+
+// MarshalJSONPB is intentionally not implemented. gogo falls back to its default
+// proto JSON marshaler, which correctly encodes int64/uint64 as quoted strings per
+// the proto3 JSON spec — exactly what we want.
 
 func (in *TriggerRun) DeepCopy() *TriggerRun {
 	if in == nil {

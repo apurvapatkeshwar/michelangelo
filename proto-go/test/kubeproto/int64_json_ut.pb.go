@@ -1680,6 +1680,8 @@ func (m *Int64JsonFixtureStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
+// UnmarshalJSONPB implements jsonpb.JSONPBUnmarshaler.
+// generated from go/kubeproto/templates/crd.tmpl — edit the template, not this file.
 func (m *Int64JsonFixture) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
 	// Proto3 canonical JSON encodes int64/uint64 as quoted strings;
 	// unquote them before delegating to encoding/json.
@@ -1703,6 +1705,10 @@ func (m *Int64JsonFixture) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) erro
 	type Alias Int64JsonFixture
 	return json.Unmarshal(b, (*Alias)(m))
 }
+
+// MarshalJSONPB is intentionally not implemented. gogo falls back to its default
+// proto JSON marshaler, which correctly encodes int64/uint64 as quoted strings per
+// the proto3 JSON spec — exactly what we want.
 
 func (in *Int64JsonFixture) DeepCopy() *Int64JsonFixture {
 	if in == nil {
