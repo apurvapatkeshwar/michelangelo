@@ -841,7 +841,7 @@ func buildContentCriterionSQL(op *apipb.CriterionOperation, contentIndexMap map[
 
 	return queryStrs, params, nil
 }
-
+// buildCriterionSQL recursively converts a CriterionOperation into a SQL WHERE fragment.
 // Output is byte-equivalent to the internal buildQueryFromListOptExtV2:
 // - Each fragment is suffixed with the logical operator (" AND" or " OR")
 // - The trailing logical-operator suffix is then trimmed
