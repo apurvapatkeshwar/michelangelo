@@ -278,7 +278,22 @@ message PipelineStatus {
 // - Execution monitoring
 // - Error tracking and debugging
 message Pipeline {
-  option (michelangelo.api.resource) = {};
+  // revisioned_in declares that a Pipeline is snapshotted into a Revision's
+  // google.protobuf.Any content. Each content_index path (resolved against this
+  // Pipeline message) becomes a column in the pipeline_revision_unmarshalled
+  // sidecar table, letting Revisions be filtered by fields buried in their
+  // content blob (e.g. spec.content.status.state, which the base Revision table
+  // cannot see). The same annotations drive the sidecar DDL (protoc-gen-sql),
+  // the generated content extractor (GetContentIndexedKeyValuePairs), and the
+  // read/write routing.
+  option (michelangelo.api.resource) = {
+    revisioned_in: {
+      kind: "revision"
+      content_index: { path: "spec.type",      key: "pipeline_type" }
+      content_index: { path: "spec.owner.name", key: "owner" }
+      content_index: { path: "status.state",    key: "state" }
+    }
+  };
 
   option (michelangelo.api.index) = {
     path: "spec.type",

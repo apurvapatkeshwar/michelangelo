@@ -35,6 +35,7 @@ func TestBuildContentIndex(t *testing.T) {
 	ci := BuildContentIndex([]ContentIndexFieldSpec{
 		{
 			WrapperGVK:  revisionGVK,
+			WrapperKind: "revision",
 			ContentPath: "spec.content",
 			BaseKind:    "Pipeline",
 			Table:       "pipeline_revision_unmarshalled",
@@ -57,19 +58,17 @@ func TestBuildContentIndex(t *testing.T) {
 		readMap["spec.content.spec.owner.name"],
 	)
 
-	// Write spec: the content path and the per-base-kind target table, including
-	// the per-column extract paths (the spec.content prefix stripped) the write
-	// path navigates over the decoded base message.
+	// Write spec: the content path, the raw wrapper kind (which keys the base
+	// type's generated content extractor), and the per-base-kind target table. The
+	// write path gets column values from the generated extractor, so the target
+	// only needs table + uid column.
 	writeSpec := ci.WriteSpecs[revisionGVK]
 	require.Equal(t, "spec.content", writeSpec.contentPath)
+	require.Equal(t, "revision", writeSpec.wrapperKind)
 	require.Equal(t,
 		contentIndexTarget{
 			table:  "pipeline_revision_unmarshalled",
 			uidCol: "revision_uid",
-			fields: []contentExtractField{
-				{contentPath: "spec.type", column: "pipeline_type"},
-				{contentPath: "spec.owner.name", column: "owner"},
-			},
 		},
 		writeSpec.targets["Pipeline"],
 	)

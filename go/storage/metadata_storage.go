@@ -107,6 +107,18 @@ type IndexedField struct {
 	Value interface{}
 }
 
+// ContentIndexable is implemented by revisioned base types (those declaring
+// resource.revisioned_in) via codegen. It returns, per wrapper kind (e.g.
+// "revision"), the content index columns to populate in that wrapper's sidecar
+// table. The write path decodes a wrapper's content Any into the concrete base
+// type and calls this to extract sidecar values — replacing runtime reflection
+// so the extraction shares the exact conventions of GetIndexedKeyValuePairs.
+type ContentIndexable interface {
+	// GetContentIndexedKeyValuePairs returns, keyed by wrapper kind, the indexed
+	// content fields (column name -> value) for this object's sidecar tables.
+	GetContentIndexedKeyValuePairs() map[string][]IndexedField
+}
+
 // ObjectWithBlobFields defines a list of functions that an API object may implement to allow handling of blob fields.
 type ObjectWithBlobFields interface {
 	// HasBlobFields returns whether the CRD kind has any blob fields

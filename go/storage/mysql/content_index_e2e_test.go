@@ -12,26 +12,26 @@ import (
 
 // TestContentIndexWritePathRealTypes proves the content-index write-path glue
 // against the REAL v2 Pipeline/Revision types (no database): given a ContentIndex
-// (as the codegen would emit), deriving a Revision's sidecar row by decoding its
-// content blob and reusing Pipeline's own indexed extractor.
+// (as BuildContentIndexFromScheme would produce), it derives a Revision's sidecar
+// row by decoding its content blob and calling Pipeline's generated content
+// extractor (GetContentIndexedKeyValuePairs).
 //
 // NOTE: this deliberately uses BuildContentIndex with explicit specs rather than
 // BuildContentIndexFromScheme, so the write-path assertions stay independent of
 // whether gogo's runtime reflection surfaces the resource.revisioned_in field on
-// the existing resource extension. (The earlier blocker was the separate
-// content_wrapper *extension*, which gogo's registry dropped at runtime; that
-// extension has since been removed — wrappers are now derived purely from base
-// types' revisioned_in.) The read/write logic below is independent of how the
-// ContentIndex is produced and works on real types.
+// the resource extension. The column VALUES, however, come from the codegen
+// extractor on the real v2.Pipeline (which implements storage.ContentIndexable
+// once pipeline.proto declares revisioned_in and proto-go is regenerated).
 func TestContentIndexWritePathRealTypes(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(v2.GroupVersion, &v2.Pipeline{}, &v2.PipelineList{}, &v2.Revision{}, &v2.RevisionList{})
 	revisionGVK := v2.GroupVersion.WithKind("Revision")
 
-	// The ContentIndex as codegen would emit it. The real v2 Pipeline currently
-	// indexes only owner + pipeline_type, so those are the sidecar columns.
+	// The ContentIndex as codegen would emit it, matching pipeline.proto's
+	// revisioned_in: pipeline_type, owner, and the content-only state field.
 	ci := BuildContentIndex([]ContentIndexFieldSpec{{
 		WrapperGVK:  revisionGVK,
+		WrapperKind: "revision",
 		ContentPath: "spec.content",
 		BaseKind:    "Pipeline",
 		Table:       "pipeline_revision_unmarshalled",
@@ -39,6 +39,7 @@ func TestContentIndexWritePathRealTypes(t *testing.T) {
 		Fields: []ContentIndexField{
 			{Path: "spec.content.spec.type", Column: "pipeline_type"},
 			{Path: "spec.content.spec.owner.name", Column: "owner"},
+			{Path: "spec.content.status.state", Column: "state"},
 		},
 	}})
 

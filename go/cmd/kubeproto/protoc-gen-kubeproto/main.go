@@ -304,6 +304,7 @@ func updateGoFile(gofile *plugingo.CodeGeneratorResponse_File, protofile *protog
 						genCRD(&crdFunctionsBuf, fileName, typeName, &protoMsg.Comments, options)
 						if options.Bool("has_resource") {
 							genCRDIndexedFields(typeName, protoMsg, &crdFunctionsBuf, options, gInfo)
+							genCRDContentIndexedFields(typeName, protoMsg, &crdFunctionsBuf, options)
 							genImmutability(typeName, &crdFunctionsBuf, options)
 							genCRDObject(typeName, gInfo, &crdFunctionsBuf)
 							genCRDBlobFields(typeName, protoMsg, &crdFunctionsBuf, extTypes)
@@ -373,6 +374,35 @@ func genCRDIndexedFields(crdName string, crdRootMsg *protogen.Message, crdBuf *b
 	}{crdName}
 	templates.CRDGetIndexedFieldsHeader.Execute(crdBuf, typeInfo)
 
+	emitIndexedFieldExtraction(crdBuf, indexedFields)
+	crdBuf.Write([]byte("\treturn indexedFields\n}\n\n"))
+
+	// Generate IndexesPathToKeyMap for this gvk
+	typeInfo2 := struct {
+		Group   string
+		Version string
+		Kind    string
+	}{groupInfo.Name, groupInfo.Version, crdName}
+	templates.CRDIndexesPathToKeyMapHeader.Execute(crdBuf, typeInfo2)
+
+	for _, field := range indexedFields {
+		if field.HasFlag(util.IndexFlagPrimitive) {
+			crdBuf.Write([]byte("\tIndexesPathToKeyMap[gvk][\"" + field.ProtoPath + "\"] = \"" + field.Key + "\"\n"))
+		} else {
+			for _, subField := range field.SubFields {
+				crdBuf.Write([]byte("\tIndexesPathToKeyMap[gvk][\"" + subField.ProtoPath + "\"] = \"" + subField.Key + "\"\n"))
+			}
+		}
+	}
+
+	crdBuf.Write([]byte("}\n\n"))
+}
+
+// emitIndexedFieldExtraction writes the per-field extraction statements that
+// populate a local `indexedFields []storage.IndexedField` slice from `m`. It is
+// shared by GetIndexedKeyValuePairs (base table) and GetContentIndexedKeyValuePairs
+// (content sidecars) so enum/composite/nil-check conventions live in one place.
+func emitIndexedFieldExtraction(crdBuf *bytes.Buffer, indexedFields []util.IndexedField) {
 	declareVar := false
 	for _, field := range indexedFields {
 		// generate clause that check the message path
@@ -434,27 +464,35 @@ func genCRDIndexedFields(crdName string, crdRootMsg *protogen.Message, crdBuf *b
 			crdBuf.Write([]byte("\t}\n\n"))
 		}
 	}
-	crdBuf.Write([]byte("\treturn indexedFields\n}\n\n"))
+}
 
-	// Generate IndexesPathToKeyMap for this gvk
-	typeInfo2 := struct {
-		Group   string
-		Version string
-		Kind    string
-	}{groupInfo.Name, groupInfo.Version, crdName}
-	templates.CRDIndexesPathToKeyMapHeader.Execute(crdBuf, typeInfo2)
-
-	for _, field := range indexedFields {
-		if field.HasFlag(util.IndexFlagPrimitive) {
-			crdBuf.Write([]byte("\tIndexesPathToKeyMap[gvk][\"" + field.ProtoPath + "\"] = \"" + field.Key + "\"\n"))
-		} else {
-			for _, subField := range field.SubFields {
-				crdBuf.Write([]byte("\tIndexesPathToKeyMap[gvk][\"" + subField.ProtoPath + "\"] = \"" + subField.Key + "\"\n"))
-			}
-		}
+// genCRDContentIndexedFields generates GetContentIndexedKeyValuePairs for a
+// revisioned base type (one declaring resource.revisioned_in). The method returns,
+// per wrapper kind, the content sidecar columns extracted from this message — the
+// codegen replacement for the write path's former runtime reflection. Generated
+// only when the type declares content_index entries, so only those types implement
+// storage.ContentIndexable.
+func genCRDContentIndexedFields(crdName string, crdRootMsg *protogen.Message, crdBuf *bytes.Buffer,
+	crdOptions *pboptions.Options) {
+	wrappers := util.ParseContentIndexedFields(crdRootMsg, crdOptions)
+	if len(wrappers) == 0 {
+		return
 	}
 
-	crdBuf.Write([]byte("}\n\n"))
+	typeInfo := struct {
+		Name string
+	}{crdName}
+	templates.CRDGetContentIndexedFieldsHeader.Execute(crdBuf, typeInfo)
+
+	for _, wrapper := range wrappers {
+		crdBuf.Write([]byte("\t{\n"))
+		crdBuf.Write([]byte("\tvar indexedFields []storage.IndexedField\n"))
+		emitIndexedFieldExtraction(crdBuf, wrapper.Fields)
+		crdBuf.Write([]byte("\tresult[\"" + wrapper.Kind + "\"] = indexedFields\n"))
+		crdBuf.Write([]byte("\t}\n\n"))
+	}
+
+	crdBuf.Write([]byte("\treturn result\n}\n\n"))
 }
 
 func findBlobFields(curMsg *protogen.Message, pathPrefix string, blobFields *[]string,

@@ -77,6 +77,15 @@ func (m *{{.Name}}) GetIndexedKeyValuePairs() ([]storage.IndexedField){
 	var indexedFields []storage.IndexedField
 `))
 
+// CRDGetContentIndexedFieldsHeader is a template for the
+// GetContentIndexedKeyValuePairs() function signature. It is generated only for
+// revisioned base types (those with resource.revisioned_in entries) and returns
+// the per-wrapper-kind content index columns, mirroring GetIndexedKeyValuePairs.
+var CRDGetContentIndexedFieldsHeader = template.Must(template.New("crdGetContentIndexedFieldsHeader").Parse(`
+func (m *{{.Name}}) GetContentIndexedKeyValuePairs() map[string][]storage.IndexedField {
+	result := make(map[string][]storage.IndexedField)
+`))
+
 // CRDIndexesPathToKeyMapHeader is a template for generating CRDIndexesPathToKeyMap for a CRD.
 var CRDIndexesPathToKeyMapHeader = template.Must(template.New("crdIndexesPathToKeyMapHeader").Parse(`
 func init() {

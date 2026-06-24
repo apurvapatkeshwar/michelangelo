@@ -55,6 +55,7 @@ func TestCrossJoinContentSpecs(t *testing.T) {
 
 	rev := byKind[revisionGVK]
 	require.Equal(t, "spec.content", rev.ContentPath)
+	require.Equal(t, "revision", rev.WrapperKind)
 	require.Equal(t, "Pipeline", rev.BaseKind)
 	require.Equal(t, "pipeline_revision_unmarshalled", rev.Table)
 	require.Equal(t, "revision_uid", rev.UIDCol)
@@ -65,6 +66,7 @@ func TestCrossJoinContentSpecs(t *testing.T) {
 	}, rev.Fields)
 
 	draft := byKind[draftGVK]
+	require.Equal(t, "draft", draft.WrapperKind)
 	require.Equal(t, "pipeline_draft_unmarshalled", draft.Table)
 	require.Equal(t, "draft_uid", draft.UIDCol)
 	// Draft carries the asymmetric subset: name + type, but NOT state.

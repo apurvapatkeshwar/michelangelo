@@ -107,6 +107,7 @@ func crossJoinContentSpecs(bases []contentBaseInfo) []ContentIndexFieldSpec {
 					Version: b.gvk.Version,
 					Kind:    titleKind(w.kind),
 				},
+				WrapperKind: w.kind,
 				ContentPath: contentWrapperContentPath,
 				BaseKind:    b.gvk.Kind,
 				Table:       utils.ToSnakeCase(b.gvk.Kind) + "_" + w.kind + "_unmarshalled",
