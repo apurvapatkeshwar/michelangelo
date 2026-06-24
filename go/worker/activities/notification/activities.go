@@ -23,6 +23,7 @@ import (
 	"errors"
 
 	"github.com/cadence-workflow/starlark-worker/activity"
+	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
@@ -36,8 +37,11 @@ const (
 type SendMessageToSlackActivityRequest struct {
 	// Channel is the Slack channel or user to send the message to.
 	Channel string `json:"channel"`
-	// Text is the message content.
+	// Text is the message content (used as fallback when Blocks is provided).
 	Text string `json:"text"`
+	// Blocks is an optional list of Slack Block Kit blocks for rich formatting.
+	// When provided, Text is used as the notification fallback.
+	Blocks []slack.Block `json:"blocks,omitempty"`
 }
 
 // SendMessageToEmailActivityRequest holds the parameters for an email notification.
@@ -70,14 +74,19 @@ type SendMessageToEmailActivityRequest struct {
 // directly is a last-resort alternative for operators not using fx — integrate
 // a real transport (Slack API, etc.) before relying on Slack notifications in
 // production.
+//
+// When Blocks is provided, the Slack API will render the Block Kit UI and use
+// Text as the notification fallback.
 func SendMessageToSlackActivity(ctx context.Context, req *SendMessageToSlackActivityRequest) error {
 	if req == nil {
 		return errors.New("SendMessageToSlackActivityRequest cannot be nil")
 	}
 	if logger := activity.GetLogger(ctx); logger != nil {
+		blockCount := len(req.Blocks)
 		logger.Warn("SendMessageToSlackActivity called (no-op: no transport configured)",
 			zap.String("channel", req.Channel),
-			zap.String("text", req.Text))
+			zap.String("text", req.Text),
+			zap.Int("blocks", blockCount))
 	}
 	return nil
 }
