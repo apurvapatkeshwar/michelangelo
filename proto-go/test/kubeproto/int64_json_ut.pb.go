@@ -1680,35 +1680,17 @@ func (m *Int64JsonFixtureStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
-// UnmarshalJSONPB implements jsonpb.JSONPBUnmarshaler.
-// generated from go/kubeproto/templates/crd.tmpl — edit the template, not this file.
-func (m *Int64JsonFixture) UnmarshalJSONPB(_ *jsonpb.Unmarshaler, b []byte) error {
-	// Proto3 canonical JSON encodes int64/uint64 as quoted strings;
-	// unquote them before delegating to encoding/json.
-	msgType := reflect.TypeOf(m)
-	b, err := util.UnquoteInt64Fields(b, util.CollectInt64Fields(msgType))
-	if err != nil {
-		return err
+func (m *Int64JsonFixture) UnmarshalJSON(b []byte) error {
+	err := (&jsonpb.Unmarshaler{
+	  AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+	  AnyResolver: &util.GenericResolver{},
+	}).Unmarshal(bytes.NewReader(b), m)
+	if err == nil {
+	    return nil
 	}
-	// Apply inline field flattening (TypeMeta is tagged ",inline").
-	visited := make(map[reflect.Type]bool)
-	var inlinePaths []util.InlineFieldMapping
-	util.RemoveInlineFields(msgType, "", visited, &inlinePaths)
-	if len(inlinePaths) > 0 {
-		b, err = util.ApplyInlineFields(b, inlinePaths)
-		if err != nil {
-			return err
-		}
-	}
-	// Alias strips UnmarshalJSONPB from the method set so encoding/json
-	// processes fields directly without re-entering this function.
 	type Alias Int64JsonFixture
 	return json.Unmarshal(b, (*Alias)(m))
 }
-
-// MarshalJSONPB is intentionally not implemented. gogo falls back to its default
-// proto JSON marshaler, which correctly encodes int64/uint64 as quoted strings per
-// the proto3 JSON spec — exactly what we want.
 
 func (in *Int64JsonFixture) DeepCopy() *Int64JsonFixture {
 	if in == nil {
