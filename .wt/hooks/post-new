@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# wt post-new hook — called after each worktree is created or reclaimed.
+# Args: <worktree_path> <repo_root>
+#
+# Wires up git hook forwarding for this worktree slot.
+#
+# Problem: Uber's githooks-middleware shim resolves local hooks via:
+#   $TOP_LEVEL/.git/hooks/<hook>
+# In a git worktree, $TOP_LEVEL/.git is a FILE (not a directory), so this
+# path never exists and the shim silently skips local hooks entirely.
+# pre-commit, prettier, ruff — none of them fire in worktrees.
+#
+# Fix: install a per-worktree core.hooksPath pointing to a shim directory
+# whose scripts forward to the common hooks dir via git rev-parse --git-common-dir.
+# The shim lives in the gitdir (.git/worktrees/<name>/hooks-shim/) so it
+# survives wt done / reclaim without needing to be recreated.
+#
+# Upstream bug: code.uber.internal/uber-code/engsec-githooks-middleware
+# File: hooks/pre-commit — replace --show-toplevel with --git-common-dir.
+
+slot_path=$1
+
+# Enable per-worktree config so --worktree scoped git config works.
+# This writes to the shared .git/config (repo-local, one-time).
+git -C "$slot_path" config extensions.worktreeConfig true
+
+# Absolute path to this slot's gitdir (.git/worktrees/<name>)
+git_dir=$(git -C "$slot_path" rev-parse --absolute-git-dir)
+
+# Create shim directory inside the gitdir — survives wt done / reclaim
+shim_dir="$git_dir/hooks-shim"
+mkdir -p "$shim_dir"
+
+# Generic forwarder script — resolves the real hook from the common git dir
+forwarder='#!/usr/bin/env bash
+# Resolve the system core.hooksPath (global/system config, excluding worktree-local).
+# This is what git would use without our per-worktree override.
+SYSTEM_HOOKS=$(git config --system core.hooksPath 2>/dev/null || true)
+GLOBAL_HOOKS=$(git config --global core.hooksPath 2>/dev/null || true)
+UPSTREAM_HOOKS=${SYSTEM_HOOKS:-$GLOBAL_HOOKS}
+
+HOOK_NAME=$(basename "$0")
+EXIT=0
+
+# Run local hook from common git dir (fixes the worktree path resolution bug)
+COMMON_DIR=$(git rev-parse --git-common-dir)
+REAL="$COMMON_DIR/hooks/$HOOK_NAME"
+if [ -x "$REAL" ]; then
+  "$REAL" "$@"
+  EXIT=$?
+fi
+
+# Also run the upstream system/global hook if it exists and differs from us
+if [ -n "$UPSTREAM_HOOKS" ] && [ -x "$UPSTREAM_HOOKS/$HOOK_NAME" ]; then
+  "$UPSTREAM_HOOKS/$HOOK_NAME" "$@" || EXIT=$?
+fi
+
+exit $EXIT'
+
+for hook in \
+  applypatch-msg commit-msg fsmonitor-watchman \
+  post-applypatch post-checkout post-commit post-merge post-rewrite \
+  pre-applypatch pre-auto-gc pre-commit pre-merge-commit pre-push pre-rebase \
+  prepare-commit-msg push-to-checkout update; do
+  printf '%s\n' "$forwarder" > "$shim_dir/$hook"
+  chmod +x "$shim_dir/$hook"
+done
+
+# Point this worktree's core.hooksPath to the shim (absolute, worktree-scoped)
+git -C "$slot_path" config --worktree core.hooksPath "$shim_dir"
+
+printf 'wired hook forwarding → %s\n' "$shim_dir"
