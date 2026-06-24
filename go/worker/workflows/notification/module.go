@@ -61,6 +61,10 @@ func provideDefaultSinks(config ...SinkConfig) []Sink {
 // in-flight executions dispatched by a pre-upgrade controllermgr can drain
 // without hanging. Remove the alias registration after all operators have rolled
 // past this release.
+//
+// Note: Notification activities are registered separately in
+// go/worker/activities/notification/module.go to allow operators to inject
+// custom transport implementations via FX.
 func register(wf *Workflow, workers []worker.Worker) {
 	for _, w := range workers {
 		w.RegisterWorkflow(wf.SendPipelineRunNotification, types.PipelineRunNotificationWorkflowName)

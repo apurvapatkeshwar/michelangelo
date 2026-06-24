@@ -80,7 +80,7 @@ func (s *EmailSink) Notify(ctx workflow.Context, _ *zap.Logger, notif *v2pb.Noti
 	}
 	return workflow.ExecuteActivity(
 		workflow.WithActivityOptions(ctx, workflowActivityOpts),
-		notificationActivities.SendMessageToEmailActivity,
+		"SendMessageToEmailActivity",
 		req).Get(ctx, nil)
 }
 
@@ -120,7 +120,7 @@ func (s *SlackSink) Notify(ctx workflow.Context, logger *zap.Logger, notif *v2pb
 	for _, channel := range notif.SlackDestinations {
 		err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, workflowActivityOpts),
-			notificationActivities.SendMessageToSlackActivity,
+			"SendMessageToSlackActivity",
 			&notificationActivities.SendMessageToSlackActivityRequest{
 				Channel: channel,
 				Text:    text,
