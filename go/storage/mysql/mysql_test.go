@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"strings"
 	"testing"
 
 	gogotypes "github.com/gogo/protobuf/types"
@@ -412,4 +413,165 @@ func TestExtractMatchValue_EmptyStringWrapperFallsThrough(t *testing.T) {
 	v, err := extractMatchValue(any)
 	require.NoError(t, err)
 	require.Equal(t, "", v)
+}
+
+func TestCriterionHasLike(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		require.False(t, criterionHasLike(nil))
+	})
+	t.Run("no_like", func(t *testing.T) {
+		op := &apipb.CriterionOperation{
+			Criterion: []*apipb.Criterion{
+				{FieldName: "pipeline_run.state", Operator: apipb.CRITERION_OPERATOR_EQUAL},
+				{FieldName: "pipeline_run.pipeline_type", Operator: apipb.CRITERION_OPERATOR_IN},
+			},
+		}
+		require.False(t, criterionHasLike(op))
+	})
+	t.Run("top_level_like", func(t *testing.T) {
+		op := &apipb.CriterionOperation{
+			Criterion: []*apipb.Criterion{
+				{FieldName: "pipeline_run.name", Operator: apipb.CRITERION_OPERATOR_LIKE},
+			},
+		}
+		require.True(t, criterionHasLike(op))
+	})
+	t.Run("nested_like_in_sub_operation", func(t *testing.T) {
+		op := &apipb.CriterionOperation{
+			Criterion: []*apipb.Criterion{
+				{FieldName: "pipeline_run.pipeline_type", Operator: apipb.CRITERION_OPERATOR_IN},
+			},
+			SubOperations: []*apipb.CriterionOperation{
+				{
+					Criterion: []*apipb.Criterion{
+						{FieldName: "pipeline_run.name", Operator: apipb.CRITERION_OPERATOR_LIKE},
+					},
+				},
+			},
+		}
+		require.True(t, criterionHasLike(op))
+	})
+}
+
+// textSearchOptions returns a representative PipelineRun text-search request:
+// a pipeline_type IN filter AND-ed with an OR of a name LIKE and a label LIKE
+// (the labels subquery is the branch the deferred join must preserve).
+func textSearchOptions() *apipb.ListOptionsExt {
+	return &apipb.ListOptionsExt{
+		Pagination: &apipb.PaginationSpec{Limit: 100},
+		OrderBy: []*apipb.OrderBy{
+			{Field: "pipeline_run.metadata.creation_timestamp", Dir: apipb.SORT_ORDER_DESC},
+		},
+		Operation: &apipb.CriterionOperation{
+			LogicalOperator: apipb.LOGICAL_OPERATOR_AND,
+			Criterion: []*apipb.Criterion{
+				{FieldName: "pipeline_run.pipeline_type", Operator: apipb.CRITERION_OPERATOR_IN, MatchValue: mustStr("A,B")},
+			},
+			SubOperations: []*apipb.CriterionOperation{
+				{
+					LogicalOperator: apipb.LOGICAL_OPERATOR_OR,
+					Criterion: []*apipb.Criterion{
+						{FieldName: "pipeline_run.name", Operator: apipb.CRITERION_OPERATOR_LIKE, MatchValue: mustStr("agg")},
+						{FieldName: "pipeline_run.label.michelangelo/parameter-id", Operator: apipb.CRITERION_OPERATOR_LIKE, MatchValue: mustStr("agg")},
+					},
+				},
+			},
+		},
+	}
+}
+
+func mustStr(s string) *gogotypes.Any {
+	any, err := gogotypes.MarshalAny(&gogotypes.StringValue{Value: s})
+	if err != nil {
+		panic(err)
+	}
+	return any
+}
+
+func TestBuildListQuery_DeferredJoin(t *testing.T) {
+	pipelineRun := &metav1.TypeMeta{Kind: "PipelineRun", APIVersion: "michelangelo.uber.com/v2beta1"}
+
+	t.Run("rewrites_pipeline_run_like_search", func(t *testing.T) {
+		on := &mysqlMetadataStorage{config: Config{DeferredJoinPipelineRunTextSearch: true}}
+		off := &mysqlMetadataStorage{config: Config{DeferredJoinPipelineRunTextSearch: false}}
+
+		gotSQL, gotArgs, limit, offset, err := on.buildListQuery(pipelineRun, "deepeta", nil, textSearchOptions())
+		require.NoError(t, err)
+		require.Equal(t, int64(100), limit)
+		require.Equal(t, int64(0), offset)
+
+		// Outer wrapper joins back to fetch the wide columns for the final page.
+		require.True(t, strings.HasPrefix(gotSQL,
+			"SELECT pr.`uid`, pr.`group_ver`, pr.`namespace`, pr.`name`, pr.`res_version`, "+
+				"pr.`create_time`, pr.`update_time`, pr.`proto` FROM `pipeline_run` pr INNER JOIN ("), gotSQL)
+		require.Contains(t, gotSQL, "INNER JOIN (SELECT `uid` FROM `pipeline_run` WHERE `namespace`=? AND `delete_time` IS NULL")
+		require.Contains(t, gotSQL, ") AS ids ON pr.`uid` = ids.`uid`")
+		require.True(t, strings.HasSuffix(gotSQL, " ORDER BY `create_time` DESC"), gotSQL)
+		// The labels OR-branch must stay inside the inner subquery.
+		require.Contains(t, gotSQL, "pipeline_run_labels")
+		// LIMIT/OFFSET lives in the inner query, before the join close.
+		require.Contains(t, gotSQL, "LIMIT ?) AS ids")
+
+		// Args are identical to the non-deferred query — the wrap adds no params.
+		_, wantArgs, _, _, err := off.buildListQuery(pipelineRun, "deepeta", nil, textSearchOptions())
+		require.NoError(t, err)
+		require.Equal(t, wantArgs, gotArgs)
+	})
+
+	t.Run("flag_off_uses_single_query", func(t *testing.T) {
+		off := &mysqlMetadataStorage{config: Config{DeferredJoinPipelineRunTextSearch: false}}
+		gotSQL, _, _, _, err := off.buildListQuery(pipelineRun, "deepeta", nil, textSearchOptions())
+		require.NoError(t, err)
+		require.True(t, strings.HasPrefix(gotSQL, "SELECT `uid`, `group_ver`,"), gotSQL)
+		require.NotContains(t, gotSQL, "INNER JOIN (")
+		require.NotContains(t, gotSQL, "pr.`proto`")
+	})
+
+	t.Run("non_pipeline_run_kind_not_rewritten", func(t *testing.T) {
+		on := &mysqlMetadataStorage{config: Config{DeferredJoinPipelineRunTextSearch: true}}
+		revision := &metav1.TypeMeta{Kind: "Revision", APIVersion: "michelangelo.uber.com/v2beta1"}
+		// Use a Revision-shaped LIKE search (no pipeline_run-only label here).
+		opts := &apipb.ListOptionsExt{
+			Pagination: &apipb.PaginationSpec{Limit: 100},
+			Operation: &apipb.CriterionOperation{
+				LogicalOperator: apipb.LOGICAL_OPERATOR_OR,
+				Criterion: []*apipb.Criterion{
+					{FieldName: "revision.name", Operator: apipb.CRITERION_OPERATOR_LIKE, MatchValue: mustStr("agg")},
+				},
+			},
+		}
+		gotSQL, _, _, _, err := on.buildListQuery(revision, "deepeta", nil, opts)
+		require.NoError(t, err)
+		require.NotContains(t, gotSQL, "INNER JOIN (")
+	})
+
+	t.Run("no_like_not_rewritten", func(t *testing.T) {
+		on := &mysqlMetadataStorage{config: Config{DeferredJoinPipelineRunTextSearch: true}}
+		opts := &apipb.ListOptionsExt{
+			Pagination: &apipb.PaginationSpec{Limit: 100},
+			Operation: &apipb.CriterionOperation{
+				LogicalOperator: apipb.LOGICAL_OPERATOR_AND,
+				Criterion: []*apipb.Criterion{
+					{FieldName: "pipeline_run.pipeline_type", Operator: apipb.CRITERION_OPERATOR_IN, MatchValue: mustStr("A,B")},
+				},
+			},
+		}
+		gotSQL, _, _, _, err := on.buildListQuery(pipelineRun, "deepeta", nil, opts)
+		require.NoError(t, err)
+		require.NotContains(t, gotSQL, "INNER JOIN (")
+	})
+
+	t.Run("label_ordering_falls_back", func(t *testing.T) {
+		on := &mysqlMetadataStorage{config: Config{DeferredJoinPipelineRunTextSearch: true}}
+		opts := textSearchOptions()
+		opts.OrderBy = []*apipb.OrderBy{
+			{Field: "pipeline_run.metadata.labels.michelangelo/SpecUpdateTimestamp", Dir: apipb.SORT_ORDER_DESC},
+		}
+		gotSQL, _, _, _, err := on.buildListQuery(pipelineRun, "deepeta", nil, opts)
+		require.NoError(t, err)
+		// The SpecUpdateTimestamp CTE+JOIN path is incompatible with the deferred
+		// wrap, so we fall back to the single query (with its WITH clause).
+		require.NotContains(t, gotSQL, "INNER JOIN (SELECT `uid` FROM")
+		require.Contains(t, gotSQL, "SpecUpdateTimeStampTable")
+	})
 }

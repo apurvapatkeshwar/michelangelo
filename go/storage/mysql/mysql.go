@@ -38,6 +38,12 @@ type Config struct {
 	MaxIdleConns int `yaml:"maxIdleConns"`
 	// ConnMaxLifetime is the maximum amount of time a connection may be reused
 	ConnMaxLifetime time.Duration `yaml:"connMaxLifetime"`
+	// DeferredJoinPipelineRunTextSearch, when true, rewrites PipelineRun text
+	// searches (List with a LIKE criterion) into a deferred join: an inner
+	// subquery filters/sorts/limits projecting only `uid`, and the outer query
+	// joins back to fetch the wide columns (incl. the `proto` MEDIUMBLOB) for
+	// only the final page. This keeps the filesort off the blob. Defaults off.
+	DeferredJoinPipelineRunTextSearch bool `yaml:"deferredJoinPipelineRunTextSearch"`
 }
 
 // mysqlMetadataStorage implements storage.MetadataStorage using MySQL
@@ -275,9 +281,21 @@ func (m *mysqlMetadataStorage) GetByID(ctx context.Context, uid string, object r
 //	      [ORDER BY ...]
 //	      [LIMIT ? [OFFSET ?]]
 func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMeta, namespace string, listOptions *metav1.ListOptions, listOptionsExt *apipb.ListOptionsExt, listResponse *storage.ListResponse) error {
+	finalQuery, args, limit, offset, err := m.buildListQuery(typeMeta, namespace, listOptions, listOptionsExt)
+	if err != nil {
+		return err
+	}
+	return m.executeListQueryAndProcessResult(ctx, finalQuery, args, limit, offset, typeMeta, listResponse)
+}
+
+// buildListQuery assembles the List SQL and its bind args from the request. It
+// performs no I/O so the emitted SQL can be asserted directly in tests. See
+// List for the query shape; when the deferred-join rewrite applies (PipelineRun
+// LIKE text search), the returned SQL is the INNER JOIN wrapper form.
+func (m *mysqlMetadataStorage) buildListQuery(typeMeta *metav1.TypeMeta, namespace string, listOptions *metav1.ListOptions, listOptionsExt *apipb.ListOptionsExt) (string, []interface{}, int64, int64, error) {
 	tableName := getTableNameFromTypeMeta(typeMeta)
 	if tableName == "" {
-		return status.Errorf(codes.InvalidArgument, "unable to determine table name for type: %s", typeMeta.Kind)
+		return "", nil, 0, 0, status.Errorf(codes.InvalidArgument, "unable to determine table name for type: %s", typeMeta.Kind)
 	}
 	indexPathToKeyMap := m.indexPathToKeyMap(typeMeta)
 
@@ -302,11 +320,11 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 		var err error
 		labelPieces, err = buildLabelSelectorSQL(listOptions.LabelSelector, tableName)
 		if err != nil {
-			return err
+			return "", nil, 0, 0, err
 		}
 		fieldSelectorWhere, fieldSelectorParams, err = buildFieldSelectorSQL(listOptions.FieldSelector, indexPathToKeyMap)
 		if err != nil {
-			return err
+			return "", nil, 0, 0, err
 		}
 	}
 
@@ -322,6 +340,19 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 		labelPieces.withParams = append(labelPieces.withParams, orderByLabelKey)
 	}
 
+	// Deferred-join rewrite: for PipelineRun text searches (a LIKE criterion),
+	// build the inner query projecting only `uid`, then wrap it in an outer
+	// query that joins back to fetch the wide columns for only the final page —
+	// keeping the filesort/scan off the `proto` MEDIUMBLOB. Falls back to the
+	// single-query form when the label-ordering CTE or selector-string label
+	// JOINs are present (their joined columns aren't in scope for the outer
+	// query). Gated by config; off by default.
+	deferred := m.config.DeferredJoinPipelineRunTextSearch &&
+		typeMeta.Kind == "PipelineRun" &&
+		listOptionsExt != nil && listOptionsExt.Operation != nil &&
+		criterionHasLike(listOptionsExt.Operation) &&
+		len(labelPieces.withAliases) == 0 && len(labelPieces.joinClauses) == 0
+
 	// Assemble the query. The CTEs (if any) come first as a single
 	// comma-separated WITH clause, then SELECT/FROM/JOINs, then WHERE.
 	var query strings.Builder
@@ -330,8 +361,14 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 		query.WriteString(strings.Join(labelPieces.withAliases, ", "))
 		query.WriteByte(' ')
 	}
-	query.WriteString("SELECT `uid`, `group_ver`, `namespace`, `name`, `res_version`, ")
-	query.WriteString("`create_time`, `update_time`, `proto` FROM `")
+	if deferred {
+		// Inner query of the deferred join projects only the key; the outer
+		// wrapper re-projects the wide columns after joining back.
+		query.WriteString("SELECT `uid` FROM `")
+	} else {
+		query.WriteString("SELECT `uid`, `group_ver`, `namespace`, `name`, `res_version`, ")
+		query.WriteString("`create_time`, `update_time`, `proto` FROM `")
+	}
 	query.WriteString(tableName)
 	query.WriteByte('`')
 	for _, j := range labelPieces.joinClauses {
@@ -351,7 +388,7 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 	if listOptionsExt != nil && listOptionsExt.Operation != nil {
 		criterionSQL, criterionArgs, err := buildCriterionSQL(listOptionsExt.Operation, tableName, indexPathToKeyMap)
 		if err != nil {
-			return status.Errorf(codes.Internal, "failed to build criterion SQL: %v", err)
+			return "", nil, 0, 0, status.Errorf(codes.Internal, "failed to build criterion SQL: %v", err)
 		}
 		if criterionSQL != "" {
 			query.WriteString(" AND (")
@@ -387,7 +424,7 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 		if listOptions.Continue != "" {
 			parsed, err := strconv.ParseInt(listOptions.Continue, 10, 64)
 			if err != nil || parsed < 0 {
-				return status.Errorf(codes.InvalidArgument,
+				return "", nil, 0, 0, status.Errorf(codes.InvalidArgument,
 					"invalid Continue field in ListOpts. Continue = %v", listOptions.Continue)
 			}
 			offset = parsed
@@ -407,7 +444,20 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 		args = append(labelPieces.withParams, args...)
 	}
 
-	return m.executeListQueryAndProcessResult(ctx, query.String(), args, limit, offset, typeMeta, listResponse)
+	finalQuery := query.String()
+	if deferred {
+		// Wrap the uid-only inner query; args are unchanged (every placeholder
+		// lives in the inner query). The outer ORDER BY reuses orderBySQL —
+		// create_time is unambiguous since only the base table exposes it (the
+		// derived table projects only uid). The join doesn't preserve order, so
+		// the outer ORDER BY re-sorts the final (already limited) page.
+		finalQuery = "SELECT pr.`uid`, pr.`group_ver`, pr.`namespace`, pr.`name`, " +
+			"pr.`res_version`, pr.`create_time`, pr.`update_time`, pr.`proto` FROM `" +
+			tableName + "` pr INNER JOIN (" + finalQuery +
+			") AS ids ON pr.`uid` = ids.`uid`" + orderBySQL
+	}
+
+	return finalQuery, args, limit, offset, nil
 }
 
 // executeListQueryAndProcessResult runs a SELECT query against the main table,
@@ -703,6 +753,26 @@ func buildFieldCriterionSQL(op *apipb.CriterionOperation, indexPathToKeyMap map[
 	}
 
 	return queryStrs, params, nil
+}
+
+// criterionHasLike reports whether any criterion in the tree (including
+// sub-operations) uses CRITERION_OPERATOR_LIKE — i.e. whether this is a
+// full-scan text search. Used to gate the deferred-join rewrite in List.
+func criterionHasLike(op *apipb.CriterionOperation) bool {
+	if op == nil {
+		return false
+	}
+	for _, item := range op.GetCriterion() {
+		if item.GetOperator() == apipb.CRITERION_OPERATOR_LIKE {
+			return true
+		}
+	}
+	for _, sub := range op.GetSubOperations() {
+		if criterionHasLike(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // buildCriterionSQL recursively converts a CriterionOperation into a SQL WHERE fragment.
