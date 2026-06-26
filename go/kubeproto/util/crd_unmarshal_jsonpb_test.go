@@ -12,22 +12,13 @@ import (
 	testpb "github.com/michelangelo-ai/michelangelo/proto-go/test/kubeproto"
 )
 
-// CRD types embed metav1.ObjectMeta, which mixes two field encodings that no
-// single JSON decoder handles:
-//   - creationTimestamp is a metav1.Time, a Go struct that serializes as a JSON
-//     string; gogo jsonpb reflects into it and fails with "cannot unmarshal
-//     string into Go value of type map[string]json.RawMessage".
-//   - generation is an int64; jsonpb and the protobuf-es web client serialize it
-//     as a JSON string (proto3 JSON), which encoding/json refuses to decode.
-//
-// crd.tmpl now generates UnmarshalJSONPB for every CRD type. gogo jsonpb only
-// dispatches to UnmarshalJSONPB (never UnmarshalJSON) for nested messages, e.g.
-// the TriggerRun inside an UpdateTriggerRunRequest. The method coerces the
-// integer fields and delegates to encoding/json, so both the controller-runtime
-// path and the YARPC/UI path decode the same round-tripped payload.
+// Regression guard for the generated CRD UnmarshalJSONPB (see crd.tmpl) and
+// util.CoerceObjectMetaIntegers: a CRD round-tripped through the API must decode
+// via both gogo jsonpb (the YARPC/UI path, which only ever calls UnmarshalJSONPB)
+// and encoding/json (the controller-runtime path). The payload mixes the two
+// fields that broke each decoder — a quoted metav1.Time and a quoted int64.
 func TestCRDUnmarshal_ObjectMeta_BothPaths(t *testing.T) {
-	// A CRD as it comes back from the API and is echoed into an Update:
-	// generation is a quoted int64, creationTimestamp is a quoted timestamp.
+	// As returned by the API and echoed back into an Update: both fields quoted.
 	payload := `{
 		"metadata": {
 			"name": "test",

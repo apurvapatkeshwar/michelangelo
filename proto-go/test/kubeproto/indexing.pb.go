@@ -2368,21 +2368,18 @@ func (m *TestIndexingStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
-/* When a TestIndexing is nested inside another proto message (e.g. an
-   Update request decoded by YARPC), gogo's jsonpb dispatches to
-   UnmarshalJSONPB if it is implemented and otherwise reflects into the
-   struct directly. That reflection path mishandles embedded k8s types
-   such as metav1.Time in ObjectMeta, which serialize as JSON strings but
-   are decoded as messages ("cannot unmarshal string into Go value of type
-   map[string]json.RawMessage"), and it never reaches the Spec/Status
-   UnmarshalJSON fallbacks above. Delegating to encoding/json decodes
-   TypeMeta/ObjectMeta natively and routes Spec/Status through their own
-   UnmarshalJSON, which still use jsonpb for oneofs and enums. The Alias
-   type strips this method to avoid infinite recursion.
-
-   CoerceObjectMetaIntegers first converts ObjectMeta integer fields
-   (e.g. generation) from the proto3 JSON string form emitted by jsonpb and
-   the web client back into numbers, which is what encoding/json expects. */
+/* gogo's jsonpb dispatches to UnmarshalJSONPB when a TestIndexing is nested in
+   another proto message (e.g. an Update request decoded by YARPC); without it,
+   jsonpb reflects into the struct and mishandles embedded k8s types such as
+   metav1.Time in ObjectMeta, which serialize as JSON strings but are decoded as
+   messages ("cannot unmarshal string into Go value of type
+   map[string]json.RawMessage"), never reaching the Spec/Status UnmarshalJSON
+   fallbacks above. Delegating to encoding/json decodes TypeMeta/ObjectMeta
+   natively and routes Spec/Status through their own UnmarshalJSON (still jsonpb
+   for oneofs and enums); the Alias type strips this method to avoid recursion.
+   CoerceObjectMetaIntegers first converts ObjectMeta integers (e.g. generation)
+   from the proto3 JSON strings jsonpb and the web client emit back to numbers,
+   which is what encoding/json expects. */
 func (m *TestIndexing) UnmarshalJSONPB(u *jsonpb.Unmarshaler, b []byte) error {
 	b, err := util.CoerceObjectMetaIntegers(b)
 	if err != nil {

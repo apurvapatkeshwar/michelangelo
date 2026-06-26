@@ -385,10 +385,9 @@ func ApplyInlineFields(jsonData []byte, fields []InlineFieldMapping) ([]byte, er
 	return []byte(jsonStr), nil
 }
 
-// objectMetaIntegerJSONFields holds the JSON names of the integer-typed fields
-// declared directly on metav1.ObjectMeta (e.g. "generation",
-// "deletionGracePeriodSeconds"), derived once via reflection so the set stays
-// correct if k8s changes ObjectMeta.
+// objectMetaIntegerJSONFields is derived via reflection (rather than hardcoded)
+// so it stays correct if k8s changes which metav1.ObjectMeta fields are
+// integers, e.g. "generation" and "deletionGracePeriodSeconds".
 var objectMetaIntegerJSONFields = func() []string {
 	var names []string
 	t := reflect.TypeOf(metav1.ObjectMeta{})
