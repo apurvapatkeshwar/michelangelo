@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var reGogoTypeRemapPath = regexp.MustCompile(`github\.com\/gogo\/protobuf\/types`)
@@ -381,6 +383,58 @@ func ApplyInlineFields(jsonData []byte, fields []InlineFieldMapping) ([]byte, er
 	}
 
 	return []byte(jsonStr), nil
+}
+
+// objectMetaIntegerJSONFields holds the JSON names of the integer-typed fields
+// declared directly on metav1.ObjectMeta (e.g. "generation",
+// "deletionGracePeriodSeconds"), derived once via reflection so the set stays
+// correct if k8s changes ObjectMeta.
+var objectMetaIntegerJSONFields = func() []string {
+	var names []string
+	t := reflect.TypeOf(metav1.ObjectMeta{})
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		fieldType := field.Type
+		for fieldType.Kind() == reflect.Ptr {
+			fieldType = fieldType.Elem()
+		}
+		switch fieldType.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if name := extractFieldName(field.Tag.Get("json"), field.Tag.Get("protobuf"), field.Name); name != "" && name != "-" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}()
+
+// CoerceObjectMetaIntegers rewrites the integer fields of the top-level
+// "metadata" object from JSON strings to JSON numbers.
+//
+// gogo's jsonpb and the protobuf-es web client serialize proto int64/uint64 as
+// JSON strings (the proto3 JSON spec), but metav1.ObjectMeta is decoded with
+// encoding/json, which accepts only numbers for its integer fields such as
+// generation. This reconciles the two so a CRD round-tripped through the API
+// (e.g. read via Get, then sent back in Update) decodes with encoding/json.
+func CoerceObjectMetaIntegers(b []byte) ([]byte, error) {
+	s := string(b)
+	for _, name := range objectMetaIntegerJSONFields {
+		path := "metadata." + name
+		value := gjson.Get(s, path)
+		if value.Type != gjson.String {
+			continue
+		}
+		if _, err := strconv.ParseInt(value.String(), 10, 64); err != nil {
+			continue
+		}
+		updated, err := sjson.SetRaw(s, path, value.String())
+		if err != nil {
+			return nil, err
+		}
+		s = updated
+	}
+	return []byte(s), nil
 }
 
 // ReadRequest reads the protoc request from stdin and returns it as a byte slice.

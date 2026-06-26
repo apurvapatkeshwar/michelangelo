@@ -3850,6 +3850,30 @@ func (m *RayClusterStatus) UnmarshalJSON(b []byte) error {
     return json.Unmarshal(b, aux)
 }
 
+/* When a RayCluster is nested inside another proto message (e.g. an
+   Update request decoded by YARPC), gogo's jsonpb dispatches to
+   UnmarshalJSONPB if it is implemented and otherwise reflects into the
+   struct directly. That reflection path mishandles embedded k8s types
+   such as metav1.Time in ObjectMeta, which serialize as JSON strings but
+   are decoded as messages ("cannot unmarshal string into Go value of type
+   map[string]json.RawMessage"), and it never reaches the Spec/Status
+   UnmarshalJSON fallbacks above. Delegating to encoding/json decodes
+   TypeMeta/ObjectMeta natively and routes Spec/Status through their own
+   UnmarshalJSON, which still use jsonpb for oneofs and enums. The Alias
+   type strips this method to avoid infinite recursion.
+
+   CoerceObjectMetaIntegers first converts ObjectMeta integer fields
+   (e.g. generation) from the proto3 JSON string form emitted by jsonpb and
+   the web client back into numbers, which is what encoding/json expects. */
+func (m *RayCluster) UnmarshalJSONPB(u *jsonpb.Unmarshaler, b []byte) error {
+	b, err := util.CoerceObjectMetaIntegers(b)
+	if err != nil {
+		return err
+	}
+	type Alias RayCluster
+	return json.Unmarshal(b, (*Alias)(m))
+}
+
 func (in *RayCluster) DeepCopy() *RayCluster {
 	if in == nil {
 		return nil
