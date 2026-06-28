@@ -2257,14 +2257,25 @@ def _create_kserve_demo_crs() -> None:
     _patch_controllermgr_config_for_kserve()
 
     # ------------------------------------------------------------------
-    # 3. Apply demo InferenceService
+    # 3. Apply demo ClusterServingRuntime + InferenceService
     # ------------------------------------------------------------------
     kserve_demo_dir = _dir / "demo" / "kserve"
+
+    csr_path = kserve_demo_dir / "clusterservingruntime-triton.yaml"
+    if csr_path.exists():
+        print("Applying custom Triton ClusterServingRuntime on compute cluster...")
+        _exec(
+            "kubectl",
+            "--context", kube_ctx,
+            "apply",
+            "-f", str(csr_path),
+        )
+
     inference_service_path = kserve_demo_dir / "inferenceservice.yaml"
     if not inference_service_path.exists():
         _err_exit(f"❌ KServe demo InferenceService not found at {inference_service_path}")
 
-    print("✅ Creating sklearn-iris InferenceService on compute cluster...")
+    print("Creating sklearn-iris InferenceService on compute cluster...")
     _exec(
         "kubectl",
         "--context", kube_ctx,
