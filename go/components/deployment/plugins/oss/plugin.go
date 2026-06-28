@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/michelangelo-ai/michelangelo/go/base/blobstore"
+	maconfig "github.com/michelangelo-ai/michelangelo/go/base/config"
 	conditionInterfaces "github.com/michelangelo-ai/michelangelo/go/base/conditions/interfaces"
 	"github.com/michelangelo-ai/michelangelo/go/base/pluginmanager"
 	"github.com/michelangelo-ai/michelangelo/go/components/common/routing"
@@ -45,6 +46,7 @@ type Plugin struct {
 	backendRegistry     *backends.Registry
 	modelConfigProvider modelconfig.ModelConfigProvider
 	blobstore           *blobstore.BlobStore
+	deploymentConfig    maconfig.DeploymentConfig
 	logger              *zap.Logger
 
 	rolloutPlugin     conditionInterfaces.Plugin[*v2pb.Deployment]
@@ -67,6 +69,7 @@ type Params struct {
 	BlobStore           *blobstore.BlobStore
 	Logger              *zap.Logger
 	ModelConfigProvider modelconfig.ModelConfigProvider
+	DeploymentConfig    maconfig.DeploymentConfig
 }
 
 // NewPlugin creates an OSS deployment plugin with rollback, cleanup, and steady state workflows.
@@ -80,6 +83,7 @@ func NewPlugin(params Params) *Plugin {
 		routeManager:        params.RouteManager,
 		modelConfigProvider: params.ModelConfigProvider,
 		blobstore:           params.BlobStore,
+		deploymentConfig:    params.DeploymentConfig,
 		logger:              params.Logger,
 		rollbackPlugin: rollback.NewRollbackPlugin(rollback.Params{
 			Client:              params.Client,
@@ -256,6 +260,13 @@ func (p *Plugin) GetState(ctx context.Context, observability plugins.Observabili
 }
 
 // HealthCheckGate verifies the inference server is healthy before allowing rollout to proceed.
+// It runs two checks in order:
+//  1. K8s Deployment availability (existing check).
+//  2. Custom metric rules defined in spec.healthCheckConfig (if any).
+//
+// Metric evaluation is fail-open: a Prometheus connection failure is logged as a
+// warning but does NOT trigger a rollback, to avoid spurious failures when the
+// metrics stack is temporarily unavailable.
 func (p *Plugin) HealthCheckGate(ctx context.Context, observability plugins.ObservabilityContext, deployment *v2pb.Deployment) (bool, error) {
 	// Check if the inference server is specified
 	if deployment.Spec.GetInferenceServer() == nil {
@@ -277,7 +288,44 @@ func (p *Plugin) HealthCheckGate(ctx context.Context, observability plugins.Obse
 		return false, fmt.Errorf("check health of inference server %s for deployment %s/%s: %w",
 			deployment.Spec.GetInferenceServer().Name, deployment.Namespace, deployment.Name, err)
 	}
-	return healthy, nil
+	if !healthy {
+		return false, nil
+	}
+
+	// Evaluate custom metric health rules if configured.
+	cfg := deployment.Spec.GetHealthCheckConfig()
+	if cfg == nil || len(cfg.GetRules()) == 0 {
+		return true, nil
+	}
+
+	prometheusURL := cfg.GetPrometheusURL()
+	if prometheusURL == "" {
+		prometheusURL = p.deploymentConfig.DefaultPrometheusURL
+	}
+	if prometheusURL == "" {
+		p.logger.Warn("no Prometheus URL configured for metric health check — skipping metric evaluation",
+			zap.String("deployment", fmt.Sprintf("%s/%s", deployment.Namespace, deployment.Name)))
+		return true, nil
+	}
+
+	checker, err := common.NewMetricHealthChecker(prometheusURL, p.logger)
+	if err != nil {
+		// Bad URL config — fail-open rather than blocking all deployments.
+		p.logger.Warn("failed to build metric health checker — skipping metric evaluation",
+			zap.Error(err),
+			zap.String("prometheusURL", prometheusURL),
+			zap.String("deployment", fmt.Sprintf("%s/%s", deployment.Namespace, deployment.Name)))
+		return true, nil
+	}
+
+	metricsHealthy, failingRule := checker.IsHealthy(ctx, cfg.GetRules())
+	if !metricsHealthy {
+		p.logger.Warn("metric health rule triggered rollback",
+			zap.String("rule", failingRule),
+			zap.String("deployment", fmt.Sprintf("%s/%s", deployment.Namespace, deployment.Name)))
+		return false, nil
+	}
+	return true, nil
 }
 
 // PopulateDeploymentLogs adds error logs to deployment status (no-op for OSS).

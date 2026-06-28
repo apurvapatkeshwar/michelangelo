@@ -1,0 +1,64 @@
+# KServe + Michelangelo Deployment with Custom Metric Health Rules
+#
+# This Deployment targets `inference-server-multi` and monitors sklearn-iris
+# on compute-1 via PromQL. If error rate exceeds 5% or P99 latency exceeds
+# 1 second during rollout, the controller rolls back automatically.
+#
+# Apply with:
+#   kubectl apply -f deployment-with-healthcheck.yaml
+#
+# To trigger a test rollback, apply the "always-fails" override:
+#   kubectl patch deployment multi-cluster-deployment \
+#     --type=merge -p '{"spec":{"healthCheckConfig":{"rules":[{"name":"always-fail","query":"vector(1)","op":"GT","threshold":0}]}}}'
+apiVersion: michelangelo.api/v2
+kind: Deployment
+metadata:
+  name: sklearn-iris-deployment
+  namespace: default
+spec:
+  desiredRevision:
+    name: sklearn-iris-v1
+    namespace: default
+  inferenceServer:
+    name: inference-server-multi
+    namespace: default
+  strategy:
+    rolling:
+      incrementPercentage: 100
+  definition:
+    type: TARGET_TYPE_INFERENCE_SERVER
+  healthCheckConfig:
+    # Prometheus running in the sandbox control-plane cluster.
+    # Scrapes KServe model metrics from compute-1 via federation or
+    # remote-write (configure Prometheus federation for cross-cluster metrics).
+    prometheusUrl: "http://prometheus:9090"
+    rules:
+      # Roll back if the error rate (non-2xx responses) exceeds 5% over 2 min.
+      - name: high-error-rate
+        query: >-
+          rate(kserve_inference_service_request_total{
+            namespace="default",
+            name="sklearn-iris",
+            response_code!~"2.."
+          }[2m])
+          /
+          rate(kserve_inference_service_request_total{
+            namespace="default",
+            name="sklearn-iris"
+          }[2m])
+        op: GT
+        threshold: 0.05
+        forDuration: "60s"
+
+      # Roll back if P99 inference latency exceeds 1 second over 2 min.
+      - name: high-latency-p99
+        query: >-
+          histogram_quantile(0.99, rate(
+            kserve_inference_service_request_latency_seconds_bucket{
+              namespace="default",
+              name="sklearn-iris"
+            }[2m]
+          ))
+        op: GT
+        threshold: 1.0
+        forDuration: "60s"
