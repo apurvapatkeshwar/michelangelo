@@ -68,23 +68,30 @@ graph TD
     CTRL -->|queries metrics| P1 & P2
 ```
 
-### Rollout stage machine
+### Rollout engine
 
-The controller runs a condition-based stage machine per deployment. Each stage gate must pass before the rollout advances — if any gate fails, the controller rolls back automatically:
+The controller runs an ordered actor chain per deployment. Each actor must complete before the next runs — if the health gate fails, the controller rolls back automatically.
+
+The sequence per cluster is:
 
 ```mermaid
-stateDiagram-v2
-    [*] --> PLACEMENT
-    PLACEMENT --> TRAFFIC_SHIFT : placement gate ✓
-    TRAFFIC_SHIFT --> HEALTH_CHECK : traffic shifted
-    HEALTH_CHECK --> TRAFFIC_SHIFT : increment next %
-    HEALTH_CHECK --> COMPLETE : 100% healthy ✓
-    HEALTH_CHECK --> ROLLBACK : gate fails ✗
-    ROLLBACK --> [*]
-    COMPLETE --> [*]
+sequenceDiagram
+    participant C as Controller
+    participant T as Serving Runtime
+    participant R as HTTPRoute (gateway)
+    participant H as Health Gate
+
+    C->>T: 1. Load new model (RollingRolloutActor)
+    T-->>C: model ready ✓
+    C->>R: 2. Route traffic → new model (TrafficRoutingActor)
+    R-->>C: route live ✓
+    C->>H: 3. Evaluate health gate (infra + PromQL metrics)
+    H-->>C: healthy ✓
+    C->>T: 4. Unload old model (ModelCleanupActor)
+    T-->>C: old model removed ✓
 ```
 
-Stages are pluggable — teams define what "healthy" means for their model via PromQL rules in the Deployment spec.
+All target clusters complete steps 1–2 before any cluster runs step 4. The old model is only removed after every cluster has routed traffic to the new one — the same pattern as Uber's internal multi-zone rollout.
 
 ### Health gate
 
