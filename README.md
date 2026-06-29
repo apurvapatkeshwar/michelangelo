@@ -35,26 +35,86 @@ InferenceServer   →  where to serve  (cluster targets, routing, gateway)
 Deployment        →  how to roll out (strategy, health gates, rollback rules)
 ```
 
-### Rollout engine
+```mermaid
+graph TD
+    User([User / CI])
 
-The controller runs a condition-based stage machine per deployment. Each stage must pass its gate before the rollout advances:
+    subgraph Control Plane Cluster
+        API[Kubernetes API]
+        CTRL[Michelangelo\nController Manager]
 
+        subgraph CRDs
+            R[Revision\nmodel artifact + config]
+            IS[InferenceServer\ncluster targets + routing]
+            D[Deployment\nstrategy + health gates]
+        end
+    end
+
+    subgraph Compute Cluster 1
+        RT1[Serving Runtime\nKServe / Triton / vLLM]
+        P1[Prometheus]
+    end
+
+    subgraph Compute Cluster 2
+        RT2[Serving Runtime\nKServe / Triton / vLLM]
+        P2[Prometheus]
+    end
+
+    User -->|kubectl apply| API
+    API --> R & IS & D
+    CTRL -->|watches| R & IS & D
+    CTRL -->|provisions| RT1
+    CTRL -->|provisions| RT2
+    CTRL -->|queries metrics| P1 & P2
 ```
-PLACEMENT → TRAFFIC_SHIFT → HEALTH_CHECK → COMPLETE
-                                ↓ (gate fails)
-                            ROLLBACK
+
+### Rollout stage machine
+
+The controller runs a condition-based stage machine per deployment. Each stage gate must pass before the rollout advances — if any gate fails, the controller rolls back automatically:
+
+```mermaid
+stateDiagram-v2
+    [*] --> PLACEMENT
+    PLACEMENT --> TRAFFIC_SHIFT : placement gate ✓
+    TRAFFIC_SHIFT --> HEALTH_CHECK : traffic shifted
+    HEALTH_CHECK --> TRAFFIC_SHIFT : increment next %
+    HEALTH_CHECK --> COMPLETE : 100% healthy ✓
+    HEALTH_CHECK --> ROLLBACK : gate fails ✗
+    ROLLBACK --> [*]
+    COMPLETE --> [*]
 ```
 
-Stages are pluggable — teams define what "healthy" means for their model.
+Stages are pluggable — teams define what "healthy" means for their model via PromQL rules in the Deployment spec.
 
 ### Health gate
 
-Two layers of health checking during rollout:
+Two layers of health checking evaluated on every reconcile during rollout:
 
-1. **Infrastructure health** — Kubernetes `Deployment` Available condition per cluster
-2. **Metric health** — PromQL rules evaluated against Prometheus; any breach triggers rollback
+```mermaid
+flowchart LR
+    GC{Health\nCheckGate}
 
-Both layers must pass for the rollout to advance.
+    subgraph Layer 1 - Infrastructure
+        K8S[K8s Deployment\nAvailable condition]
+    end
+
+    subgraph Layer 2 - Metrics
+        PROM[Prometheus\nPromQL rules]
+        R1[error rate > 5%?]
+        R2[P99 latency > 1s?]
+    end
+
+    GC --> K8S
+    GC --> PROM
+    PROM --> R1 & R2
+
+    K8S -->|unhealthy| ROLLBACK([ROLLBACK])
+    R1 -->|breached| ROLLBACK
+    R2 -->|breached| ROLLBACK
+    K8S & R1 & R2 -->|all pass| ADVANCE([ADVANCE])
+```
+
+Fail-open: if Prometheus is unreachable, the metric layer returns healthy — no spurious rollbacks.
 
 ---
 
@@ -63,6 +123,29 @@ Both layers must pass for the rollout to advance.
 ### InferenceServer
 
 The `InferenceServer` CR declares where a model runs. It manages cluster registration, gateway routing, and TLS — independently of what serves the model:
+
+```mermaid
+graph LR
+    IS[InferenceServer CR\nmy-inference-server]
+
+    IS --> C1
+
+    subgraph C1[Compute Cluster 1]
+        GW1[Gateway\nma-gateway-istio]
+        SVC1[Serving Runtime\nsklearn-iris]
+        GW1 --> SVC1
+    end
+
+    IS --> C2
+
+    subgraph C2[Compute Cluster 2]
+        GW2[Gateway\nma-gateway-istio]
+        SVC2[Serving Runtime\nsklearn-iris]
+        GW2 --> SVC2
+    end
+
+    CLIENT([Client]) -->|POST /predict| GW1 & GW2
+```
 
 ```yaml
 apiVersion: michelangelo.api/v2
