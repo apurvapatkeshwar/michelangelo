@@ -5,7 +5,7 @@
 
 # Michelangelo-AI
 
-Michelangelo-AI is an open-source **ML deployment control plane** — built to safely roll out models across multiple clusters, catch regressions via custom metrics, and recover automatically, with any serving runtime underneath.
+Michelangelo-AI is an open-source **ML deployment control plane** — built to safely roll out models across multiple clusters, catch regressions via custom metrics, and recover automatically.
 
 > :warning: **Beta** — APIs and features may evolve as we stabilize.
 
@@ -17,7 +17,7 @@ Running a model on one cluster is solved. The hard part is:
 
 - Rolling out a new model version **across 10 clusters** without a single bad deployment taking down production
 - **Automatically rolling back** when your error rate spikes — not after an on-call wakes up
-- Doing all of this **with any serving runtime** (KServe, Triton, vLLM) without rebuilding your deployment pipeline
+- Doing all of this **with NVIDIA Triton** as the serving runtime, with a pluggable backend interface designed to support additional runtimes (vLLM, custom) in the future
 
 Michelangelo is the control plane that sits above your serving runtime and handles this.
 
@@ -51,12 +51,12 @@ graph TD
     end
 
     subgraph Compute Cluster 1
-        RT1[Serving Runtime\nKServe / Triton / vLLM]
+        RT1[Serving Runtime\nNVIDIA Triton]
         P1[Prometheus]
     end
 
     subgraph Compute Cluster 2
-        RT2[Serving Runtime\nKServe / Triton / vLLM]
+        RT2[Serving Runtime\nNVIDIA Triton]
         P2[Prometheus]
     end
 
@@ -177,18 +177,15 @@ spec:
 
 One CR — two clusters. The controller provisions the serving stack on both.
 
-### Supported runtimes
+### Serving runtime
 
-Michelangelo is runtime-agnostic. The `servingSpec.version` field accepts any container image:
+The current backend is **NVIDIA Triton Inference Server**. The backend interface is pluggable — additional runtimes (vLLM, custom) can be added by implementing the `Backend` interface in `go/components/inferenceserver/backends/`.
 
-| Runtime | Example image |
-|---|---|
-| **KServe** (sklearn, PyTorch, ONNX) | via `InferenceService` CR on the target cluster |
-| **NVIDIA Triton** | `nvcr.io/nvidia/tritonserver:23.04-py3` |
-| **vLLM** | `vllm/vllm-openai:latest` |
-| **Custom** | any image with an HTTP inference endpoint |
-
-Swapping runtimes doesn't change how the `Deployment` CR or rollout lifecycle works.
+| Runtime | Status | Image |
+|---|---|---|
+| **NVIDIA Triton** | Supported | `nvcr.io/nvidia/tritonserver:23.04-py3` |
+| **vLLM** | Planned | — |
+| **Custom** | Planned | — |
 
 ---
 
