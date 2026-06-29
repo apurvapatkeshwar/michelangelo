@@ -1,0 +1,128 @@
+# Zonal Deployment Example
+#
+# This shows how zonal strategy works in Michelangelo:
+# - Each clusterTarget in the InferenceServer = one "zone"
+# - The controller rolls out to compute-1 first, soaks, then compute-2
+# - If health gate fails in compute-1, compute-2 never gets the new model
+#
+# Current status in OSS repo:
+#   ZonalUpdate is defined in the proto but not yet wired in GetActorsForStrategy.
+#   The controller today treats all clusters as one batch (rolling-style).
+#   This example shows what zonal WILL look like once TODO(#623) is implemented.
+#
+# Zone topology for this example:
+#   compute-1 = us-west zone  (canary zone, receives rollout first)
+#   compute-2 = us-east zone  (production zone, only gets new model after compute-1 is healthy)
+
+---
+# Step 1: InferenceServer targets two clusters (zones)
+apiVersion: michelangelo.api/v2
+kind: InferenceServer
+metadata:
+  name: inference-server-zonal
+  namespace: default
+spec:
+  clusterTargets:
+    # Zone 1 — canary zone, receives the rollout first
+    - clusterId: compute-1
+      kubernetes:
+        host: "https://compute-1.internal"
+        port: 6443
+      tokenTag: compute-1-token
+      caDataTag: compute-1-ca
+
+    # Zone 2 — production zone, only rolls out after zone 1 is healthy
+    - clusterId: compute-2
+      kubernetes:
+        host: "https://compute-2.internal"
+        port: 6443
+      tokenTag: compute-2-token
+      caDataTag: compute-2-ca
+
+---
+# Step 2: Deployment with zonal strategy
+#
+# Rollout sequence:
+#
+#   compute-1: load new model → health gate (5 min soak) → ✓
+#              ↓ only if healthy
+#   compute-2: load new model → health gate (5 min soak) → ✓
+#              ↓ only if healthy
+#   COMPLETE
+#
+#   If health gate fails at compute-1: ROLLBACK
+#   compute-2 never sees the new model.
+
+apiVersion: michelangelo.api/v2
+kind: Deployment
+metadata:
+  name: sklearn-iris-zonal
+  namespace: default
+spec:
+  desiredRevision:
+    name: sklearn-iris-v2       # new model version to roll out
+    namespace: default
+  inferenceServer:
+    name: inference-server-zonal
+    namespace: default
+  definition:
+    type: TARGET_TYPE_INFERENCE_SERVER
+
+  # Zonal strategy: one cluster at a time, with soak period between zones
+  strategy:
+    zonal:
+      rolloutPeriodInSeconds: 300   # wait 5 min after each zone before advancing
+
+  # Health gate: evaluated after each zone's soak period
+  # If any rule is breached, rollout stops and rolls back that zone
+  healthCheckConfig:
+    prometheusUrl: "http://prometheus:9090"
+    rules:
+      - name: high-error-rate
+        query: >-
+          rate(kserve_inference_service_request_total{
+            name="sklearn-iris", response_code!~"2.."}[2m])
+          / rate(kserve_inference_service_request_total{name="sklearn-iris"}[2m])
+        op: GT
+        threshold: 0.05        # roll back if error rate > 5%
+
+      - name: high-latency-p99
+        query: >-
+          histogram_quantile(0.99,
+            rate(kserve_inference_service_request_latency_seconds_bucket{
+              name="sklearn-iris"}[2m]))
+        op: GT
+        threshold: 1.0         # roll back if P99 > 1s
+
+---
+# Contrast: Rolling strategy (current OSS behavior)
+#
+# Rollout sequence:
+#
+#   compute-1 + compute-2: load new model SIMULTANEOUSLY
+#                          ↓
+#                          health gate
+#                          ↓ if healthy
+#                          remove old model from both
+#
+# No zone boundary. If the new model is bad, both zones are affected at once.
+
+apiVersion: michelangelo.api/v2
+kind: Deployment
+metadata:
+  name: sklearn-iris-rolling
+  namespace: default
+spec:
+  desiredRevision:
+    name: sklearn-iris-v2
+    namespace: default
+  inferenceServer:
+    name: inference-server-zonal
+    namespace: default
+  definition:
+    type: TARGET_TYPE_INFERENCE_SERVER
+
+  # Rolling: all clusters load simultaneously (current OSS default behavior)
+  strategy:
+    rolling:
+      incrementPercentage: 100  # NOTE: not wired yet, OSS loads all clusters at once regardless
