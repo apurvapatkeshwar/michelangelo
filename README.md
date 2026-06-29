@@ -15,9 +15,9 @@ Michelangelo-AI is an open-source **ML deployment control plane** — built to s
 
 Running a model on one cluster is solved. The hard part is:
 
-- Rolling out a new model version **across 10 clusters** without a single bad deployment taking down production
+- Rolling out a new model version **across many clusters** without a single bad deployment taking down production
 - **Automatically rolling back** when your error rate spikes — not after an on-call wakes up
-- Doing all of this **with NVIDIA Triton** as the serving runtime, with a pluggable backend interface designed to support additional runtimes (vLLM, custom) in the future
+- Doing all of this with **NVIDIA Triton** as the serving runtime, with a pluggable backend interface for additional runtimes in the future
 
 Michelangelo is the control plane that sits above your serving runtime and handles this.
 
@@ -42,6 +42,7 @@ graph TD
     subgraph Control Plane Cluster
         API[Kubernetes API]
         CTRL[Michelangelo\nController Manager]
+        APISRV[Michelangelo\nAPI Server]
 
         subgraph CRDs
             R[Revision\nmodel artifact + config]
@@ -50,17 +51,18 @@ graph TD
         end
     end
 
-    subgraph Compute Cluster 1
-        RT1[Serving Runtime\nNVIDIA Triton]
+    subgraph Compute Cluster 1 - Zone A
+        RT1[NVIDIA Triton]
         P1[Prometheus]
     end
 
-    subgraph Compute Cluster 2
-        RT2[Serving Runtime\nNVIDIA Triton]
+    subgraph Compute Cluster 2 - Zone B
+        RT2[NVIDIA Triton]
         P2[Prometheus]
     end
 
     User -->|kubectl apply| API
+    User -->|YARPC / REST| APISRV
     API --> R & IS & D
     CTRL -->|watches| R & IS & D
     CTRL -->|provisions| RT1
@@ -68,34 +70,51 @@ graph TD
     CTRL -->|queries metrics| P1 & P2
 ```
 
-### Rollout engine
+### Rollout strategies
 
-The controller runs an ordered actor chain per deployment. Each actor must complete before the next runs — if the health gate fails, the controller rolls back automatically.
+Two strategies are supported. Choose based on resource constraints and risk tolerance.
 
-The sequence per cluster is:
+#### Zonal (default) — one cluster at a time
+
+Each cluster (zone) completes the full rollout sequence — including a configurable soak period — before the next cluster begins. If the health gate fails in cluster 1, cluster 2 is never touched.
 
 ```mermaid
 sequenceDiagram
     participant C as Controller
-    participant T as Serving Runtime
-    participant R as HTTPRoute (gateway)
+    participant Z1 as Cluster 1 (Zone A)
+    participant Z2 as Cluster 2 (Zone B)
     participant H as Health Gate
 
-    C->>T: 1. Load new model (RollingRolloutActor)
-    T-->>C: model ready ✓
-    C->>R: 2. Route traffic → new model (TrafficRoutingActor)
-    R-->>C: route live ✓
-    C->>H: 3. Evaluate health gate (infra + PromQL metrics)
+    C->>Z1: 1. Load new model
+    Z1-->>C: model ready ✓
+    C->>Z1: 2. Route traffic → new model
+    Z1-->>C: route live ✓
+    C->>H: 3. Soak period + health gate (PromQL)
+    H-->>C: healthy ✓ (after rolloutPeriodInSeconds)
+    Note over Z2: Zone B waits until Zone A is healthy
+    C->>Z2: 4. Load new model
+    Z2-->>C: model ready ✓
+    C->>Z2: 5. Route traffic → new model
+    Z2-->>C: route live ✓
+    C->>H: 6. Soak period + health gate (PromQL)
     H-->>C: healthy ✓
-    C->>T: 4. Unload old model (ModelCleanupActor)
-    T-->>C: old model removed ✓
+    C->>Z1: 7. Unload old model
+    C->>Z2: 7. Unload old model
 ```
 
-All target clusters complete steps 1–2 before any cluster runs step 4. The old model is only removed after every cluster has routed traffic to the new one — the same pattern as Uber's internal multi-zone rollout.
+#### Rolling — all clusters simultaneously
+
+All clusters load the new model in parallel. Used when hosts cannot hold two model versions in memory at once (GPU memory constraints).
+
+```
+cluster-1 + cluster-2: load new model simultaneously → health gate → unload old model
+```
+
+No zone boundary. A bad model affects all clusters in the first batch.
 
 ### Health gate
 
-Two layers of health checking evaluated on every reconcile during rollout:
+Two layers evaluated on every reconcile during rollout:
 
 ```mermaid
 flowchart LR
@@ -137,17 +156,17 @@ graph LR
 
     IS --> C1
 
-    subgraph C1[Compute Cluster 1]
+    subgraph C1[Cluster 1 - Zone A]
         GW1[Gateway\nma-gateway-istio]
-        SVC1[Serving Runtime\nsklearn-iris]
+        SVC1[NVIDIA Triton]
         GW1 --> SVC1
     end
 
     IS --> C2
 
-    subgraph C2[Compute Cluster 2]
+    subgraph C2[Cluster 2 - Zone B]
         GW2[Gateway\nma-gateway-istio]
-        SVC2[Serving Runtime\nsklearn-iris]
+        SVC2[NVIDIA Triton]
         GW2 --> SVC2
     end
 
@@ -161,13 +180,13 @@ metadata:
   name: my-inference-server
 spec:
   clusterTargets:
-    - clusterId: compute-1
+    - clusterId: compute-1          # Zone A
       kubernetes:
         host: "https://compute-1.internal"
         port: 6443
       tokenTag: compute-1-token
       caDataTag: compute-1-ca
-    - clusterId: compute-2
+    - clusterId: compute-2          # Zone B
       kubernetes:
         host: "https://compute-2.internal"
         port: 6443
@@ -175,23 +194,23 @@ spec:
       caDataTag: compute-2-ca
 ```
 
-One CR — two clusters. The controller provisions the serving stack on both.
-
 ### Serving runtime
 
-The current backend is **NVIDIA Triton Inference Server**. The backend interface is pluggable — additional runtimes (vLLM, custom) can be added by implementing the `Backend` interface in `go/components/inferenceserver/backends/`.
+The current backend is **NVIDIA Triton Inference Server**. The backend interface (`go/components/inferenceserver/backends/`) is pluggable — additional runtimes can be added by implementing the `Backend` interface.
 
-| Runtime | Status | Image |
+| Runtime | Status | Notes |
 |---|---|---|
-| **NVIDIA Triton** | Supported | `nvcr.io/nvidia/tritonserver:23.04-py3` |
-| **vLLM** | Planned | — |
-| **Custom** | Planned | — |
+| **NVIDIA Triton** | ✅ Supported | ONNX, TensorRT, PyTorch, TensorFlow |
+| **vLLM** | Planned | Interface ready, implementation pending |
+| **Custom** | Planned | Any HTTP inference endpoint |
 
 ---
 
 ## Deployment & Rollout
 
-### Deployment CR
+### Deployment CR — zonal strategy
+
+Roll out one cluster at a time with a soak period. If health gates fail in zone A, zone B is never touched:
 
 ```yaml
 apiVersion: michelangelo.api/v2
@@ -203,48 +222,34 @@ spec:
     name: my-model-v2
   inferenceServer:
     name: my-inference-server
-  strategy:
-    rolling:
-      incrementPercentage: 10   # advance 10% of traffic at a time
   definition:
     type: TARGET_TYPE_INFERENCE_SERVER
-```
-
-The controller shifts traffic incrementally across all `clusterTargets`, advancing only when the health gate passes at each step.
-
-### Metric health gates
-
-Define rollback rules directly in the Deployment spec using PromQL. The controller evaluates these on every reconcile cycle during rollout:
-
-```yaml
-spec:
+  strategy:
+    zonal:
+      rolloutPeriodInSeconds: 300   # soak 5 min per zone before advancing
   healthCheckConfig:
     prometheusUrl: "http://prometheus:9090"
     rules:
       - name: high-error-rate
         query: >-
-          rate(kserve_inference_service_request_total{
-            name="my-model", response_code!~"2.."}[2m])
-          / rate(kserve_inference_service_request_total{name="my-model"}[2m])
+          rate(triton_inference_request_failure_total{model="my-model"}[2m])
+          / rate(triton_inference_request_total{model="my-model"}[2m])
         op: GT
         threshold: 0.05      # roll back if error rate > 5%
 
       - name: high-latency-p99
         query: >-
           histogram_quantile(0.99,
-            rate(kserve_inference_service_request_latency_seconds_bucket{
-              name="my-model"}[2m]))
+            rate(triton_inference_request_duration_seconds_bucket{model="my-model"}[2m]))
         op: GT
-        threshold: 1.0       # roll back if P99 latency > 1s
+        threshold: 1.0       # roll back if P99 > 1s
 ```
 
-**Operators:** `GT`, `LT`, `GTE`, `LTE`
+**Supported operators:** `GT`, `LT`, `GTE`, `LTE`
 
-**Fail-open:** if Prometheus is unreachable, the gate returns healthy — no spurious rollbacks.
+### Force a rollback (for testing)
 
-### Triggering and recovering from rollback
-
-Force a rollback (useful for testing or live demos):
+Inject an always-failing rule — controller rolls back within one reconcile cycle (~30s):
 
 ```bash
 kubectl patch deployment my-model-deployment --type=merge -p '{
@@ -254,9 +259,7 @@ kubectl patch deployment my-model-deployment --type=merge -p '{
 }'
 ```
 
-The controller detects the breach within one reconcile cycle (~30s) and rolls back.
-
-Clear the rules to resume:
+Clear to resume:
 
 ```bash
 kubectl patch deployment my-model-deployment --type=merge -p '{
@@ -283,33 +286,26 @@ ma sandbox create
 ma sandbox demo inference
 ```
 
-### Multi-cluster sandbox with KServe
+### Multi-cluster sandbox (two zones)
 
 ```bash
-# Create control plane + compute cluster
+# Creates control plane cluster + compute-1 (zone A)
 ma sandbox create --create-compute-cluster
 
-# Install KServe on compute-1, deploy sklearn-iris, wire health gates
-ma sandbox demo kserve
+# Run a demo
+ma sandbox demo inference   # InferenceServer multi-cluster demo
+ma sandbox demo pipeline    # ML pipeline demo
+ma sandbox demo kserve      # KServe + metric health gate demo
 ```
 
-`ma sandbox demo kserve` sets up the full stack automatically:
+### KServe demo
+
+`ma sandbox demo kserve` sets up the full stack on `michelangelo-compute-1` automatically:
+
 - cert-manager + KServe v0.13.1 in RawDeployment mode (no Knative required)
 - Custom Triton `ClusterServingRuntime`
-- `sklearn-iris` InferenceService from GCS
+- `sklearn-iris` InferenceService
 - Michelangelo `InferenceServer` + `Deployment` CRs with metric health rules
-
-Test the endpoint:
-
-```bash
-kubectl --context k3d-michelangelo-compute-1 \
-  port-forward svc/sklearn-iris-predictor -n default 8081:80
-
-curl -X POST http://localhost:8081/v1/models/sklearn-iris:predict \
-  -H "Content-Type: application/json" \
-  -d '{"instances": [[6.8, 2.8, 4.8, 1.4]]}'
-# → {"predictions": [1]}
-```
 
 Apply the deployment with health gates:
 
@@ -333,10 +329,6 @@ def train(learning_rate: float = 0.01) -> str:
 @uniflow.workflow()
 def my_pipeline(learning_rate: float = 0.01):
     model = train(learning_rate=learning_rate)
-```
-
-```bash
-ma sandbox demo pipeline
 ```
 
 See the [MovieLens NCF example](python/examples/movielens/) for a full end-to-end walkthrough with Ray Train + PyTorch Lightning.
