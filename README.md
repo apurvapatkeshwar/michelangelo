@@ -300,14 +300,15 @@ ma sandbox demo kserve      # KServe + metric health gate demo
 
 ### KServe demo
 
-`ma sandbox demo kserve` sets up the full stack on `michelangelo-compute-1` automatically:
+`ma sandbox demo kserve` installs KServe on `michelangelo-compute-1` alongside the existing Michelangelo stack:
 
 - cert-manager + KServe v0.13.1 in RawDeployment mode (no Knative required)
-- Custom Triton `ClusterServingRuntime`
-- `sklearn-iris` InferenceService
-- Michelangelo `InferenceServer` + `Deployment` CRs with metric health rules
+- Custom Triton `ClusterServingRuntime` for KServe
+- `sklearn-iris` KServe `InferenceService` — managed by KServe directly
 
-Apply the deployment with health gates:
+> **Note:** KServe and Michelangelo are independent in this demo. The `InferenceService` CR is applied directly to the cluster; Michelangelo does not manage it. Michelangelo's `Deployment` CR targets its own Triton `InferenceServer`. A native KServe backend for Michelangelo is planned.
+
+Apply the Michelangelo deployment with Triton health gates:
 
 ```bash
 kubectl apply -f python/michelangelo/cli/sandbox/demo/kserve/deployment-with-healthcheck.yaml
