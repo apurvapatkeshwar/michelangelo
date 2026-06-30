@@ -14,7 +14,6 @@ import (
 	osscommon "github.com/michelangelo-ai/michelangelo/go/components/deployment/plugins/oss/common"
 	"github.com/michelangelo-ai/michelangelo/go/components/inferenceserver/backends"
 	"github.com/michelangelo-ai/michelangelo/go/components/inferenceserver/clientfactory"
-	modelconfig "github.com/michelangelo-ai/michelangelo/go/components/inferenceserver/modelconfig"
 	v2pb "github.com/michelangelo-ai/michelangelo/proto-go/api/v2"
 
 	strategiesCommon "github.com/michelangelo-ai/michelangelo/go/components/deployment/plugins/oss/rollout/strategies/common"
@@ -25,11 +24,10 @@ type Params struct {
 	ClientFactory       clientfactory.ClientFactory
 	RouteManager        routing.Manager
 	BackendRegistry     *backends.Registry
-	ModelConfigProvider modelconfig.ModelConfigProvider
 	Logger              *zap.Logger
+	BackendType         v2pb.BackendType
 
-	// DynamicClient is the dynamic client for the control-plane cluster. Retained so that
-	// actors operating on control-plane-only resources can access it directly.
+	// DynamicClient is the dynamic client for the control-plane cluster.
 	DynamicClient dynamic.Interface
 
 	// Client is the controller-runtime client for the control-plane cluster.
@@ -81,13 +79,13 @@ func getRollingActors(params Params, deployment *v2pb.Deployment) ([]conditionIn
 
 	for _, target := range targets {
 		actors = append(actors,
-			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target),
+			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, target),
 			strategiesCommon.NewTrafficRoutingActor(params.ClientFactory, params.RouteManager, target),
 		)
 	}
 	actors = append(actors, strategiesCommon.NewDiscoveryRoutingActor(params.DynamicClient, params.RouteManager))
 	for _, target := range targets {
-		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target))
+		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, target))
 	}
 
 	return actors, nil
@@ -116,14 +114,14 @@ func getZonalActors(params Params, deployment *v2pb.Deployment) ([]conditionInte
 
 	for _, target := range targets {
 		actors = append(actors,
-			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target),
+			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, target),
 			strategiesCommon.NewTrafficRoutingActor(params.ClientFactory, params.RouteManager, target),
 			strategiesCommon.NewZonalSoakActor(target, soakSeconds, params.Logger),
 		)
 	}
 	actors = append(actors, strategiesCommon.NewDiscoveryRoutingActor(params.DynamicClient, params.RouteManager))
 	for _, target := range targets {
-		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target))
+		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, target))
 	}
 
 	return actors, nil

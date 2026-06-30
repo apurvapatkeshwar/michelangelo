@@ -12,8 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	modelconfig "github.com/michelangelo-ai/michelangelo/go/components/inferenceserver/modelconfig"
 	v2pb "github.com/michelangelo-ai/michelangelo/proto-go/api/v2"
 )
 
@@ -34,10 +36,12 @@ const (
 )
 
 // Triton Server Management
-type tritonBackend struct{}
+type tritonBackend struct {
+	modelConfigProvider modelconfig.ModelConfigProvider
+}
 
-func NewTritonBackend() *tritonBackend {
-	return &tritonBackend{}
+func NewTritonBackend(modelConfigProvider modelconfig.ModelConfigProvider) *tritonBackend {
+	return &tritonBackend{modelConfigProvider: modelConfigProvider}
 }
 
 func (b *tritonBackend) CreateServer(ctx context.Context, logger *zap.Logger, kubeClient client.Client, inferenceServer *v2pb.InferenceServer) (*ServerStatus, error) {
@@ -213,6 +217,19 @@ func (b *tritonBackend) CheckModelStatus(ctx context.Context, logger *zap.Logger
 	}
 
 	return ready, nil
+}
+
+// LoadModel adds a model to the Triton ConfigMap so Triton loads it from storage.
+func (b *tritonBackend) LoadModel(ctx context.Context, logger *zap.Logger, kubeClient client.Client, _ dynamic.Interface, inferenceServerName, namespace, modelName, storageURI string) error {
+	return b.modelConfigProvider.AddModelToConfig(ctx, logger, kubeClient, inferenceServerName, namespace, modelconfig.ModelConfigEntry{
+		Name:        modelName,
+		StoragePath: storageURI,
+	})
+}
+
+// UnloadModel removes a model from the Triton ConfigMap so Triton unloads it.
+func (b *tritonBackend) UnloadModel(ctx context.Context, logger *zap.Logger, kubeClient client.Client, _ dynamic.Interface, inferenceServerName, namespace, modelName string) error {
+	return b.modelConfigProvider.RemoveModelFromConfig(ctx, logger, kubeClient, inferenceServerName, namespace, modelName)
 }
 
 func (b *tritonBackend) createTritonDeployment(ctx context.Context, logger *zap.Logger, kubeClient client.Client, inferenceServer *v2pb.InferenceServer) error {

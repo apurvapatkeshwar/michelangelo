@@ -107,14 +107,13 @@ func NewPlugin(params Params) *Plugin {
 // GetRolloutPlugin creates a deployment-specific rollout plugin with the appropriate strategy.
 func (p *Plugin) GetRolloutPlugin(ctx context.Context, deployment *v2pb.Deployment) (conditionInterfaces.Plugin[*v2pb.Deployment], error) {
 	rolloutPlugin, err := rollout.NewRolloutPlugin(ctx, rollout.Params{
-		Client:              p.client,
-		HTTPClient:          p.httpClient,
-		DynamicClient:       p.dynamicClient,
-		ClientFactory:       p.clientFactory,
-		RouteManager:        p.routeManager,
-		BackendRegistry:     p.backendRegistry,
-		ModelConfigProvider: p.modelConfigProvider,
-		Logger:              p.logger,
+		Client:          p.client,
+		HTTPClient:      p.httpClient,
+		DynamicClient:   p.dynamicClient,
+		ClientFactory:   p.clientFactory,
+		RouteManager:    p.routeManager,
+		BackendRegistry: p.backendRegistry,
+		Logger:          p.logger,
 	}, deployment)
 	if err != nil {
 		p.logger.Error("failed to create rollout plugin",

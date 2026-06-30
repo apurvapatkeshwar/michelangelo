@@ -151,6 +151,43 @@ func (b *kserveBackend) CheckModelStatus(_ context.Context, _ *zap.Logger, _ cli
 	return true, nil
 }
 
+// LoadModel updates the KServe InferenceService storageUri to the new model path.
+// KServe handles the rollout internally once the spec is updated.
+func (b *kserveBackend) LoadModel(ctx context.Context, logger *zap.Logger, _ client.Client, dynClient dynamic.Interface, inferenceServerName, namespace, modelName, storageURI string) error {
+	isClient := dynClient.Resource(inferenceServiceGVR).Namespace(namespace)
+
+	obj, err := isClient.Get(ctx, inferenceServerName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get InferenceService %s/%s: %w", namespace, inferenceServerName, err)
+	}
+
+	if err := unstructured.SetNestedField(obj.Object, storageURI, "spec", "predictor", "model", "storageUri"); err != nil {
+		return fmt.Errorf("set storageUri: %w", err)
+	}
+	if err := unstructured.SetNestedField(obj.Object, modelName, "spec", "predictor", "model", "modelFormat", "name"); err != nil {
+		return fmt.Errorf("set modelFormat: %w", err)
+	}
+
+	if _, err := isClient.Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update InferenceService %s/%s: %w", namespace, inferenceServerName, err)
+	}
+
+	logger.Info("KServe InferenceService updated with new model",
+		zap.String("inferenceServer", inferenceServerName),
+		zap.String("model", modelName),
+		zap.String("storageURI", storageURI))
+	return nil
+}
+
+// UnloadModel is a no-op for KServe — updating storageUri in LoadModel replaces
+// the model in-place; there is no separate unload step.
+func (b *kserveBackend) UnloadModel(_ context.Context, logger *zap.Logger, _ client.Client, _ dynamic.Interface, inferenceServerName, namespace, modelName string) error {
+	logger.Info("KServe UnloadModel: no-op (in-place update)",
+		zap.String("inferenceServer", inferenceServerName),
+		zap.String("model", modelName))
+	return nil
+}
+
 // buildInferenceServiceObject constructs an unstructured KServe InferenceService.
 func buildInferenceServiceObject(name, namespace, storageURI, modelFormat string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{
