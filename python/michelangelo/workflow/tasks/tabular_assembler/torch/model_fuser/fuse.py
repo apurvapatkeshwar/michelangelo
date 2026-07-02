@@ -420,6 +420,13 @@ def _onnx_dynamo_export_error_should_retry_legacy(exc: BaseException) -> bool:
         or "passerror" in msg
         or "failed to convert 'dynamic_axes'" in msg
         or "treespec.unflatten" in msg
+        # torch.export's Dim-based dynamic_shapes validation has changed shape
+        # across torch releases (e.g. rejecting a Dim keyed by position for a
+        # tuple-of-tensors arg on some versions); treat that whole class of
+        # torch.export capture failures as dynamo-not-usable-here rather than
+        # a genuine model bug, and fall back to the legacy exporter.
+        or "torchexporterror" in msg
+        or "unexpected dimension" in msg
     )
 
 
@@ -830,9 +837,7 @@ def get_predictor_output_field_order(
                 output = module(*args)
         if hasattr(output, "_fields"):
             return list(output._fields)
-        _logger.info(
-            "Predictor output has no _fields; output_schema order unchanged."
-        )
+        _logger.info("Predictor output has no _fields; output_schema order unchanged.")
         return None
     except Exception as e:
         _logger.warning(
@@ -1015,9 +1020,7 @@ def compute_python_fuse_metadata(
         the predictor's ``forward()`` takes a single dict argument.
     """
     hyperparameters = hyperparameters or {}
-    pred_module = _load_module_from_path(
-        torch_model_path, model_class, hyperparameters
-    )
+    pred_module = _load_module_from_path(torch_model_path, model_class, hyperparameters)
     predictor_takes_dict = _forward_accepts_dict(pred_module)
 
     transform_input_keys = _schema_input_keys(tx_model_schema)
