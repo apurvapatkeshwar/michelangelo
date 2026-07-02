@@ -282,16 +282,12 @@ class ForwardAcceptsDictTest(unittest.TestCase):
     """Tests for ``_forward_accepts_dict``."""
 
     def test_accepts_dict_true(self):
-        """Accepts dict true."""
+        """Accepts dict true.
 
-        class M(nn.Module):
-            def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
-                return next(iter(x.values()))
-
-        self.assertTrue(fuse_module._forward_accepts_dict(M()))
-
-    def test_accepts_dict_true_for_stringized_annotation(self):
-        """Accepts dict true for stringized annotation."""
+        Also covers the stringized-annotation form: this module has
+        ``from __future__ import annotations``, so every annotation here
+        (including this one) is already stringized.
+        """
 
         class M(nn.Module):
             def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
