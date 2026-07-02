@@ -1,4 +1,6 @@
-"""Core library package for Michelangelo (model manager, artifact manager, trainer, etc.).
+"""Core library package for Michelangelo.
+
+Houses the model manager, artifact manager, trainer, and related subpackages.
 
 Callers should import from the submodules directly (e.g.
 ``michelangelo.lib.model_manager.packager``); this ``__init__.py``
