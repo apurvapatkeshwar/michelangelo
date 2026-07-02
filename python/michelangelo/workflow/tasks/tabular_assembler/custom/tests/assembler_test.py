@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
 
+from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
 from michelangelo.lib.model_manager.constants import StorageType
+from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
 from michelangelo.workflow.schema.assembler import (
     CustomAssemblerConfig,
@@ -17,10 +20,6 @@ from michelangelo.workflow.schema.assembler import (
 )
 from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
     fuse_model_schema,
-)
-from michelangelo.workflow.tasks.tabular_assembler.conftest import (
-    CUSTOM_MODEL_CLASS_PATH,
-    _LocalStorageBackendTestCase,
 )
 from michelangelo.workflow.tasks.tabular_assembler.custom.assembler import (
     custom_assembler,
@@ -31,7 +30,30 @@ from michelangelo.workflow.variables.metadata import (
 )
 from michelangelo.workflow.variables.types import ModelArtifact
 
+if TYPE_CHECKING:
+    from numpy import ndarray
+
 _ASSEMBLER_MODULE = "michelangelo.workflow.tasks.tabular_assembler.custom.assembler"
+
+
+class _CustomModelFixture(Model):
+    """Minimal concrete ``Model`` used only as an importable dotted path."""
+
+    def save(self, path: str) -> None:
+        pass
+
+    @classmethod
+    def load(cls, path: str) -> _CustomModelFixture:
+        return cls()
+
+    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
+        return inputs
+
+
+CUSTOM_MODEL_CLASS_PATH = (
+    "michelangelo.workflow.tasks.tabular_assembler.custom.tests."
+    "assembler_test._CustomModelFixture"
+)
 
 
 def _make_schema() -> ModelSchema:
@@ -63,8 +85,14 @@ def _fake_create_package(dest_dir_name: str):
     return _side_effect
 
 
-class CustomAssemblerTest(_LocalStorageBackendTestCase):
+class CustomAssemblerTest(unittest.TestCase):
     """Tests for ``custom_assembler``."""
+
+    def setUp(self) -> None:
+        """Create a fresh ``LocalStorageBackend`` rooted at a temp dir per test."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.storage_backend = LocalStorageBackend(self._tmp.name)
 
     def _upload_raw_model_source(self, contents: bytes = b"weights") -> str:
         """Create a local source dir and upload it, returning a backend URI."""

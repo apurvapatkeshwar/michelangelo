@@ -3,22 +3,44 @@
 from __future__ import annotations
 
 import unittest
+from typing import TYPE_CHECKING
 
 import pytorch_lightning as pl
 import torch.nn as nn
 
+from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.workflow.tasks.tabular_assembler._private.model_class.resolve import (
     resolve_model_class,
     resolve_training_framework,
     try_load_class,
 )
-from michelangelo.workflow.tasks.tabular_assembler.conftest import (
-    CUSTOM_MODEL_CLASS_PATH,
-)
 from michelangelo.workflow.variables.metadata import (
     TRAINING_FRAMEWORK_CUSTOM,
     TRAINING_FRAMEWORK_LIGHTNING,
     TRAINING_FRAMEWORK_PYTORCH,
+)
+
+if TYPE_CHECKING:
+    from numpy import ndarray
+
+
+class _CustomModelFixture(Model):
+    """Minimal concrete ``Model`` used only to exercise framework resolution."""
+
+    def save(self, path: str) -> None:
+        pass
+
+    @classmethod
+    def load(cls, path: str) -> _CustomModelFixture:
+        return cls()
+
+    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
+        return inputs
+
+
+CUSTOM_MODEL_CLASS_PATH = (
+    "michelangelo.workflow.tasks.tabular_assembler._private.model_class.tests."
+    "resolve_test._CustomModelFixture"
 )
 
 
