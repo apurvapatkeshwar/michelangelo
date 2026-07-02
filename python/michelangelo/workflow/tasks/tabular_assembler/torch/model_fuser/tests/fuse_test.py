@@ -16,6 +16,7 @@ bucket doesn't own.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import os
 import tempfile
@@ -606,184 +607,128 @@ class LoadModuleFromPathTest(unittest.TestCase):
 class FuseModelsToTorchscriptTest(unittest.TestCase):
     """Integration tests for ``fuse_models_to_torchscript``."""
 
-    def test_predictor_input_keys_dict_predictor_uses_schema_order(self):
-        """Predictor input keys dict predictor uses schema order."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="c", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="b", data_type=DataType.FLOAT, shape=[1]),
-            ],
-            output_schema=[
-                ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-            ],
-        )
-        with tempfile.TemporaryDirectory() as d:
-            tx_path = os.path.join(d, "tx.pt")
-            pred_path = os.path.join(d, "pred.pt")
-            dest_path = os.path.join(d, "fused.pt")
-            torch.save(_DictTransform().state_dict(), tx_path)
-            torch.save(_DictPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="c", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            with (
-                mock.patch(f"{_FUSE_MODULE}.FusedModel") as mock_fused,
-                mock.patch("torch.jit.trace", return_value=mock.MagicMock()),
-                mock.patch("torch.jit.save"),
-            ):
-                fuse_models_to_torchscript(
-                    torch_model_path=pred_path,
-                    tx_model_path=tx_path,
-                    model_class=_class_path(_DictPredictor),
-                    hyperparameters={},
-                    tx_model_class=_class_path(_DictTransform),
-                    tx_hyperparameters={},
-                    dest_path=dest_path,
-                    tx_model_schema=tx_schema,
-                    model_schema=schema,
-                )
-                call_kwargs = mock_fused.call_args[1]
-                self.assertTrue(call_kwargs["predictor_takes_dict"])
-                self.assertEqual(call_kwargs["predictor_input_keys"], ["c", "a", "b"])
+    def test_predictor_input_keys_dispatch(self):
+        """Predictor input key selection across dict/tensor predictors.
 
-    def test_predictor_input_keys_tensor_predictor_uses_forward_order(self):
-        """Predictor input keys tensor predictor uses forward order."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="b", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="c", data_type=DataType.FLOAT, shape=[1]),
-            ],
-            output_schema=[
-                ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-            ],
-        )
-        with tempfile.TemporaryDirectory() as d:
-            tx_path = os.path.join(d, "tx.pt")
-            pred_path = os.path.join(d, "pred.pt")
-            dest_path = os.path.join(d, "fused.pt")
-            torch.save(_DictTransform().state_dict(), tx_path)
-            torch.save(_MultiTensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            with (
-                mock.patch(f"{_FUSE_MODULE}.FusedModel") as mock_fused,
-                mock.patch("torch.jit.trace", return_value=mock.MagicMock()),
-                mock.patch("torch.jit.save"),
-            ):
-                fuse_models_to_torchscript(
-                    torch_model_path=pred_path,
-                    tx_model_path=tx_path,
-                    model_class=_class_path(_MultiTensorPredictor),
-                    hyperparameters={},
-                    tx_model_class=_class_path(_DictTransform),
-                    tx_hyperparameters={},
-                    dest_path=dest_path,
-                    tx_model_schema=tx_schema,
-                    model_schema=schema,
-                )
-                call_kwargs = mock_fused.call_args[1]
-                self.assertFalse(call_kwargs["predictor_takes_dict"])
+        Covers 4 distinct dispatch behaviors: schema order for dict
+        predictors, forward order for tensor predictors, a ``ValueError``
+        when the schema isn't a subset of ``forward()``'s params, and
+        schema-order fallback when forward-param inspection is empty.
+        """
+        cases = [
+            {
+                "predictor_cls": _DictPredictor,
+                "schema_names": ["c", "a", "b"],
+                "tx_output_name": "c",
+                "extra_mock_target": None,
+                "expect_error": False,
+                "expected_takes_dict": True,
+                "expected_keys": ["c", "a", "b"],
+            },
+            {
+                "predictor_cls": _MultiTensorPredictor,
+                "schema_names": ["a", "b", "c"],
+                "tx_output_name": "a",
+                "extra_mock_target": None,
+                "expect_error": False,
+                "expected_takes_dict": False,
                 # forward order is (b, a, c); schema order is (a, b, c).
-                self.assertEqual(call_kwargs["predictor_input_keys"], ["b", "a", "c"])
-
-    def test_predictor_input_keys_raises_when_schema_not_subset_of_forward(self):
-        """Predictor input keys raises when schema not subset of forward."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="b", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="c", data_type=DataType.FLOAT, shape=[1]),
-            ],
-            output_schema=[
-                ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-            ],
-        )
-        with tempfile.TemporaryDirectory() as d:
-            tx_path = os.path.join(d, "tx.pt")
-            pred_path = os.path.join(d, "pred.pt")
-            dest_path = os.path.join(d, "fused.pt")
-            torch.save(_DictTransform().state_dict(), tx_path)
-            torch.save(_TwoParamPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            with self.assertRaises(ValueError) as ctx:
-                fuse_models_to_torchscript(
-                    torch_model_path=pred_path,
-                    tx_model_path=tx_path,
-                    model_class=_class_path(_TwoParamPredictor),
-                    hyperparameters={},
-                    tx_model_class=_class_path(_DictTransform),
-                    tx_hyperparameters={},
-                    dest_path=dest_path,
-                    tx_model_schema=tx_schema,
-                    model_schema=schema,
+                "expected_keys": ["b", "a", "c"],
+            },
+            {
+                "predictor_cls": _TwoParamPredictor,
+                "schema_names": ["a", "b", "c"],
+                "tx_output_name": "a",
+                "extra_mock_target": None,
+                "expect_error": True,
+                "expected_takes_dict": None,
+                "expected_keys": None,
+            },
+            {
+                "predictor_cls": _TensorPredictor,
+                "schema_names": ["x"],
+                "tx_output_name": "x",
+                "extra_mock_target": f"{_FUSE_MODULE}._forward_param_order",
+                "expect_error": False,
+                "expected_takes_dict": False,
+                "expected_keys": ["x"],
+            },
+        ]
+        for case in cases:
+            with self.subTest(predictor=case["predictor_cls"].__name__):
+                schema = ModelSchema(
+                    input_schema=[
+                        ModelSchemaItem(name=n, data_type=DataType.FLOAT, shape=[1])
+                        for n in case["schema_names"]
+                    ],
+                    output_schema=[
+                        ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
+                    ],
                 )
-            self.assertIn("c", str(ctx.exception))
-            self.assertIn("forward()", str(ctx.exception))
-
-    def test_predictor_input_keys_empty_forward_uses_schema_order(self):
-        """Predictor input keys empty forward uses schema order."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="x", data_type=DataType.FLOAT, shape=[1])
-            ],
-            output_schema=[
-                ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-            ],
-        )
-        with tempfile.TemporaryDirectory() as d:
-            tx_path = os.path.join(d, "tx.pt")
-            pred_path = os.path.join(d, "pred.pt")
-            dest_path = os.path.join(d, "fused.pt")
-            torch.save(_DictTransform().state_dict(), tx_path)
-            torch.save(_TensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="x", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            with (
-                mock.patch(f"{_FUSE_MODULE}.FusedModel") as mock_fused,
-                mock.patch(f"{_FUSE_MODULE}._forward_param_order", return_value=[]),
-                mock.patch("torch.jit.trace", return_value=mock.MagicMock()),
-                mock.patch("torch.jit.save"),
-            ):
-                fuse_models_to_torchscript(
-                    torch_model_path=pred_path,
-                    tx_model_path=tx_path,
-                    model_class=_class_path(_TensorPredictor),
-                    hyperparameters={},
-                    tx_model_class=_class_path(_DictTransform),
-                    tx_hyperparameters={},
-                    dest_path=dest_path,
-                    tx_model_schema=tx_schema,
-                    model_schema=schema,
-                )
-                call_kwargs = mock_fused.call_args[1]
-                self.assertFalse(call_kwargs["predictor_takes_dict"])
-                self.assertEqual(call_kwargs["predictor_input_keys"], ["x"])
+                with tempfile.TemporaryDirectory() as d:
+                    tx_path = os.path.join(d, "tx.pt")
+                    pred_path = os.path.join(d, "pred.pt")
+                    dest_path = os.path.join(d, "fused.pt")
+                    torch.save(_DictTransform().state_dict(), tx_path)
+                    torch.save(case["predictor_cls"]().state_dict(), pred_path)
+                    tx_schema = ModelSchema(
+                        input_schema=[
+                            ModelSchemaItem(
+                                name="in", data_type=DataType.FLOAT, shape=[1]
+                            )
+                        ],
+                        output_schema=[
+                            ModelSchemaItem(
+                                name=case["tx_output_name"],
+                                data_type=DataType.FLOAT,
+                                shape=[1],
+                            )
+                        ],
+                    )
+                    ctx = None
+                    with contextlib.ExitStack() as stack:
+                        if case["expect_error"]:
+                            ctx = stack.enter_context(self.assertRaises(ValueError))
+                        else:
+                            mock_fused = stack.enter_context(
+                                mock.patch(f"{_FUSE_MODULE}.FusedModel")
+                            )
+                            stack.enter_context(
+                                mock.patch(
+                                    "torch.jit.trace", return_value=mock.MagicMock()
+                                )
+                            )
+                            stack.enter_context(mock.patch("torch.jit.save"))
+                            if case["extra_mock_target"]:
+                                stack.enter_context(
+                                    mock.patch(
+                                        case["extra_mock_target"], return_value=[]
+                                    )
+                                )
+                        fuse_models_to_torchscript(
+                            torch_model_path=pred_path,
+                            tx_model_path=tx_path,
+                            model_class=_class_path(case["predictor_cls"]),
+                            hyperparameters={},
+                            tx_model_class=_class_path(_DictTransform),
+                            tx_hyperparameters={},
+                            dest_path=dest_path,
+                            tx_model_schema=tx_schema,
+                            model_schema=schema,
+                        )
+                    if case["expect_error"]:
+                        self.assertIn("c", str(ctx.exception))
+                        self.assertIn("forward()", str(ctx.exception))
+                    else:
+                        call_kwargs = mock_fused.call_args[1]
+                        self.assertEqual(
+                            call_kwargs["predictor_takes_dict"],
+                            case["expected_takes_dict"],
+                        )
+                        self.assertEqual(
+                            call_kwargs["predictor_input_keys"],
+                            case["expected_keys"],
+                        )
 
     def test_dest_filename_only_uses_dot_makedirs(self):
         """Dest filename only uses dot makedirs."""
