@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
+from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
-from michelangelo.workflow.tasks.tabular_assembler.conftest import (
-    CUSTOM_MODEL_CLASS_PATH,
-    _LocalStorageBackendTestCase,
-)
 from michelangelo.workflow.tasks.tabular_assembler.task import tabular_assembler
 from michelangelo.workflow.variables.metadata import (
     TRAINING_FRAMEWORK_CUSTOM,
@@ -19,11 +19,39 @@ from michelangelo.workflow.variables.metadata import (
 )
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
+if TYPE_CHECKING:
+    from numpy import ndarray
+
 _TASK_MODULE = "michelangelo.workflow.tasks.tabular_assembler.task"
 
 
-class TabularAssemblerDispatchTest(_LocalStorageBackendTestCase):
+class _CustomModelFixture(Model):
+    """Minimal concrete ``Model`` used only as an importable dotted path."""
+
+    def save(self, path: str) -> None:
+        pass
+
+    @classmethod
+    def load(cls, path: str) -> _CustomModelFixture:
+        return cls()
+
+    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
+        return inputs
+
+
+CUSTOM_MODEL_CLASS_PATH = (
+    "michelangelo.workflow.tasks.tabular_assembler.tests.task_test._CustomModelFixture"
+)
+
+
+class TabularAssemblerDispatchTest(unittest.TestCase):
     """Tests for ``tabular_assembler``'s framework dispatch."""
+
+    def setUp(self) -> None:
+        """Create a fresh ``LocalStorageBackend`` rooted at a temp dir per test."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.storage_backend = LocalStorageBackend(self._tmp.name)
 
     def _sentinel_result(self) -> AssembledModel:
         """Return a placeholder ``AssembledModel`` for mocking downstream assemblers."""
