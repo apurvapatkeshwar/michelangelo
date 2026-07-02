@@ -73,8 +73,8 @@ def _fake_create_package(dest_dir_name: str):
     return _side_effect
 
 
-class TorchAssemblerTest(unittest.TestCase):
-    """Tests for ``torch_assembler``'s plain (no native-transform) path."""
+class _LocalBackendTestCase(unittest.TestCase):
+    """Shared ``LocalStorageBackend``-per-test fixture for the tests below."""
 
     def setUp(self) -> None:
         """Create a fresh ``LocalStorageBackend`` rooted at a temp dir per test."""
@@ -88,6 +88,10 @@ class TorchAssemblerTest(unittest.TestCase):
         with open(src, "wb") as f:
             f.write(contents)
         return self.storage_backend.upload(src, f"sources/{os.path.basename(src)}")
+
+
+class TorchAssemblerTest(_LocalBackendTestCase):
+    """Tests for ``torch_assembler``'s plain (no native-transform) path."""
 
     def _upload_real_module_source(
         self, module: nn.Module, *, as_state_dict: bool = True
@@ -288,7 +292,7 @@ def _native_tx_schema() -> ModelSchema:
     )
 
 
-class NativeTransformFusionTest(unittest.TestCase):
+class NativeTransformFusionTest(_LocalBackendTestCase):
     """Tests for ``torch_assembler``'s native-transform fusion branch.
 
     ``_model_fuser_functions`` is patched directly (rather than relying on
@@ -297,19 +301,6 @@ class NativeTransformFusionTest(unittest.TestCase):
     schema/sample-data construction, and transform metadata propagation —
     is exercised now.
     """
-
-    def setUp(self) -> None:
-        """Create a fresh ``LocalStorageBackend`` rooted at a temp dir per test."""
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.storage_backend = LocalStorageBackend(self._tmp.name)
-
-    def _upload_raw_model_source(self, contents: bytes = b"weights") -> str:
-        """Create a local source file and upload it, returning a backend URI."""
-        src = os.path.join(tempfile.mkdtemp(dir=self._tmp.name), "model.pt")
-        with open(src, "wb") as f:
-            f.write(contents)
-        return self.storage_backend.upload(src, f"sources/{os.path.basename(src)}")
 
     def _make_artifacts(self):
         raw_model = ModelArtifact(
