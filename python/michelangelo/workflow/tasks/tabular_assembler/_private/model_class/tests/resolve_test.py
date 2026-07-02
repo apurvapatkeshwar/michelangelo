@@ -12,14 +12,13 @@ from michelangelo.workflow.tasks.tabular_assembler._private.model_class.resolve 
     resolve_training_framework,
     try_load_class,
 )
+from michelangelo.workflow.tasks.tabular_assembler.conftest import (
+    CUSTOM_MODEL_CLASS_PATH,
+)
 from michelangelo.workflow.variables.metadata import (
     TRAINING_FRAMEWORK_CUSTOM,
     TRAINING_FRAMEWORK_LIGHTNING,
     TRAINING_FRAMEWORK_PYTORCH,
-)
-
-_CUSTOM_MODEL_PATH = (
-    "michelangelo.workflow.tasks.tabular_assembler.conftest._CustomModelFixture"
 )
 
 
@@ -48,13 +47,11 @@ _LIGHTNING_MODEL_PATH = (
 class ResolveTest(unittest.TestCase):
     """Tests for ``try_load_class``, ``resolve_training_framework``, ``resolve_model_class``."""  # noqa: E501
 
-    def test_try_load_class_none(self):
-        """``None`` input returns ``None``."""
-        self.assertIsNone(try_load_class(None))
-
-    def test_try_load_class_empty_string(self):
-        """Empty string input returns ``None``."""
-        self.assertIsNone(try_load_class(""))
+    def test_try_load_class_none_and_empty_string(self):
+        """``None`` and empty-string input both return ``None``."""
+        for value in (None, ""):
+            with self.subTest(value=value):
+                self.assertIsNone(try_load_class(value))
 
     def test_try_load_class_invalid_module(self):
         """An unimportable module path returns ``None``."""
@@ -71,7 +68,8 @@ class ResolveTest(unittest.TestCase):
     def test_resolve_training_framework_custom_model(self):
         """A ``Model`` subclass resolves to the custom framework."""
         self.assertEqual(
-            resolve_training_framework(_CUSTOM_MODEL_PATH), TRAINING_FRAMEWORK_CUSTOM
+            resolve_training_framework(CUSTOM_MODEL_CLASS_PATH),
+            TRAINING_FRAMEWORK_CUSTOM,
         )
 
     def test_resolve_training_framework_lightning_before_torch(self):
@@ -98,8 +96,8 @@ class ResolveTest(unittest.TestCase):
     def test_resolve_model_class_uses_config_when_importable(self):
         """The config-supplied class wins when it imports successfully."""
         self.assertEqual(
-            resolve_model_class(_CUSTOM_MODEL_PATH, "metadata.fallback.Model"),
-            _CUSTOM_MODEL_PATH,
+            resolve_model_class(CUSTOM_MODEL_CLASS_PATH, "metadata.fallback.Model"),
+            CUSTOM_MODEL_CLASS_PATH,
         )
 
     def test_resolve_model_class_falls_back_when_config_not_importable(self):
