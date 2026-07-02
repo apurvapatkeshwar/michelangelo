@@ -42,13 +42,15 @@ class FuseSampleDataTest(unittest.TestCase):
         self.assertEqual(set(rows[0].keys()), {"a", "b"})
         self.assertEqual(rows[0]["b"].tolist(), [2.0])
 
-    def test_returns_concatenation_when_predictor_rows_empty(self) -> None:
+    def test_returns_concatenation_when_one_side_empty(self) -> None:
         tx_data = [{"a": np.array([1.0], dtype=np.float32)}]
-        self.assertEqual(fuse_sample_data(tx_data, [], None), tx_data)
-
-    def test_returns_concatenation_when_tx_rows_empty(self) -> None:
         pred_data = [{"b": np.array([2.0], dtype=np.float32)}]
-        self.assertEqual(fuse_sample_data([], pred_data, None), pred_data)
+        for tx, pred, expected in (
+            (tx_data, [], tx_data),
+            ([], pred_data, pred_data),
+        ):
+            with self.subTest(tx=tx, pred=pred):
+                self.assertEqual(fuse_sample_data(tx, pred, None), expected)
 
     def test_returns_empty_when_both_sides_empty(self) -> None:
         self.assertEqual(fuse_sample_data(None, None, None), [])
