@@ -1,7 +1,7 @@
 """Packager for custom Triton models."""
 
 import tempfile
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 from numpy import ndarray
 
@@ -24,10 +24,14 @@ from michelangelo.lib.model_manager._private.utils.data_utils import (
     validate_sample_data_with_model_schema,
 )
 from michelangelo.lib.model_manager.constants import StorageType
+from michelangelo.lib.model_manager.packager.base import PackagerBase
 from michelangelo.lib.model_manager.schema import ModelSchema
 
+if TYPE_CHECKING:
+    from michelangelo.lib.artifact_manager.storage_backend import StorageBackend
 
-class CustomTritonPackager:
+
+class CustomTritonPackager(PackagerBase):
     """Packager for custom Triton Python models.
 
     This class provides utilities to package custom Python models that implement
@@ -45,7 +49,11 @@ class CustomTritonPackager:
             the model implementation.
     """
 
-    def __init__(self, custom_batch_processing: Optional[bool] = False):
+    def __init__(
+        self,
+        custom_batch_processing: Optional[bool] = False,
+        storage_backend: Optional["StorageBackend"] = None,
+    ):
         """Create a CustomTritonPackager instance.
 
         Args:
@@ -61,7 +69,12 @@ class CustomTritonPackager:
                 additional leading batch dimension. For example, if the schema
                 specifies shape [n, ..., m], the actual input shape will be
                 [batch_size, n, ..., m].
+            storage_backend: Optional backend used to resolve source artifacts
+                and produced packages. When ``None`` (default), the packager
+                keeps resolving paths via ``model_path_source_type``, unchanged
+                from prior behavior.
         """
+        super().__init__(storage_backend=storage_backend)
         self.gen = TritonTemplateRenderer()
         self.custom_batch_processing = custom_batch_processing
 
