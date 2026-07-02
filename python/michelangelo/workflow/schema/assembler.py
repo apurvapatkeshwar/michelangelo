@@ -36,6 +36,16 @@ class CustomAssemblerConfig:
             files are bundled into the package. Useful when the model class
             uses dynamic imports (e.g. ``importlib``) that static analysis
             misses. Each prefix is resolved recursively.
+        include_import_prefixes: Module prefixes the packager's static import
+            analysis is restricted to when deciding which of the model
+            class's imported modules to bundle. When ``None`` (the default),
+            every reachable imported module is considered, which is
+            unbounded and can be extremely slow in environments with a very
+            large importable module graph (e.g. a monorepo where the model
+            class's own package pulls in thousands of transitively-importable
+            modules) — set this to scope the walk to the module prefixes that
+            actually matter for the model (e.g. an internal caller with a
+            single top-level namespace might pass that namespace's prefix).
 
     Example:
         >>> CustomAssemblerConfig(custom_batch_processing=True).custom_batch_processing
@@ -44,6 +54,7 @@ class CustomAssemblerConfig:
 
     custom_batch_processing: bool | None = None
     additional_import_prefixes: list[str] | None = None
+    include_import_prefixes: list[str] | None = None
 
 
 @dataclass

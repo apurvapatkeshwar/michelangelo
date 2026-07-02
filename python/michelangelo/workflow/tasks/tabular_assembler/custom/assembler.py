@@ -59,8 +59,9 @@ def custom_assembler(
     Args:
         config: The assembler configuration. ``config.custom`` carries
             path-specific options (``custom_batch_processing``,
-            ``additional_import_prefixes``); ``config.model_class`` overrides
-            the model class recorded in ``raw_model``'s metadata.
+            ``additional_import_prefixes``, ``include_import_prefixes``);
+            ``config.model_class`` overrides the model class recorded in
+            ``raw_model``'s metadata.
         raw_model: The trained model to package. ``raw_model.metadata.schema``
             and ``raw_model.metadata.sample_data`` are used unless a
             ``native_transform_model`` is supplied.
@@ -89,6 +90,11 @@ def custom_assembler(
     additional_import_prefixes = (
         config.custom.additional_import_prefixes
         if config.custom and config.custom.additional_import_prefixes is not None
+        else None
+    )
+    include_import_prefixes = (
+        config.custom.include_import_prefixes
+        if config.custom and config.custom.include_import_prefixes is not None
         else None
     )
     packager = CustomTritonPackager(custom_batch_processing=custom_batch_processing)
@@ -132,6 +138,7 @@ def custom_assembler(
             dest_model_path=model_package_dest,
             model_path_source_type=StorageType.LOCAL,
             additional_import_prefixes=additional_import_prefixes,
+            include_import_prefixes=include_import_prefixes,
             sample_data=sample_data,
         )
         raw_model_package_path = packager.create_raw_model_package(
@@ -142,6 +149,7 @@ def custom_assembler(
             dest_model_path=raw_model_package_dest,
             model_path_source_type=StorageType.LOCAL,
             additional_import_prefixes=additional_import_prefixes,
+            include_import_prefixes=include_import_prefixes,
         )
 
         upload_prefix = f"tabular_assembler/{uuid.uuid4().hex}"
