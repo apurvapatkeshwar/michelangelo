@@ -25,6 +25,8 @@ from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from michelangelo.lib.artifact_manager.storage_backend import StorageBackend
     from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
 
@@ -69,7 +71,13 @@ def _reorder_output_schema(
     return ModelSchema(input_schema=list(schema.input_schema), output_schema=reordered)
 
 
-def _model_fuser_functions():
+def _model_fuser_functions() -> tuple[
+    Callable[..., str],
+    Callable[..., tuple[str, str, dict]],
+    Callable[..., str],
+    Callable[..., list[str] | None],
+    Callable[..., list[dict]],
+]:
     """Lazily import the model-fuser functions used for native-transform fusion.
 
     This indirection lets ``torch.model_fuser.fuse`` land in a follow-up
