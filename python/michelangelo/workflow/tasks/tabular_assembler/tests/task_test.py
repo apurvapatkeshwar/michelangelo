@@ -103,27 +103,60 @@ class TabularAssemblerDispatchTest(unittest.TestCase):
             config, raw_model, native_tx, storage_backend=self.storage_backend
         )
 
-    def test_torch_framework_raises_not_implemented(self):
-        """The pytorch path is not yet implemented in this package."""
+    def test_torch_dispatch_resolves_now_that_torch_assembler_exists(self):
+        """``torch.assembler`` now exists.
+
+        The lazy import in ``_torch_assembler`` resolves instead of raising
+        ``NotImplementedError``.
+        """
+        from michelangelo.workflow.tasks.tabular_assembler.torch.assembler import (
+            torch_assembler,
+        )
+
+        self.assertTrue(callable(torch_assembler))
+
+    @patch(
+        "michelangelo.workflow.tasks.tabular_assembler.torch.assembler.torch_assembler"
+    )
+    def test_dispatches_to_torch_assembler_for_pytorch_framework(self, mock_torch):
+        """``training_framework == pytorch`` routes to the real torch assembler."""
+        mock_torch.return_value = self._sentinel_result()
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
             path="p",
             metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_PYTORCH),
         )
 
-        with self.assertRaises(NotImplementedError):
-            tabular_assembler(config, raw_model, storage_backend=self.storage_backend)
+        result = tabular_assembler(
+            config, raw_model, storage_backend=self.storage_backend
+        )
 
-    def test_lightning_framework_raises_not_implemented(self):
-        """The lightning path is not yet implemented in this package."""
+        self.assertIs(result, mock_torch.return_value)
+        mock_torch.assert_called_once_with(
+            config, raw_model, None, storage_backend=self.storage_backend
+        )
+
+    @patch(
+        "michelangelo.workflow.tasks.tabular_assembler.torch.assembler.torch_assembler"
+    )
+    def test_dispatches_to_torch_assembler_for_lightning_framework(self, mock_torch):
+        """``training_framework == lightning`` routes to the real torch assembler."""
+        mock_torch.return_value = self._sentinel_result()
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
             path="p",
             metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_LIGHTNING),
         )
+        native_tx = ModelArtifact(path="tx")
 
-        with self.assertRaises(NotImplementedError):
-            tabular_assembler(config, raw_model, storage_backend=self.storage_backend)
+        result = tabular_assembler(
+            config, raw_model, native_tx, storage_backend=self.storage_backend
+        )
+
+        self.assertIs(result, mock_torch.return_value)
+        mock_torch.assert_called_once_with(
+            config, raw_model, native_tx, storage_backend=self.storage_backend
+        )
 
     def test_unsupported_framework_returns_empty_placeholder_pair(self):
         """An unrecognized framework yields an empty (not ``None``) artifact pair."""
