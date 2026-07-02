@@ -1495,56 +1495,15 @@ class FuseModelsToOnnxTest(unittest.TestCase):
 
 
 # ===========================================================================
-# Tranche 3: native-transform-gated (present but skipped -- see PR F)
+# Tranche 3: native-transform-gated (see PR F)
 # ===========================================================================
-
-_NATIVE_TRANSFORM_SKIP_REASON = (
-    "Requires the native-transform package (TransformSpec, TorchTransformModule), "
-    "which has not yet been migrated to OSS michelangelo -- see migration bucket "
-    "'PR F'. model_fuser.fuse._build_tx_hydra_spec raises NotImplementedError "
-    "until then, which fuse_models_to_python always hits for its raw package."
-)
-
-
-# Internally, BuildTxHydraSpecTest asserts that _build_tx_hydra_spec
-# reconstructs a TransformSpec from its to_dict() output and emits a Hydra
-# spec with layers grouped by topological level, matching the state dict's
-# transform_module.* key layout. Port faithfully once native-transform lands
-# (PR F); there is no OSS code to exercise yet.
-
-
-@unittest.skip(_NATIVE_TRANSFORM_SKIP_REASON)
-class FuseModelsToPythonTest(unittest.TestCase):
-    """Placeholder for the internal ``FuseModelsToPythonTest`` suite.
-
-    Internally this covers combining predictor + transform state dicts under
-    ``predictor_module.*``/``transform_module.*`` prefixes and building the
-    Hydra reconstruction spec. In OSS, ``fuse_models_to_python`` *always*
-    calls ``_build_tx_hydra_spec`` for its raw package (see that function's
-    docstring), so every scenario in this class -- including the state-dict
-    combination itself -- currently raises ``NotImplementedError``. Unskip
-    and port faithfully once native-transform lands (PR F).
-    """
-
-    def test_combines_state_dicts_and_builds_fused_hyperparameters(self):
-        """Combines state dicts and builds fused hyperparameters."""
-        with tempfile.TemporaryDirectory() as d:
-            tx_path = os.path.join(d, "tx.pt")
-            pred_path = os.path.join(d, "pred.pt")
-            dest_path = os.path.join(d, "fused.pt")
-            torch.save(_TensorPredictor().state_dict(), pred_path)
-            torch.save(_DictTransform(), tx_path)
-            with self.assertRaises(NotImplementedError):
-                fuse_models_to_python(
-                    torch_model_path=pred_path,
-                    tx_model_path=tx_path,
-                    model_class=_class_path(_TensorPredictor),
-                    hyperparameters={},
-                    tx_hyperparameters={},
-                    dest_path=dest_path,
-                    tx_model_schema=None,
-                    model_schema=None,
-                )
+#
+# fuse_models_to_python always raises NotImplementedError for its raw
+# package until the native-transform package (TransformSpec,
+# TorchTransformModule) is migrated -- see _build_tx_hydra_spec's docstring.
+# FuseModelsToPythonNotImplementedTest below locks in that current behavior.
+# Once native-transform lands (PR F), port the internal BuildTxHydraSpecTest
+# and FuseModelsToPythonTest suites here for real behavioral coverage.
 
 
 class FuseModelsToPythonNotImplementedTest(unittest.TestCase):
