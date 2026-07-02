@@ -8,11 +8,9 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-from numpy import ndarray
 
 from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
 from michelangelo.lib.model_manager.constants import StorageType
-from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
 from michelangelo.workflow.schema.assembler import (
     CustomAssemblerConfig,
@@ -31,25 +29,10 @@ from michelangelo.workflow.variables.metadata import (
 from michelangelo.workflow.variables.types import ModelArtifact
 
 _CUSTOM_MODEL_CLASS = (
-    "michelangelo.workflow.tasks.tabular_assembler.custom.tests."
-    "assembler_test._CustomModelFixture"
+    "michelangelo.workflow.tasks.tabular_assembler.conftest._CustomModelFixture"
 )
 
 _ASSEMBLER_MODULE = "michelangelo.workflow.tasks.tabular_assembler.custom.assembler"
-
-
-class _CustomModelFixture(Model):
-    """Minimal concrete ``Model`` used only as an importable dotted path."""
-
-    def save(self, path: str) -> None:
-        pass
-
-    @classmethod
-    def load(cls, path: str) -> _CustomModelFixture:
-        return cls()
-
-    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
-        return inputs
 
 
 def _make_schema() -> ModelSchema:
