@@ -68,7 +68,15 @@ class PackagerBase(ABC):
     """
 
     def __init__(self, storage_backend: StorageBackend | None = None) -> None:
-        """Store the injected storage backend as a protected attribute."""
+        """Initialize the packager with an optional injected storage backend.
+
+        Args:
+            storage_backend: Backend used to download source artifacts and
+                upload produced packages. ``None`` for packagers that still
+                resolve paths via ``model_path_source_type``; subclasses that
+                require a backend should validate it here (e.g. raise if
+                ``None``) rather than fail later at package-creation time.
+        """
         self._storage_backend = storage_backend
 
     @abstractmethod
