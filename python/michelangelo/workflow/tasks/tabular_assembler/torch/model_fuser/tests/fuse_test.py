@@ -237,6 +237,23 @@ def _class_path(cls: type) -> str:
     return f"{__name__}.{cls.__qualname__}"
 
 
+def _simple_tx_and_pred_schemas() -> tuple[ModelSchema, ModelSchema]:
+    """Return a minimal ``tx_schema``/``pred_schema`` pair used by 6 fuse tests."""
+    tx_schema = ModelSchema(
+        input_schema=[ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])],
+        output_schema=[
+            ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
+        ],
+    )
+    pred_schema = ModelSchema(
+        input_schema=[ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])],
+        output_schema=[
+            ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
+        ],
+    )
+    return tx_schema, pred_schema
+
+
 # ===========================================================================
 # Tranche 1: non-native-transform, non-ONNX
 # ===========================================================================
@@ -775,22 +792,7 @@ class FuseModelsToTorchscriptTest(unittest.TestCase):
             pred_path = os.path.join(d, "pred.pt")
             torch.save(_DictTransform().state_dict(), tx_path)
             torch.save(_TensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            pred_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
+            tx_schema, pred_schema = _simple_tx_and_pred_schemas()
             old = os.getcwd()
             try:
                 os.chdir(d)
@@ -817,22 +819,7 @@ class FuseModelsToTorchscriptTest(unittest.TestCase):
             dest_path = os.path.join(d, "fused.pt")
             torch.save(_DictTransform().state_dict(), tx_path)
             torch.save(_TensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            pred_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
+            tx_schema, pred_schema = _simple_tx_and_pred_schemas()
             result = fuse_models_to_torchscript(
                 torch_model_path=pred_path,
                 tx_model_path=tx_path,
@@ -882,22 +869,7 @@ class FuseModelsToTorchscriptTest(unittest.TestCase):
             dest_path = os.path.join(d, "fused.pt")
             torch.save(_DictTransform().state_dict(), tx_path)
             torch.save(_DictPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            pred_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
+            tx_schema, pred_schema = _simple_tx_and_pred_schemas()
             result = fuse_models_to_torchscript(
                 torch_model_path=pred_path,
                 tx_model_path=tx_path,
@@ -1497,22 +1469,7 @@ class FuseModelsToOnnxTest(unittest.TestCase):
             dest_path = os.path.join(d, "fused.onnx")
             torch.save(_DictTransform().state_dict(), tx_path)
             torch.save(_TensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            pred_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
+            tx_schema, pred_schema = _simple_tx_and_pred_schemas()
             result = fuse_models_to_onnx(
                 torch_model_path=pred_path,
                 tx_model_path=tx_path,
@@ -1579,22 +1536,7 @@ class FuseModelsToOnnxTest(unittest.TestCase):
             pred_path = os.path.join(d, "pred.pt")
             torch.save(_DictTransform().state_dict(), tx_path)
             torch.save(_TensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            pred_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
+            tx_schema, pred_schema = _simple_tx_and_pred_schemas()
             old = os.getcwd()
             try:
                 os.chdir(d)
@@ -1621,22 +1563,7 @@ class FuseModelsToOnnxTest(unittest.TestCase):
             dest_path = os.path.join(d, "fused_warn.onnx")
             torch.save(_DictTransform().state_dict(), tx_path)
             torch.save(_TensorPredictor().state_dict(), pred_path)
-            tx_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
-            pred_schema = ModelSchema(
-                input_schema=[
-                    ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
-                ],
-                output_schema=[
-                    ModelSchemaItem(name="output", data_type=DataType.FLOAT, shape=[1])
-                ],
-            )
+            tx_schema, pred_schema = _simple_tx_and_pred_schemas()
             orig_forward = FusedModel.forward
             calls = {"n": 0}
 
