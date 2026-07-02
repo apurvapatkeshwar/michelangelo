@@ -20,6 +20,12 @@ def download_file_tree(url: str, dest: str) -> None:
     Args:
         url: The fsspec-resolvable URL of the file or directory to download.
         dest: The local destination directory. Created if it does not exist.
+
+    Raises:
+        OSError: If ``dest`` cannot be created (e.g. a permissions error or a
+            path component that already exists as a file).
+        FileNotFoundError: If the fsspec filesystem resolved from ``url``
+            cannot find ``path``.
     """
     if not os.path.exists(dest):
         os.makedirs(dest)
