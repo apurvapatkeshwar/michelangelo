@@ -547,61 +547,44 @@ class LoadModuleFromPathTest(unittest.TestCase):
                 _load_module_from_path(path, "some.Class", {})
             self.assertIn("Model file not found", str(ctx.exception))
 
-    def test_load_full_module(self):
-        """Load full module."""
-        model = _TensorPredictor()
+    def _save_and_load(self, obj, model_class="ignored", hyperparameters=None):
         with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
             path = f.name
         try:
-            torch.save(model, path)
-            loaded = _load_module_from_path(path, "ignored", {})
-            self.assertIsInstance(loaded, nn.Module)
-            self.assertFalse(loaded.training)
-            x = torch.randn(2, 3)
-            torch.testing.assert_close(loaded(x), model(x))
+            torch.save(obj, path)
+            return _load_module_from_path(path, model_class, hyperparameters)
         finally:
             os.unlink(path)
+
+    def test_load_full_module(self):
+        """Load full module."""
+        model = _TensorPredictor()
+        loaded = self._save_and_load(model, hyperparameters={})
+        self.assertIsInstance(loaded, nn.Module)
+        self.assertFalse(loaded.training)
+        x = torch.randn(2, 3)
+        torch.testing.assert_close(loaded(x), model(x))
 
     def test_load_state_dict_with_class(self):
         """Load state dict with class."""
         model = _TensorPredictor()
-        state = model.state_dict()
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(state, path)
-            loaded = _load_module_from_path(path, _class_path(_TensorPredictor), {})
-            self.assertIsInstance(loaded, _TensorPredictor)
-            loaded.eval()
-        finally:
-            os.unlink(path)
+        loaded = self._save_and_load(
+            model.state_dict(), _class_path(_TensorPredictor), hyperparameters={}
+        )
+        self.assertIsInstance(loaded, _TensorPredictor)
+        loaded.eval()
 
     def test_load_state_dict_with_none_hyperparameters(self):
         """Load state dict with none hyperparameters."""
         model = _TensorPredictor()
-        state = model.state_dict()
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(state, path)
-            loaded = _load_module_from_path(path, _class_path(_TensorPredictor), None)
-            self.assertIsInstance(loaded, _TensorPredictor)
-        finally:
-            os.unlink(path)
+        loaded = self._save_and_load(model.state_dict(), _class_path(_TensorPredictor))
+        self.assertIsInstance(loaded, _TensorPredictor)
 
     def test_load_non_module_non_state_dict_raises_type_error(self):
         """Load non module non state dict raises type error."""
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save([1, 2, 3], path)
-            with self.assertRaises(TypeError) as ctx:
-                _load_module_from_path(path, "ignored", {})
-            self.assertIn(
-                "did not contain a state_dict or nn.Module", str(ctx.exception)
-            )
-        finally:
-            os.unlink(path)
+        with self.assertRaises(TypeError) as ctx:
+            self._save_and_load([1, 2, 3], hyperparameters={})
+        self.assertIn("did not contain a state_dict or nn.Module", str(ctx.exception))
 
 
 class FuseModelsToTorchscriptTest(unittest.TestCase):
