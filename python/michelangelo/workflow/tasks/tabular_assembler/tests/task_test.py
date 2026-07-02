@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
-from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
 from michelangelo.workflow.tasks.tabular_assembler.task import tabular_assembler
 from michelangelo.workflow.variables.metadata import (
@@ -19,28 +17,10 @@ from michelangelo.workflow.variables.metadata import (
 )
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
-if TYPE_CHECKING:
-    from numpy import ndarray
-
 _TASK_MODULE = "michelangelo.workflow.tasks.tabular_assembler.task"
 
-
-class _CustomModelFixture(Model):
-    """Minimal concrete ``Model`` used only as an importable dotted path."""
-
-    def save(self, path: str) -> None:
-        pass
-
-    @classmethod
-    def load(cls, path: str) -> _CustomModelFixture:
-        return cls()
-
-    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
-        return inputs
-
-
 _CUSTOM_MODEL_CLASS = (
-    "michelangelo.workflow.tasks.tabular_assembler.tests.task_test._CustomModelFixture"
+    "michelangelo.workflow.tasks.tabular_assembler.conftest._CustomModelFixture"
 )
 
 
