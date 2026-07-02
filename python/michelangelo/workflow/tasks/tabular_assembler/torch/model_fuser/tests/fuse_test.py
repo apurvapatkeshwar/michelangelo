@@ -1680,20 +1680,11 @@ _NATIVE_TRANSFORM_SKIP_REASON = (
 )
 
 
-@unittest.skip(_NATIVE_TRANSFORM_SKIP_REASON)
-class BuildTxHydraSpecTest(unittest.TestCase):
-    """Placeholder for the internal ``BuildTxHydraSpecTest`` suite.
-
-    Internally this asserts that ``_build_tx_hydra_spec`` reconstructs a
-    ``TransformSpec`` from its ``to_dict()`` output and emits a Hydra spec
-    with layers grouped by topological level, matching the state dict's
-    ``transform_module.*`` key layout. Unskip and port faithfully once
-    native-transform lands (PR F).
-    """
-
-    def test_builds_hydra_spec_from_transform_spec_dict(self):
-        """Builds hydra spec from transform spec dict."""
-        raise NotImplementedError("native_transform not yet available in OSS")
+# Internally, BuildTxHydraSpecTest asserts that _build_tx_hydra_spec
+# reconstructs a TransformSpec from its to_dict() output and emits a Hydra
+# spec with layers grouped by topological level, matching the state dict's
+# transform_module.* key layout. Port faithfully once native-transform lands
+# (PR F); there is no OSS code to exercise yet.
 
 
 @unittest.skip(_NATIVE_TRANSFORM_SKIP_REASON)
