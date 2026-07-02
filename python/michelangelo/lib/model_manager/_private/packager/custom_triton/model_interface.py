@@ -24,10 +24,11 @@ def validate_model_class(model_class: str) -> tuple[bool, Exception]:
     except (ValueError, ImportError) as e:
         return False, e
 
-    if not issubclass(model_cls, custom_model.Model):
+    if not issubclass(model_cls, custom_model.ModelProtocol):
         return False, TypeError(
-            f"Model class {model_class} must be a subclass of "
-            "michelangelo.lib.model_manager.interface.custom_model.Model"
+            f"Model class {model_class} must implement the "
+            "michelangelo.lib.model_manager.interface.custom_model.Model "
+            "interface (save, load, predict)"
         )
 
     return True, None
