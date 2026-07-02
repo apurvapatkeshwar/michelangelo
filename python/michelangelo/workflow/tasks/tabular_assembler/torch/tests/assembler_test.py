@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import uuid
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import torch
+import torch.nn as nn
 
 from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
 from michelangelo.lib.model_manager.constants import StorageType
@@ -24,6 +27,22 @@ from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import ModelArtifact
 
 _ASSEMBLER_MODULE = "michelangelo.workflow.tasks.tabular_assembler.torch.assembler"
+
+
+class _E2EPredictor(nn.Module):
+    """Tiny real predictor for an end-to-end (real files, no mocks) assembler test."""
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """Sum the last dimension, matching ``_make_schema``'s ``input``/``output``."""
+        return input.sum(dim=-1, keepdim=True)
+
+
+class _E2ETxModule(nn.Module):
+    """Tiny real native-transform module for an end-to-end assembler test."""
+
+    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Double ``tx_in``, matching ``_native_tx_schema``'s input/output names."""
+        return {"pred_in": inputs["tx_in"] * 2.0}
 
 
 def _make_schema() -> ModelSchema:
@@ -69,6 +88,22 @@ class TorchAssemblerTest(unittest.TestCase):
         with open(src, "wb") as f:
             f.write(contents)
         return self.storage_backend.upload(src, f"sources/{os.path.basename(src)}")
+
+    def _upload_real_module_source(
+        self, module: nn.Module, *, as_state_dict: bool = True
+    ) -> str:
+        """Save a real module (state_dict or full module) and upload it.
+
+        Args:
+            module: The module to persist.
+            as_state_dict: Save ``module.state_dict()`` (the usual predictor
+                format) when ``True``; save the full module object (the
+                format ``fuse_models_to_python`` expects for the
+                native-transform side) when ``False``.
+        """
+        src = os.path.join(tempfile.mkdtemp(dir=self._tmp.name), "model.pt")
+        torch.save(module.state_dict() if as_state_dict else module, src)
+        return self.storage_backend.upload(src, f"sources/{uuid.uuid4().hex}.pt")
 
     @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_model_package")
     @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_raw_model_package")
@@ -201,28 +236,45 @@ class TorchAssemblerTest(unittest.TestCase):
 
         self.assertEqual(mock_create_model.call_args.kwargs["backend"], "python")
 
-    def test_native_transform_raises_not_implemented_until_model_fuser_lands(self):
-        """Fusion requires ``torch.model_fuser.fuse``, which lands later."""
+    def test_native_transform_raises_not_implemented_pending_native_transform(self):
+        """Real fusion now runs (model_fuser landed); native_transform is still needed.
+
+        ``torch/assembler.py``'s native-transform branch resolves its
+        ``model_fuser.fuse`` import (bucket E landed it), so this no longer
+        fails at the import stub in ``_model_fuser_functions``. It reaches
+        real fusion code and still raises ``NotImplementedError`` -- now from
+        ``fuse_models_to_python``'s ``_build_tx_hydra_spec`` call, which is
+        gated on the native-transform package (migration bucket "PR F"),
+        which hasn't landed yet. Real (non-garbage) model files are used here
+        so the ``NotImplementedError`` is unambiguously coming from that gate
+        and not an incidental file-format error.
+        """
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
-            path=self._upload_raw_model_source(),
+            path=self._upload_real_module_source(_E2EPredictor()),
             metadata=ModelMetadata(
-                model_class="test.SimpleTorchModel",
+                model_class=f"{__name__}._E2EPredictor",
                 schema=_make_schema(),
-                sample_data=[],
+                sample_data=[{"input": np.array([1.0, 2.0])}],
             ),
         )
         native_tx = ModelArtifact(
-            path=self._upload_raw_model_source(), metadata=ModelMetadata()
+            path=self._upload_real_module_source(_E2ETxModule(), as_state_dict=False),
+            metadata=ModelMetadata(
+                model_class=f"{__name__}._E2ETxModule",
+                schema=_native_tx_schema(),
+                sample_data=[{"tx_in": np.array([1.0])}],
+            ),
         )
 
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(NotImplementedError) as ctx:
             torch_assembler(
                 config,
                 raw_model,
                 native_transform_model=native_tx,
                 storage_backend=self.storage_backend,
             )
+        self.assertIn("native-transform", str(ctx.exception))
 
 
 def _native_tx_schema() -> ModelSchema:
