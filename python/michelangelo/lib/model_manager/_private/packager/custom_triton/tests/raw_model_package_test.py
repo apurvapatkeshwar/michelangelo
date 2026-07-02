@@ -1,5 +1,6 @@
 """Tests for raw model package generation."""
 
+import os
 import re
 import tempfile
 from unittest import TestCase
@@ -87,3 +88,33 @@ class RawModelPackageTest(TestCase):
         self.assertIn("requirements.txt", content["dependencies"])
         requirements = content["dependencies"]["requirements.txt"]
         self.assertEqual(requirements, "numpy\ntorch")
+
+    def test_generate_raw_model_package_content_with_additional_import_prefixes(self):
+        """It serializes additional dynamically-imported module prefixes."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content = generate_raw_model_package_content(
+                temp_dir,
+                "michelangelo.lib.model_manager._private.packager.custom_triton.tests.fixtures.predict.Predict",
+                ModelSchema(),
+                [{"input": np.array([1, 2])}],
+                include_import_prefixes=["michelangelo"],
+                additional_import_prefixes=[
+                    "michelangelo.lib.model_manager._private.utils.module_finder."
+                    "tests.fixtures.simple_module"
+                ],
+            )
+
+        defs_dir = content["defs"].removeprefix("dir://")
+        expected_file = os.path.join(
+            defs_dir,
+            "michelangelo",
+            "lib",
+            "model_manager",
+            "_private",
+            "utils",
+            "module_finder",
+            "tests",
+            "fixtures",
+            "simple_module.py",
+        )
+        self.assertTrue(os.path.exists(expected_file))
