@@ -1,11 +1,13 @@
 """Typed configuration dataclasses for the tabular assembler task.
 
-Mirror the internal ``*(JSONData)`` schemas as plain dataclasses so they can
-be validated at pipeline-definition time, serialised, and inspected by the
-workflow engine without the internal pydantic/uniflow base.
+Each dataclass configures one framework-specific assembler path (custom
+Python-backend or PyTorch/Lightning) or, for ``TabularAssemblerConfig``,
+selects between them. Plain dataclasses (rather than a pydantic/ORM model)
+keep validation, serialisation, and inspection by the workflow engine simple
+and dependency-free at pipeline-definition time.
 
-Internal consumers may subclass these to add provider-specific fields (e.g.
-an HDFS storage toggle) without modifying the OSS package.
+Consumers may subclass these to add provider-specific fields (e.g. a custom
+storage toggle) without modifying this module.
 """
 
 from __future__ import annotations
