@@ -14,13 +14,11 @@ mirroring the same fixes applied by the non-fused
 equivalent ONNX output quality.
 
 Building the Hydra reconstruction spec for a fused *native-transform* model's
-Python-backend package (:func:`_build_tx_hydra_spec`) requires the concrete
-``TransformSpec``/``TorchTransformModule`` implementation, which has not yet
-been migrated to OSS — see
-:mod:`~michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser.transform_spec_protocol`.
-Until it lands, that one function raises ``NotImplementedError``; every other
-function in this module (TorchScript export, ONNX export, field-order
-recovery, sample-data merge) works standalone.
+Python-backend package (:func:`_build_tx_hydra_spec`) requires the native
+transform package, which has not yet been migrated to OSS. Until it lands,
+that one function raises ``NotImplementedError``; every other function in
+this module (TorchScript export, ONNX export, field-order recovery,
+sample-data merge) works standalone.
 """
 
 from __future__ import annotations
@@ -320,11 +318,11 @@ def _build_tx_hydra_spec(tx_hyperparameters: dict[str, Any]) -> dict[str, Any]:
 
     Not yet implemented in OSS michelangelo: reconstructing a
     ``TorchTransformModule``/layer stack from a stored ``TransformSpec`` dict
-    requires the native-transform package, which has not been migrated (see
-    :mod:`.transform_spec_protocol`). This blocks only the Python-backend
-    *raw* package for a native-transform-fused model
-    (:func:`fuse_models_to_python`); the plain (no native-transform) path and
-    the TorchScript/ONNX fused deployable paths do not call this function.
+    requires the native-transform package, which has not been migrated. This
+    blocks only the Python-backend *raw* package for a native-transform-fused
+    model (:func:`fuse_models_to_python`); the plain (no native-transform)
+    path and the TorchScript/ONNX fused deployable paths do not call this
+    function.
 
     Args:
         tx_hyperparameters: ``TransformSpec.to_dict()`` output for the
@@ -336,10 +334,7 @@ def _build_tx_hydra_spec(tx_hyperparameters: dict[str, Any]) -> dict[str, Any]:
     raise NotImplementedError(
         "Building a Hydra reconstruction spec for a fused native-transform "
         "model requires the native-transform package, which is not yet "
-        "available in OSS michelangelo. See "
-        "michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser."
-        "transform_spec_protocol.TransformSpec for the contract a future "
-        "implementation must satisfy."
+        "available in OSS michelangelo."
     )
 
 
