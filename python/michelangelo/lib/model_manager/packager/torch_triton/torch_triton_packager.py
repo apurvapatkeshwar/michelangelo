@@ -24,7 +24,6 @@ from michelangelo.lib.model_manager.constants import StorageType
 from michelangelo.lib.model_manager.constants.triton_backend_type import (
     TritonBackendType,
 )
-from michelangelo.lib.model_manager.packager.base import PackagerBase
 from michelangelo.lib.model_manager.schema import ModelSchema
 
 if TYPE_CHECKING:
@@ -37,7 +36,7 @@ _SUPPORTED_BACKENDS = {
 }
 
 
-class TorchTritonPackager(PackagerBase):
+class TorchTritonPackager:
     """Packager for PyTorch models targeting NVIDIA Triton Inference Server.
 
     This class packages PyTorch models into formats suitable for deployment on
@@ -69,7 +68,7 @@ class TorchTritonPackager(PackagerBase):
                 keeps resolving paths via ``model_path_source_type``,
                 unchanged from prior behavior.
         """
-        super().__init__(storage_backend=storage_backend)
+        self._storage_backend = storage_backend
         self.gen = TritonTemplateRenderer()
 
     def create_model_package(

@@ -24,14 +24,13 @@ from michelangelo.lib.model_manager._private.utils.data_utils import (
     validate_sample_data_with_model_schema,
 )
 from michelangelo.lib.model_manager.constants import StorageType
-from michelangelo.lib.model_manager.packager.base import PackagerBase
 from michelangelo.lib.model_manager.schema import ModelSchema
 
 if TYPE_CHECKING:
     from michelangelo.lib.artifact_manager.storage_backend import StorageBackend
 
 
-class CustomTritonPackager(PackagerBase):
+class CustomTritonPackager:
     """Packager for custom Triton Python models.
 
     This class provides utilities to package custom Python models that implement
@@ -74,7 +73,7 @@ class CustomTritonPackager(PackagerBase):
                 keeps resolving paths via ``model_path_source_type``, unchanged
                 from prior behavior.
         """
-        super().__init__(storage_backend=storage_backend)
+        self._storage_backend = storage_backend
         self.gen = TritonTemplateRenderer()
         self.custom_batch_processing = custom_batch_processing
 
