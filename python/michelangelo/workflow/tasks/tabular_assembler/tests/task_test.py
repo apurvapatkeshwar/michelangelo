@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import tempfile
 import unittest
 from unittest.mock import patch
 
-from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
 from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
+from michelangelo.workflow.tasks.tabular_assembler.conftest import (
+    CUSTOM_MODEL_CLASS_PATH,
+    _LocalStorageBackendTestCase,
+)
 from michelangelo.workflow.tasks.tabular_assembler.task import tabular_assembler
 from michelangelo.workflow.variables.metadata import (
     TRAINING_FRAMEWORK_CUSTOM,
@@ -19,19 +21,9 @@ from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
 _TASK_MODULE = "michelangelo.workflow.tasks.tabular_assembler.task"
 
-_CUSTOM_MODEL_CLASS = (
-    "michelangelo.workflow.tasks.tabular_assembler.conftest._CustomModelFixture"
-)
 
-
-class TabularAssemblerDispatchTest(unittest.TestCase):
+class TabularAssemblerDispatchTest(_LocalStorageBackendTestCase):
     """Tests for ``tabular_assembler``'s framework dispatch."""
-
-    def setUp(self) -> None:
-        """Create a fresh ``LocalStorageBackend`` rooted at a temp dir per test."""
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.storage_backend = LocalStorageBackend(self._tmp.name)
 
     def _sentinel_result(self) -> AssembledModel:
         """Return a placeholder ``AssembledModel`` for mocking downstream assemblers."""
@@ -68,7 +60,7 @@ class TabularAssemblerDispatchTest(unittest.TestCase):
         This holds even when the recorded training framework is ``lightning``.
         """
         mock_custom.return_value = self._sentinel_result()
-        config = TabularAssemblerConfig(model_class=_CUSTOM_MODEL_CLASS)
+        config = TabularAssemblerConfig(model_class=CUSTOM_MODEL_CLASS_PATH)
         raw_model = ModelArtifact(
             path="p",
             metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_LIGHTNING),
@@ -98,45 +90,28 @@ class TabularAssemblerDispatchTest(unittest.TestCase):
     @patch(
         "michelangelo.workflow.tasks.tabular_assembler.torch.assembler.torch_assembler"
     )
-    def test_dispatches_to_torch_assembler_for_pytorch_framework(self, mock_torch):
-        """``training_framework == pytorch`` routes to the real torch assembler."""
-        mock_torch.return_value = self._sentinel_result()
-        config = TabularAssemblerConfig()
-        raw_model = ModelArtifact(
-            path="p",
-            metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_PYTORCH),
-        )
+    def test_dispatches_to_torch_assembler_for_pytorch_and_lightning(self, mock_torch):
+        """``pytorch``/``lightning`` frameworks route to the real torch assembler."""
+        for framework, native_tx in (
+            (TRAINING_FRAMEWORK_PYTORCH, None),
+            (TRAINING_FRAMEWORK_LIGHTNING, ModelArtifact(path="tx")),
+        ):
+            with self.subTest(framework=framework):
+                mock_torch.reset_mock()
+                mock_torch.return_value = self._sentinel_result()
+                config = TabularAssemblerConfig()
+                raw_model = ModelArtifact(
+                    path="p", metadata=ModelMetadata(training_framework=framework)
+                )
 
-        result = tabular_assembler(
-            config, raw_model, storage_backend=self.storage_backend
-        )
+                result = tabular_assembler(
+                    config, raw_model, native_tx, storage_backend=self.storage_backend
+                )
 
-        self.assertIs(result, mock_torch.return_value)
-        mock_torch.assert_called_once_with(
-            config, raw_model, None, storage_backend=self.storage_backend
-        )
-
-    @patch(
-        "michelangelo.workflow.tasks.tabular_assembler.torch.assembler.torch_assembler"
-    )
-    def test_dispatches_to_torch_assembler_for_lightning_framework(self, mock_torch):
-        """``training_framework == lightning`` routes to the real torch assembler."""
-        mock_torch.return_value = self._sentinel_result()
-        config = TabularAssemblerConfig()
-        raw_model = ModelArtifact(
-            path="p",
-            metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_LIGHTNING),
-        )
-        native_tx = ModelArtifact(path="tx")
-
-        result = tabular_assembler(
-            config, raw_model, native_tx, storage_backend=self.storage_backend
-        )
-
-        self.assertIs(result, mock_torch.return_value)
-        mock_torch.assert_called_once_with(
-            config, raw_model, native_tx, storage_backend=self.storage_backend
-        )
+                self.assertIs(result, mock_torch.return_value)
+                mock_torch.assert_called_once_with(
+                    config, raw_model, native_tx, storage_backend=self.storage_backend
+                )
 
     def test_unsupported_framework_returns_empty_placeholder_pair(self):
         """An unrecognized framework yields an empty (not ``None``) artifact pair."""
