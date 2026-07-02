@@ -906,44 +906,34 @@ class GetPredictorOutputFieldOrderTest(unittest.TestCase):
             ],
         )
 
-    def test_tensor_predictor_named_tuple_returns_definition_order(self):
-        """Tensor predictor named tuple returns definition order."""
-        model = _NamedTupleTensorPredictor()
-        schema = self._make_schema(["a", "b"], ["a_out", "b_out"])
+    def _run_field_order(self, obj, model_class="", hyperparameters=None, schema=None):
         with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
             path = f.name
         try:
-            torch.save(model, path)
-            result = get_predictor_output_field_order(path, "", {}, schema)
+            torch.save(obj, path)
+            return get_predictor_output_field_order(
+                path, model_class, hyperparameters or {}, schema
+            )
         finally:
             os.unlink(path)
+
+    def test_tensor_predictor_named_tuple_returns_definition_order(self):
+        """Tensor predictor named tuple returns definition order."""
+        schema = self._make_schema(["a", "b"], ["a_out", "b_out"])
+        result = self._run_field_order(_NamedTupleTensorPredictor(), schema=schema)
         # _fields order is b_out, a_out (definition order), not schema order.
         self.assertEqual(result, ["b_out", "a_out"])
 
     def test_dict_predictor_named_tuple_returns_definition_order(self):
         """Dict predictor named tuple returns definition order."""
-        model = _NamedTupleDictPredictor()
         schema = self._make_schema(["x", "z"], ["x_out", "z_out"])
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(model, path)
-            result = get_predictor_output_field_order(path, "", {}, schema)
-        finally:
-            os.unlink(path)
+        result = self._run_field_order(_NamedTupleDictPredictor(), schema=schema)
         self.assertEqual(result, ["z_out", "x_out"])
 
     def test_plain_tensor_output_returns_none(self):
         """Plain tensor output returns none."""
-        model = _TensorPredictor()
         schema = self._make_schema(["out"], ["result"])
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(model, path)
-            result = get_predictor_output_field_order(path, "", {}, schema)
-        finally:
-            os.unlink(path)
+        result = self._run_field_order(_TensorPredictor(), schema=schema)
         self.assertIsNone(result)
 
     def test_missing_file_returns_none_with_warning(self):
@@ -958,53 +948,34 @@ class GetPredictorOutputFieldOrderTest(unittest.TestCase):
 
     def test_strategy2_no_annotation_with_named_tuple_output(self):
         """Strategy2 no annotation with named tuple output."""
-        model = _NoAnnotNTPredictor()
         schema = self._make_schema(["x"], ["c_out", "d_out"])
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(model, path)
-            result = get_predictor_output_field_order(path, "", {}, schema)
-        finally:
-            os.unlink(path)
+        result = self._run_field_order(_NoAnnotNTPredictor(), schema=schema)
         self.assertEqual(result, ["c_out", "d_out"])
 
     def test_strategy1_named_tuple_from_return_annotation_state_dict(self):
         """Strategy1 named tuple from return annotation state dict."""
-        model = _Strategy1AnnotatedPredictor()
         schema = self._make_schema(["x"], ["second", "first"])
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(model.state_dict(), path)
-            result = get_predictor_output_field_order(
-                path, _class_path(_Strategy1AnnotatedPredictor), {}, schema
-            )
-        finally:
-            os.unlink(path)
+        result = self._run_field_order(
+            _Strategy1AnnotatedPredictor().state_dict(),
+            model_class=_class_path(_Strategy1AnnotatedPredictor),
+            schema=schema,
+        )
         self.assertEqual(result, ["second", "first"])
 
     def test_strategy1_signature_failure_falls_through_to_strategy2(self):
         """When Strategy 1's signature inspection raises, Strategy 2 still runs."""
-        model = _NoAnnotNTPredictor()
         schema = self._make_schema(["x"], ["c_out", "d_out"])
-        with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
-            path = f.name
-        try:
-            torch.save(model, path)
-            calls = {"n": 0}
-            real_sig = inspect.signature
+        calls = {"n": 0}
+        real_sig = inspect.signature
 
-            def _sig(obj):
-                calls["n"] += 1
-                if calls["n"] == 1:
-                    raise ValueError("simulated Strategy 1 failure")
-                return real_sig(obj)
+        def _sig(obj):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ValueError("simulated Strategy 1 failure")
+            return real_sig(obj)
 
-            with mock.patch(f"{_FUSE_MODULE}.inspect.signature", side_effect=_sig):
-                result = get_predictor_output_field_order(path, "", {}, schema)
-        finally:
-            os.unlink(path)
+        with mock.patch(f"{_FUSE_MODULE}.inspect.signature", side_effect=_sig):
+            result = self._run_field_order(_NoAnnotNTPredictor(), schema=schema)
         self.assertEqual(result, ["c_out", "d_out"])
 
 
