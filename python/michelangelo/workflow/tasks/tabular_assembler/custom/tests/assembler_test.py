@@ -141,10 +141,12 @@ class CustomAssemblerTest(unittest.TestCase):
         )
         self.assertEqual(pkg_kwargs["model_path_source_type"], StorageType.LOCAL)
         self.assertIsNone(pkg_kwargs["additional_import_prefixes"])
+        self.assertIsNone(pkg_kwargs["include_import_prefixes"])
 
         raw_kwargs = mock_create_raw.call_args.kwargs
         self.assertEqual(raw_kwargs["model_path_source_type"], StorageType.LOCAL)
         self.assertIsNone(raw_kwargs["additional_import_prefixes"])
+        self.assertIsNone(raw_kwargs["include_import_prefixes"])
 
     @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_model_package")
     @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_raw_model_package")
@@ -269,6 +271,61 @@ class CustomAssemblerTest(unittest.TestCase):
         )
         self.assertEqual(
             mock_create_raw.call_args.kwargs["additional_import_prefixes"], []
+        )
+
+    @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_model_package")
+    @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_raw_model_package")
+    def test_passes_include_import_prefixes(self, mock_create_raw, mock_create_model):
+        """Non-``None`` ``include_import_prefixes`` reach both packager calls."""
+        mock_create_model.side_effect = _fake_create_package("deployable")
+        mock_create_raw.side_effect = _fake_create_package("raw")
+
+        prefixes = ["mypkg.models"]
+        config = TabularAssemblerConfig(
+            custom=CustomAssemblerConfig(include_import_prefixes=prefixes)
+        )
+        raw_model = ModelArtifact(
+            path=self._upload_raw_model_source(),
+            metadata=ModelMetadata(
+                model_class=_CUSTOM_MODEL_CLASS, schema=_make_schema(), sample_data=[{}]
+            ),
+        )
+
+        custom_assembler(config, raw_model, storage_backend=self.storage_backend)
+
+        self.assertEqual(
+            mock_create_model.call_args.kwargs["include_import_prefixes"], prefixes
+        )
+        self.assertEqual(
+            mock_create_raw.call_args.kwargs["include_import_prefixes"], prefixes
+        )
+
+    @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_model_package")
+    @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_raw_model_package")
+    def test_passes_empty_include_import_prefixes(
+        self, mock_create_raw, mock_create_model
+    ):
+        """An empty (but non-``None``) prefix list is passed through as-is."""
+        mock_create_model.side_effect = _fake_create_package("deployable")
+        mock_create_raw.side_effect = _fake_create_package("raw")
+
+        config = TabularAssemblerConfig(
+            custom=CustomAssemblerConfig(include_import_prefixes=[])
+        )
+        raw_model = ModelArtifact(
+            path=self._upload_raw_model_source(),
+            metadata=ModelMetadata(
+                model_class=_CUSTOM_MODEL_CLASS, schema=_make_schema(), sample_data=[{}]
+            ),
+        )
+
+        custom_assembler(config, raw_model, storage_backend=self.storage_backend)
+
+        self.assertEqual(
+            mock_create_model.call_args.kwargs["include_import_prefixes"], []
+        )
+        self.assertEqual(
+            mock_create_raw.call_args.kwargs["include_import_prefixes"], []
         )
 
     @patch(f"{_ASSEMBLER_MODULE}.download_file_tree")
