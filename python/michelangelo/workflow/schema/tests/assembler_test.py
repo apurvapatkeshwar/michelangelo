@@ -20,15 +20,18 @@ class TestCustomAssemblerConfig(TestCase):
         cfg = CustomAssemblerConfig()
         self.assertIsNone(cfg.custom_batch_processing)
         self.assertIsNone(cfg.additional_import_prefixes)
+        self.assertIsNone(cfg.include_import_prefixes)
 
     def test_field_assignment(self):
         """Fields are set from constructor arguments."""
         cfg = CustomAssemblerConfig(
             custom_batch_processing=True,
             additional_import_prefixes=["mypkg.util"],
+            include_import_prefixes=["mypkg.models"],
         )
         self.assertTrue(cfg.custom_batch_processing)
         self.assertEqual(cfg.additional_import_prefixes, ["mypkg.util"])
+        self.assertEqual(cfg.include_import_prefixes, ["mypkg.models"])
 
     def test_equality(self):
         """Two configs with the same fields compare equal."""
@@ -42,7 +45,11 @@ class TestCustomAssemblerConfig(TestCase):
         cfg = CustomAssemblerConfig(custom_batch_processing=True)
         self.assertEqual(
             asdict(cfg),
-            {"custom_batch_processing": True, "additional_import_prefixes": None},
+            {
+                "custom_batch_processing": True,
+                "additional_import_prefixes": None,
+                "include_import_prefixes": None,
+            },
         )
 
 
@@ -123,6 +130,7 @@ class TestTabularAssemblerConfig(TestCase):
                 "custom": {
                     "custom_batch_processing": True,
                     "additional_import_prefixes": None,
+                    "include_import_prefixes": None,
                 },
                 "torch": None,
             },
