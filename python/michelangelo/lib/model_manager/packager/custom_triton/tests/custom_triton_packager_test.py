@@ -1,6 +1,7 @@
 """Tests for CustomTritonPackager."""
 
 import importlib
+import json
 import os
 import pickle
 import tempfile
@@ -299,6 +300,91 @@ class CustomTritonPackagerTest(TestCase):
                 predict_obj.predict(self.batch_sample_data[0]),
                 {"response": self.batch_sample_data[0].get("input")},
             )
+
+    def test_create_model_package_with_sample_data(self):
+        """It writes sample_data.json with an added batch dimension."""
+        packager = CustomTritonPackager()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = os.path.join(temp_dir, "model")
+            dest_model_path = os.path.join(temp_dir, "deployable_model")
+            os.makedirs(model_path)
+            with open(os.path.join(model_path, "file.txt"), "w") as f:
+                f.write("file_content")
+            dest_model_path = packager.create_model_package(
+                model_path=model_path,
+                dest_model_path=dest_model_path,
+                model_class=model_class,
+                model_schema=self.model_schema,
+                model_name="test_model_name",
+                include_import_prefixes=["michelangelo"],
+                sample_data=self.sample_data,
+            )
+
+            with open(
+                os.path.join(dest_model_path, "metadata", "sample_data.json")
+            ) as f:
+                loaded = json.loads(f.read())
+            self.assertEqual(loaded[0]["input"], [[1]])
+
+    def test_create_model_package_with_triton_parameters(self):
+        """It threads triton_parameters into the generated config.pbtxt."""
+        packager = CustomTritonPackager()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = os.path.join(temp_dir, "model")
+            dest_model_path = os.path.join(temp_dir, "deployable_model")
+            os.makedirs(model_path)
+            with open(os.path.join(model_path, "file.txt"), "w") as f:
+                f.write("file_content")
+            dest_model_path = packager.create_model_package(
+                model_path=model_path,
+                dest_model_path=dest_model_path,
+                model_class=model_class,
+                model_schema=self.model_schema,
+                model_name="test_model_name",
+                include_import_prefixes=["michelangelo"],
+                triton_parameters={"MY_CUSTOM_PARAM": "16"},
+            )
+
+            with open(os.path.join(dest_model_path, "config.pbtxt")) as f:
+                config = f.read()
+            self.assertIn('key: "MY_CUSTOM_PARAM"', config)
+
+    def test_create_model_package_with_additional_import_prefixes(self):
+        """It serializes additional dynamically-imported module prefixes."""
+        packager = CustomTritonPackager()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = os.path.join(temp_dir, "model")
+            dest_model_path = os.path.join(temp_dir, "deployable_model")
+            os.makedirs(model_path)
+            with open(os.path.join(model_path, "file.txt"), "w") as f:
+                f.write("file_content")
+            dest_model_path = packager.create_model_package(
+                model_path=model_path,
+                dest_model_path=dest_model_path,
+                model_class=model_class,
+                model_schema=self.model_schema,
+                model_name="test_model_name",
+                include_import_prefixes=["michelangelo"],
+                additional_import_prefixes=[
+                    "michelangelo.lib.model_manager._private.utils.module_finder."
+                    "tests.fixtures.simple_module"
+                ],
+            )
+
+            expected_file = os.path.join(
+                dest_model_path,
+                "0",
+                "michelangelo",
+                "lib",
+                "model_manager",
+                "_private",
+                "utils",
+                "module_finder",
+                "tests",
+                "fixtures",
+                "simple_module.py",
+            )
+            self.assertTrue(os.path.exists(expected_file))
 
     def test_create_model_package_with_empty_model_schema(self):
         """It raises ValueError when model schema is empty."""
@@ -725,6 +811,43 @@ class CustomTritonPackagerTest(TestCase):
                 include_import_prefixes=["michelangelo"],
             )
             self.assert_raw_model_package(dest_model_path, batch_inference=True)
+
+    def test_create_raw_model_package_with_additional_import_prefixes(self):
+        """It serializes additional dynamically-imported module prefixes."""
+        packager = CustomTritonPackager()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = os.path.join(temp_dir, "model")
+            dest_model_path = os.path.join(temp_dir, "raw_model")
+            os.makedirs(model_path)
+            with open(os.path.join(model_path, "file.txt"), "w") as f:
+                f.write("file_content")
+            dest_model_path = packager.create_raw_model_package(
+                model_path=model_path,
+                model_class=model_class,
+                model_schema=self.model_schema,
+                sample_data=self.sample_data,
+                dest_model_path=dest_model_path,
+                include_import_prefixes=["michelangelo"],
+                additional_import_prefixes=[
+                    "michelangelo.lib.model_manager._private.utils.module_finder."
+                    "tests.fixtures.simple_module"
+                ],
+            )
+
+            expected_file = os.path.join(
+                dest_model_path,
+                "defs",
+                "michelangelo",
+                "lib",
+                "model_manager",
+                "_private",
+                "utils",
+                "module_finder",
+                "tests",
+                "fixtures",
+                "simple_module.py",
+            )
+            self.assertTrue(os.path.exists(expected_file))
 
     def test_create_raw_model_package_with_empty_model_schema(self):
         """It creates a raw model package with empty model schema."""
