@@ -66,23 +66,15 @@ class FuseInputSchemaTest(unittest.TestCase):
         out = fuse_input_schema(tx, pred)
         self.assertEqual([item.name for item in out], ["in"])
 
-    def test_item_without_shape_passed_through(self) -> None:
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=None)
-            ]
-        )
-        out = fuse_input_schema(schema, None)
-        self.assertEqual(len(out), 1)
-        self.assertIsNone(out[0].shape)
-
-    def test_item_without_data_type_passed_through(self) -> None:
-        schema = ModelSchema(
-            input_schema=[ModelSchemaItem(name="a", data_type=None, shape=[2])]
-        )
-        out = fuse_input_schema(schema, None)
-        self.assertEqual(len(out), 1)
-        self.assertIsNone(out[0].data_type)
+    def test_item_missing_field_passed_through(self) -> None:
+        for field in ("shape", "data_type"):
+            with self.subTest(field=field):
+                kwargs = {"name": "a", "data_type": DataType.FLOAT, "shape": [2]}
+                kwargs[field] = None
+                schema = ModelSchema(input_schema=[ModelSchemaItem(**kwargs)])
+                out = fuse_input_schema(schema, None)
+                self.assertEqual(len(out), 1)
+                self.assertIsNone(getattr(out[0], field))
 
 
 class FuseModelSchemaTest(unittest.TestCase):
