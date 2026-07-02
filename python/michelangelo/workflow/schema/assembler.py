@@ -38,8 +38,8 @@ class CustomAssemblerConfig:
             misses. Each prefix is resolved recursively.
 
     Example:
-        >>> CustomAssemblerConfig(custom_batch_processing=True)
-        CustomAssemblerConfig(custom_batch_processing=True, ...)
+        >>> CustomAssemblerConfig(custom_batch_processing=True).custom_batch_processing
+        True
     """
 
     custom_batch_processing: bool | None = None
@@ -82,8 +82,10 @@ class TabularAssemblerConfig:
         torch: Options for the PyTorch/Lightning path.
 
     Example:
-        >>> TabularAssemblerConfig(torch=TorchAssemblerConfig(backend="pytorch"))
-        TabularAssemblerConfig(model_class=None, custom=None, ...)
+        >>> torch_cfg = TorchAssemblerConfig(backend="pytorch")
+        >>> config = TabularAssemblerConfig(torch=torch_cfg)
+        >>> config.torch.backend
+        'pytorch'
     """
 
     model_class: str | None = None
