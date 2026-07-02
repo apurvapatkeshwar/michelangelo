@@ -19,9 +19,25 @@ class DataType(Enum):
             schemas.
         UNKNOWN: Unknown data type. May be used as a placeholder during schema
             inference.
+        NUMERIC: Generic numeric value of unspecified precision. Used by
+            fused/derived schemas (e.g. tabular feature fusion) where the
+            concrete numeric width is decided downstream. Maps to float64 in
+            NumPy/PyTorch; not a Triton wire type on its own.
+        ARRAY: Array/list-valued feature.
         BOOLEAN: Boolean values (True/False). Maps to bool in Python and
             BOOL in Triton.
+        DATE: Calendar date without a time component.
+        HIVE_STRING: String data sourced from a Hive-compatible data
+            warehouse column.
         STRING: String/text data. Maps to str in Python and BYTES in Triton.
+        TIMESTAMP: Date and time value.
+        CALENDAR_INTERVAL: A calendar-relative time interval (e.g. months,
+            days) as opposed to a fixed-duration interval.
+        MAP: Key-value mapping feature.
+        NULL: Explicit null/absent value.
+        STRUCT: Nested structured (record-like) feature.
+        OBJECT: Opaque, application-defined object.
+        VECTOR: Dense numeric vector, typically used for embeddings.
         BYTE: 8-bit signed integer. Maps to int8 in NumPy and INT8 in Triton.
         CHAR: Character data (8-bit unsigned integer). Maps to uint8 in NumPy.
         SHORT: 16-bit signed integer. Maps to int16 in NumPy and INT16 in
@@ -37,8 +53,19 @@ class DataType(Enum):
 
     INVALID = 0
     UNKNOWN = 1
+    NUMERIC = 2
+    ARRAY = 3
     BOOLEAN = 4
+    DATE = 5
+    HIVE_STRING = 6
     STRING = 7
+    TIMESTAMP = 8
+    CALENDAR_INTERVAL = 9
+    MAP = 10
+    NULL = 11
+    STRUCT = 12
+    OBJECT = 13
+    VECTOR = 14
     BYTE = 15
     CHAR = 16
     SHORT = 17
