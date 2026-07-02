@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Protocol, runtime_checkable
 
 from numpy import ndarray  # noqa: TC002
 
@@ -78,3 +79,59 @@ class Model(ABC):
             schema, and each value should be a numpy array containing the
             predictions.
         """
+
+
+@runtime_checkable
+class ModelProtocol(Protocol):
+    """Structural counterpart to :class:`Model`.
+
+    Declares the same public interface as :class:`Model` (``save``, ``load``,
+    ``predict``) without requiring nominal inheritance. This lets packager-time
+    validation accept any class that implements the expected shape, including
+    classes defined against an independently-defined but structurally
+    identical interface (e.g. across package boundaries). Prefer subclassing
+    :class:`Model` directly for new code; this protocol exists for
+    packager-time validation and cross-package interoperability where nominal
+    inheritance from this module's ``Model`` isn't available or desired.
+    """
+
+    def save(self, path: str) -> None:
+        """Save the model to the given path.
+
+        Args:
+            path: The local filesystem path where the model should be saved.
+                This path should be a directory that will contain all model
+                artifacts.
+        """
+        ...
+
+    @classmethod
+    def load(cls, path: str) -> ModelProtocol:
+        """Load the model from the given path.
+
+        Args:
+            path: The local filesystem path containing the saved model
+                artifacts. This should be the same directory path that was
+                used in the save() method.
+
+        Returns:
+            A fully initialized model instance loaded from the specified path.
+        """
+        ...
+
+    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
+        """Predict on the given data.
+
+        Args:
+            inputs: A dictionary mapping feature names to numpy arrays. Each
+                key should correspond to an input feature name defined in the
+                model schema, and each value should be a numpy array with shape
+                matching the schema specification.
+
+        Returns:
+            A dictionary mapping output feature names to numpy arrays. Each key
+            should correspond to an output feature name defined in the model
+            schema, and each value should be a numpy array containing the
+            predictions.
+        """
+        ...
