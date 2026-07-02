@@ -6,14 +6,35 @@ Collected automatically by pytest for every test module under this package
 
 from __future__ import annotations
 
+import tempfile
+import unittest
 from typing import TYPE_CHECKING
 
+from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBackend
 from michelangelo.lib.model_manager.interface.custom_model import Model
 
 if TYPE_CHECKING:
     from numpy import ndarray
 
-__all__ = ["_CustomModelFixture"]
+__all__ = [
+    "CUSTOM_MODEL_CLASS_PATH",
+    "_CustomModelFixture",
+    "_LocalStorageBackendTestCase",
+]
+
+CUSTOM_MODEL_CLASS_PATH = (
+    "michelangelo.workflow.tasks.tabular_assembler.conftest._CustomModelFixture"
+)
+
+
+class _LocalStorageBackendTestCase(unittest.TestCase):
+    """Shared ``setUp`` for tests needing a fresh ``LocalStorageBackend``."""
+
+    def setUp(self) -> None:
+        """Create a fresh ``LocalStorageBackend`` rooted at a temp dir per test."""
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.storage_backend = LocalStorageBackend(self._tmp.name)
 
 
 class _CustomModelFixture(Model):
