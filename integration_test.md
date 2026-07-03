@@ -94,8 +94,7 @@ Without end-to-end coverage, a breaking change in any one component (a CRD schem
 | Test | Go components | Python CLI | UI |
 |---|---|---|---|
 | UniFLOW (bert_cola) | API server (CRD CRUD), controllermgr (reconcile), worker (pod scheduling) | `ma pipeline apply`, `ma pipeline run`, poll | — |
-| Ray | API server, controllermgr (RayJob), kuberay-operator [4] | `ma pipeline apply`, `ma pipeline run` | — |
-| Spark | API server, controllermgr (SparkApplication), spark-operator [5] | `ma pipeline apply`, `ma pipeline run` | — |
+| Ray + Spark (california_housing_xgb) | API server, controllermgr (RayJob + SparkApplication), kuberay-operator [4], spark-operator [5] | `ma project apply`, `ma pipeline apply`, `ma pipeline run`, poll | — |
 | UI smoke | API server (HTTP/JSON) | — | Project list, detail; pipeline list; run detail |
 
 ---
@@ -399,9 +398,9 @@ This surfaces a ranked list of suspect PRs and likely root cause hypotheses with
 
 ### Rollout Plan
 
-**Phase 1** — UniFLOW baseline (current): Land CI workflows, verify bert_cola pipeline succeeds end-to-end on a 16-core runner.
+**Phase 1** — UniFLOW baseline (done): Land CI workflows, verify bert_cola pipeline succeeds end-to-end on a 16-core runner.
 
-**Phase 2** — Ray + Spark: Add lightweight example jobs and demo pipeline YAMLs; activate Ray and Spark test steps.
+**Phase 2** — Ray + Spark (done): Add lightweight example jobs and demo pipeline YAMLs; activate Ray and Spark test steps via `california_housing_xgb` (`test_examples_project_apply`, `test_california_housing_xgb_e2e` in `integration-test/functional/cli/test_cli.py`).
 
 **Phase 3** — UI smoke tests + dual engine: Add curl smoke test step; enable Cadence/Temporal matrix with port conflict resolution.
 
