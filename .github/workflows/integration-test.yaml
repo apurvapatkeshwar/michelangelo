@@ -128,6 +128,8 @@ jobs:
         env:
           MA_API_SERVER: localhost:15566
           MA_NAMESPACE: ma-dev-test
+          MA_EXAMPLES_NAMESPACE: ma-examples
+          EXAMPLES_IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
           MICHELANGELO_PYTHON_DIR: ${{ github.workspace }}/python
           PYTHONPATH: ${{ github.workspace }}/integration-test
 
