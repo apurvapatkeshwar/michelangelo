@@ -25,6 +25,18 @@ var inferenceServiceGVR = schema.GroupVersionResource{
 	Resource: "inferenceservices",
 }
 
+// Annotations read from the Michelangelo InferenceServer CR to configure the
+// KServe InferenceService this backend creates.
+const (
+	// kserveModelFormatAnnotation overrides the default "sklearn" model
+	// format (e.g. "triton", "pytorch") passed to KServe's predictor.
+	kserveModelFormatAnnotation = "michelangelo/kserve-model-format"
+	// kserveServiceAccountAnnotation names a ServiceAccount (with an
+	// attached storage credentials Secret) for the InferenceService's
+	// predictor to use when pulling the model artifact.
+	kserveServiceAccountAnnotation = "michelangelo/kserve-service-account"
+)
+
 // kserveBackend implements Backend by creating and managing KServe InferenceService CRs
 // on each target cluster. The controller does NOT use the Triton ConfigMap approach —
 // instead it delegates model serving entirely to KServe.
@@ -65,7 +77,8 @@ func (b *kserveBackend) CreateServer(ctx context.Context, logger *zap.Logger, _ 
 		}
 
 		storageURI, modelFormat := kserveStorageParams(inferenceServer)
-		obj := buildInferenceServiceObject(inferenceServer.Name, inferenceServer.Namespace, storageURI, modelFormat)
+		serviceAccountName := inferenceServer.GetMetadata().GetAnnotations()[kserveServiceAccountAnnotation]
+		obj := buildInferenceServiceObject(inferenceServer.Name, inferenceServer.Namespace, storageURI, modelFormat, serviceAccountName)
 
 		if _, err := isClient.Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 			return nil, fmt.Errorf("cluster %s: create InferenceService: %w", target.GetClusterId(), err)
@@ -78,12 +91,33 @@ func (b *kserveBackend) CreateServer(ctx context.Context, logger *zap.Logger, _ 
 	return &ServerStatus{State: v2pb.INFERENCE_SERVER_STATE_CREATING}, nil
 }
 
-// GetServerStatus reads the KServe InferenceService status from each target cluster.
-// Returns SERVING only when all targets report Ready.
-func (b *kserveBackend) GetServerStatus(ctx context.Context, logger *zap.Logger, _ client.Client, inferenceServerName string, namespace string) (*ServerStatus, error) {
-	// GetServerStatus is called without a target list — used for single-cluster checks.
-	// Return SERVING as a safe default; BackendProvisionActor iterates targets itself.
-	return &ServerStatus{State: v2pb.INFERENCE_SERVER_STATE_SERVING}, nil
+// GetServerStatus reads the KServe InferenceService status on the cluster the
+// given kubeClient is scoped to. BackendProvisionActor calls this once per
+// target with a target-scoped client (see backend_provision.go), the same
+// convention tritonBackend.GetServerStatus relies on.
+func (b *kserveBackend) GetServerStatus(ctx context.Context, logger *zap.Logger, kubeClient client.Client, inferenceServerName string, namespace string) (*ServerStatus, error) {
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "serving.kserve.io",
+		Version: "v1beta1",
+		Kind:    "InferenceService",
+	})
+	err := kubeClient.Get(ctx, client.ObjectKey{Name: inferenceServerName, Namespace: namespace}, obj)
+	if errors.IsNotFound(err) {
+		return &ServerStatus{State: v2pb.INFERENCE_SERVER_STATE_CREATE_PENDING}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get InferenceService %s/%s: %w", namespace, inferenceServerName, err)
+	}
+
+	if isInferenceServiceReady(obj) {
+		url, _ := inferenceServiceURL(obj)
+		return &ServerStatus{
+			State:     v2pb.INFERENCE_SERVER_STATE_SERVING,
+			Endpoints: []string{url},
+		}, nil
+	}
+	return &ServerStatus{State: v2pb.INFERENCE_SERVER_STATE_CREATING}, nil
 }
 
 // GetServerStatusForTarget checks a specific cluster target.
@@ -152,7 +186,9 @@ func (b *kserveBackend) CheckModelStatus(_ context.Context, _ *zap.Logger, _ cli
 }
 
 // LoadModel updates the KServe InferenceService storageUri to the new model path.
-// KServe handles the rollout internally once the spec is updated.
+// KServe handles the rollout internally once the spec is updated. The model
+// format is set once at creation time (kserveStorageParams) and is not
+// touched here — modelName identifies the model, not its serving format.
 func (b *kserveBackend) LoadModel(ctx context.Context, logger *zap.Logger, _ client.Client, dynClient dynamic.Interface, inferenceServerName, namespace, modelName, storageURI string) error {
 	isClient := dynClient.Resource(inferenceServiceGVR).Namespace(namespace)
 
@@ -163,9 +199,6 @@ func (b *kserveBackend) LoadModel(ctx context.Context, logger *zap.Logger, _ cli
 
 	if err := unstructured.SetNestedField(obj.Object, storageURI, "spec", "predictor", "model", "storageUri"); err != nil {
 		return fmt.Errorf("set storageUri: %w", err)
-	}
-	if err := unstructured.SetNestedField(obj.Object, modelName, "spec", "predictor", "model", "modelFormat", "name"); err != nil {
-		return fmt.Errorf("set modelFormat: %w", err)
 	}
 
 	if _, err := isClient.Update(ctx, obj, metav1.UpdateOptions{}); err != nil {
@@ -189,7 +222,23 @@ func (b *kserveBackend) UnloadModel(_ context.Context, logger *zap.Logger, _ cli
 }
 
 // buildInferenceServiceObject constructs an unstructured KServe InferenceService.
-func buildInferenceServiceObject(name, namespace, storageURI, modelFormat string) *unstructured.Unstructured {
+// serviceAccountName is optional; when empty, KServe uses the namespace default
+// ServiceAccount and its predictor can only pull publicly-readable artifacts.
+func buildInferenceServiceObject(name, namespace, storageURI, modelFormat, serviceAccountName string) *unstructured.Unstructured {
+	spec := map[string]interface{}{
+		"predictor": map[string]interface{}{
+			"model": map[string]interface{}{
+				"modelFormat": map[string]interface{}{
+					"name": modelFormat,
+				},
+				"storageUri": storageURI,
+			},
+		},
+	}
+	if serviceAccountName != "" {
+		spec["predictor"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
+	}
+
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "serving.kserve.io/v1beta1",
@@ -201,16 +250,7 @@ func buildInferenceServiceObject(name, namespace, storageURI, modelFormat string
 					"serving.kserve.io/deploymentMode": "RawDeployment",
 				},
 			},
-			"spec": map[string]interface{}{
-				"predictor": map[string]interface{}{
-					"model": map[string]interface{}{
-						"modelFormat": map[string]interface{}{
-							"name": modelFormat,
-						},
-						"storageUri": storageURI,
-					},
-				},
-			},
+			"spec": spec,
 		},
 	}
 }
@@ -240,7 +280,8 @@ func inferenceServiceURL(obj *unstructured.Unstructured) (string, bool) {
 }
 
 // kserveStorageParams extracts storageURI and modelFormat from the InferenceServer spec.
-// Falls back to sensible defaults when not set.
+// Falls back to sensible defaults when not set. modelFormat can be overridden
+// via the kserveModelFormatAnnotation on the InferenceServer CR.
 func kserveStorageParams(is *v2pb.InferenceServer) (storageURI, modelFormat string) {
 	if is.Spec.GetInitSpec().GetServingSpec() != nil {
 		storageURI = is.Spec.GetInitSpec().GetServingSpec().GetVersion()
@@ -248,6 +289,9 @@ func kserveStorageParams(is *v2pb.InferenceServer) (storageURI, modelFormat stri
 	if storageURI == "" {
 		storageURI = fmt.Sprintf("gs://michelangelo-models/%s", is.Name)
 	}
-	modelFormat = "sklearn" // default; override via annotation or spec extension
+	modelFormat = "sklearn" // default; override via michelangelo/kserve-model-format annotation
+	if format := is.GetMetadata().GetAnnotations()[kserveModelFormatAnnotation]; format != "" {
+		modelFormat = format
+	}
 	return
 }
