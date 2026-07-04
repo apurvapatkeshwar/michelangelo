@@ -297,7 +297,7 @@ func (p *Plugin) HealthCheckGate(ctx context.Context, observability plugins.Obse
 		return true, nil
 	}
 
-	prometheusURL := cfg.GetPrometheusURL()
+	prometheusURL := cfg.GetPrometheusUrl()
 	if prometheusURL == "" {
 		prometheusURL = p.deploymentConfig.DefaultPrometheusURL
 	}

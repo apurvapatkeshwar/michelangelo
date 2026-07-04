@@ -3,6 +3,7 @@ package strategies
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 
 	"go.uber.org/zap"
@@ -57,32 +58,58 @@ func GetActorsForStrategy(ctx context.Context, params Params, deployment *v2pb.D
 	}
 }
 
-// getRollingActors builds the per-cluster actor chain for the rolling strategy. The actor
-// list is constructed from the cluster snapshot annotation written by PlacementPrepActor.
+// getRollingActors builds the actor chain for the rolling strategy using incrementPercentage
+// to control how many clusters advance per wave. Clusters within a wave load the model
+// concurrently (BatchRolloutActor), then traffic is routed per-cluster sequentially before
+// the next wave begins. Default incrementPercentage=100 advances all clusters at once.
+//
+// Example — 4 clusters, incrementPercentage=50:
+//
+//	Wave 0: [BatchRollout(c1,c2)] → [Route-c1] → [Route-c2]
+//	Wave 1: [BatchRollout(c3,c4)] → [Route-c3] → [Route-c4]
+//	        → [Discovery] → [Cleanup-c1..c4]
 func getRollingActors(params Params, deployment *v2pb.Deployment) ([]conditionInterfaces.ConditionActor[*v2pb.Deployment], error) {
 	targets, err := osscommon.ReadTargetClustersAnnotation(deployment)
 	if err != nil {
 		return nil, fmt.Errorf("read target clusters annotation: %w", err)
 	}
 	if len(targets) == 0 {
-		// Annotation absent or no healthy clusters yet. Return an empty list so
-		// per-cluster actors are omitted this reconcile; they are added once the
-		// annotation is written and a healthy cluster is available.
 		return nil, nil
 	}
 
-	// Per-cluster [RollingRollout, TrafficRouting] pairs come first, interleaved so cluster N
-	// starts routing traffic as soon as its model is loaded. A single DiscoveryRoutingActor then
-	// exposes the deployment via the control-plane discovery route. Per-cluster ModelCleanup
-	// actors run at the end so old models are removed only after every cluster has flipped.
+	pct := int(deployment.Spec.GetStrategy().GetRolling().GetIncrementPercentage())
+	if pct <= 0 || pct > 100 {
+		pct = 100 // default: advance all clusters at once
+	}
+	batchSize := int(math.Ceil(float64(len(targets)) * float64(pct) / 100.0))
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	params.Logger.Info("rolling strategy batch config",
+		zap.Int("totalClusters", len(targets)),
+		zap.Int("incrementPercentage", pct),
+		zap.Int("batchSize", batchSize),
+		zap.String("deployment", deployment.Name))
+
 	actors := make([]conditionInterfaces.ConditionActor[*v2pb.Deployment], 0, 3*len(targets)+1)
 
-	for _, target := range targets {
+	for batchIdx := 0; batchIdx < len(targets); batchIdx += batchSize {
+		end := batchIdx + batchSize
+		if end > len(targets) {
+			end = len(targets)
+		}
+		batch := targets[batchIdx:end]
+		waveName := batchIdx / batchSize
+
 		actors = append(actors,
-			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, target),
-			strategiesCommon.NewTrafficRoutingActor(params.ClientFactory, params.RouteManager, target),
+			strategiesCommon.NewBatchRolloutActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, batch, waveName),
 		)
+		for _, target := range batch {
+			actors = append(actors, strategiesCommon.NewTrafficRoutingActor(params.ClientFactory, params.RouteManager, target))
+		}
 	}
+
 	actors = append(actors, strategiesCommon.NewDiscoveryRoutingActor(params.DynamicClient, params.RouteManager))
 	for _, target := range targets {
 		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.BackendRegistry, params.BackendType, params.Logger, target))
