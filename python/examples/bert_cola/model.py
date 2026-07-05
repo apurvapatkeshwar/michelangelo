@@ -51,9 +51,9 @@ class BertColaModel(Model):
         import torch
 
         device = next(self._model.parameters()).device
-        input_ids = torch.tensor(inputs["input_ids"], dtype=torch.long).to(device)
-        attention_mask = torch.tensor(inputs["attention_mask"], dtype=torch.long).to(device)
-        token_type_ids = torch.tensor(inputs["token_type_ids"], dtype=torch.long).to(device)
+        input_ids = torch.tensor(inputs["input_ids"], dtype=torch.long).unsqueeze(0).to(device)
+        attention_mask = torch.tensor(inputs["attention_mask"], dtype=torch.long).unsqueeze(0).to(device)
+        token_type_ids = torch.tensor(inputs["token_type_ids"], dtype=torch.long).unsqueeze(0).to(device)
 
         with torch.no_grad():
             outputs = self._model(
@@ -62,4 +62,4 @@ class BertColaModel(Model):
                 token_type_ids=token_type_ids,
             )
 
-        return {"logits": outputs.logits.cpu().numpy().astype(np.float32)}
+        return {"logits": outputs.logits.squeeze(0).cpu().numpy().astype(np.float32)}
