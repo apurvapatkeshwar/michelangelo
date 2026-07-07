@@ -16,12 +16,10 @@ import (
 // row by decoding its content blob and calling Pipeline's generated content
 // extractor (GetContentIndexedKeyValuePairs).
 //
-// NOTE: this deliberately uses BuildContentIndex with explicit specs rather than
-// BuildContentIndexFromScheme, so the write-path assertions stay independent of
-// whether gogo's runtime reflection surfaces the resource.revisioned_in field on
-// the resource extension. The column VALUES, however, come from the codegen
-// extractor on the real v2.Pipeline (which implements storage.ContentIndexable
-// once pipeline.proto declares revisioned_in and proto-go is regenerated).
+// This uses BuildContentIndex with explicit specs, isolating the write-path
+// assertions (decode content -> call the generated extractor -> build a row) from
+// how the ContentIndex was assembled. TestBuildContentIndexFromScheme_RealPipelineType
+// below covers that assembly step against the same real types.
 func TestContentIndexWritePathRealTypes(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(v2.GroupVersion, &v2.Pipeline{}, &v2.PipelineList{}, &v2.Revision{}, &v2.RevisionList{})
@@ -93,3 +91,38 @@ func TestContentIndexWritePathRealTypes(t *testing.T) {
 	require.Contains(t, q, "ON DUPLICATE KEY UPDATE")
 	require.Equal(t, "rev-1", args[0])
 }
+
+// TestBuildContentIndexFromScheme_RealPipelineType is the strongest proof that
+// codegen and the runtime routing agree: unlike TestContentIndexWritePathRealTypes
+// above (which deliberately hand-builds a ContentIndex to stay independent of
+// this mechanism), this calls BuildContentIndexFromScheme against a scheme
+// containing the REAL, freshly-generated v2.Pipeline. Pipeline.ContentIndexFieldSpecs()
+// is generated code, not a test fixture — if codegen and this function ever
+// disagreed, this test would be the one to catch it.
+func TestBuildContentIndexFromScheme_RealPipelineType(t *testing.T) {
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypes(v2.GroupVersion, &v2.Pipeline{}, &v2.PipelineList{}, &v2.Revision{}, &v2.RevisionList{})
+
+	ci := BuildContentIndexFromScheme(scheme)
+	require.NotNil(t, ci)
+
+	revisionGVK := v2.GroupVersion.WithKind("Revision")
+	readMap := ci.ReadMaps[revisionGVK]
+	require.NotNil(t, readMap, "Pipeline's revisioned_in should route through the real Revision GVK")
+
+	require.Equal(t,
+		[]contentIndexEntry{{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "pipeline_type", UIDCol: "revision_uid"}},
+		readMap["spec.content.spec.type"],
+	)
+	require.Equal(t,
+		[]contentIndexEntry{{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "owner", UIDCol: "revision_uid"}},
+		readMap["spec.content.spec.owner.name"],
+	)
+	require.Equal(t,
+		[]contentIndexEntry{{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "state", UIDCol: "revision_uid"}},
+		readMap["spec.content.status.state"],
+	)
+
+	require.Contains(t, ci.WriteSpecs, revisionGVK, "write routing for Revision must also be populated")
+}
+

@@ -129,10 +129,6 @@ message ContentIndex {
 
   // "key" is the sidecar column name for this field.
   string key = 2;
-
-  // "type_override" optionally overrides the default SQL data type, mirroring
-  // IndexDescriptor.type_override.
-  string type_override = 3;
 }
 
 // An annotation for CRD list message

@@ -86,6 +86,16 @@ func (m *{{.Name}}) GetContentIndexedKeyValuePairs() map[string][]storage.Indexe
 	result := make(map[string][]storage.IndexedField)
 `))
 
+// CRDContentIndexFieldSpecsHeader is a template for the ContentIndexFieldSpecs()
+// function signature. Generated alongside GetContentIndexedKeyValuePairs, from
+// the same parsed revisioned_in entries, with each wrapper's GVK/table/uid
+// column already resolved (and validated against the real wrapper CRD) at
+// codegen time — see storage.ContentIndexDescribable.
+var CRDContentIndexFieldSpecsHeader = template.Must(template.New("crdContentIndexFieldSpecsHeader").Parse(`
+func (m *{{.Name}}) ContentIndexFieldSpecs() []storage.ContentIndexFieldSpec {
+	return []storage.ContentIndexFieldSpec{
+`))
+
 // CRDIndexesPathToKeyMapHeader is a template for generating CRDIndexesPathToKeyMap for a CRD.
 var CRDIndexesPathToKeyMapHeader = template.Must(template.New("crdIndexesPathToKeyMapHeader").Parse(`
 func init() {

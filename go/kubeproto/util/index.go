@@ -144,7 +144,6 @@ func ParseContentIndexedFields(crdRootMsg *protogen.Message, crdOptions *pboptio
 			ci := ri + ".content_index[" + strconv.Itoa(j) + "]"
 			key := crdOptions.String(ci + ".key")
 			path := crdOptions.String(ci + ".path")
-			typeOverride := crdOptions.String(ci + ".type_override")
 
 			if key == "" || path == "" {
 				logger.Panicf("Invalid content_index annotation. Either key or path is not specified. "+
@@ -155,7 +154,10 @@ func ParseContentIndexedFields(crdRootMsg *protogen.Message, crdOptions *pboptio
 			}
 			seen[key] = true
 
-			newField := buildIndexedField(key, path, typeOverride, crdRootMsg)
+			// content_index has no type_override; every content field this framework
+			// projects has a directly-inferrable SQL type. Add one back only if a
+			// concrete field needs it.
+			newField := buildIndexedField(key, path, "", crdRootMsg)
 			for _, subField := range newField.SubFields {
 				if seen[subField.Key] {
 					logger.Panicf("Invalid content_index annotation. Duplicated key. kind: %v, key: %v, subKey: %v",

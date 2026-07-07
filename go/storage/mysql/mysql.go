@@ -582,6 +582,13 @@ func isLabelFieldInMetadata(fieldName string) bool {
 // Implementing this requires plumbing a registry from the object/scheme layer
 // (or the storage constructor) down into this function — not done here to keep
 // the change scoped to mysql.go.
+//
+// Content criteria (buildContentCriterionSQL) go through this same function and
+// so inherit the mandatory "<crd>." prefix, which they then discard — the kind
+// is already implied by which endpoint/table is being queried, so the prefix
+// carries no information for a content path. Not special-cased here because
+// this parser is shared with base-index filtering; changing its contract is out
+// of scope for this pass.
 func processFieldName(fieldName string) (string, error) {
 	if strings.IndexByte(fieldName, '.') < 0 {
 		return "", status.Errorf(codes.InvalidArgument, "field name %q invalid: at least <crd>.<field> is required", fieldName)
