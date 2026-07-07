@@ -74,7 +74,10 @@ def _failed_condition() -> Condition:
 
 
 class TestSparkJobToDict:
+    """Tests for _spark_job_to_dict conversion helper."""
+
     def test_basic_conversion(self):
+        """Verify SparkJob proto converts to dict with metadata and conditions."""
         job = _make_spark_job(conditions=[_succeeded_condition()])
         result = _spark_job_to_dict(job)
 
@@ -89,14 +92,18 @@ class TestSparkJobToDict:
         )
 
     def test_empty_conditions(self):
+        """Verify conversion handles a job with no status conditions."""
         job = _make_spark_job()
         result = _spark_job_to_dict(job)
         assert result["status"]["status_conditions"] == []
 
 
 class TestCreateSparkJob:
+    """Tests for create_spark_job internal helper."""
+
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_creates_job_with_all_fields(self, mock_client):
+        """Verify all SparkJobSpec fields are set correctly on the proto."""
         returned_job = _make_spark_job()
         mock_client.SparkJobService.create_spark_job.return_value = returned_job
 
@@ -138,6 +145,7 @@ class TestCreateSparkJob:
 
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_creates_job_minimal_fields(self, mock_client):
+        """Verify job creation works with only required fields."""
         returned_job = _make_spark_job()
         mock_client.SparkJobService.create_spark_job.return_value = returned_job
 
@@ -156,9 +164,12 @@ class TestCreateSparkJob:
 
 
 class TestPollSparkJob:
+    """Tests for poll_spark_job internal helper."""
+
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_succeeds_immediately(self, mock_client, mock_time):
+        """Verify polling returns on first successful status check."""
         mock_time.time.side_effect = [0.0, 0.1]
         succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
         mock_client.SparkJobService.get_spark_job.return_value = succeeded_job
@@ -173,6 +184,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_polls_then_succeeds(self, mock_client, mock_time):
+        """Verify polling retries when job is still running, then returns on success."""
         mock_time.time.side_effect = [0.0, 1.0, 2.0]
         running_job = _make_spark_job()
         succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
@@ -191,6 +203,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_raises_on_killed(self, mock_client, mock_time):
+        """Verify RuntimeError is raised when job has Killed condition."""
         mock_time.time.side_effect = [0.0, 0.1]
         killed_job = _make_spark_job(conditions=[_killed_condition()])
         mock_client.SparkJobService.get_spark_job.return_value = killed_job
@@ -201,6 +214,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_raises_on_failed(self, mock_client, mock_time):
+        """Verify RuntimeError is raised when Succeeded condition is FALSE."""
         mock_time.time.side_effect = [0.0, 0.1]
         failed_job = _make_spark_job(conditions=[_failed_condition()])
         mock_client.SparkJobService.get_spark_job.return_value = failed_job
@@ -211,6 +225,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_raises_on_timeout(self, mock_client, mock_time):
+        """Verify TimeoutError is raised when polling exceeds timeout."""
         mock_time.time.side_effect = [0.0, 100.0]
         mock_client.SparkJobService.get_spark_job.return_value = _make_spark_job()
 
@@ -220,6 +235,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_raises_on_not_found(self, mock_client, mock_time):
+        """Verify RuntimeError is raised on gRPC NOT_FOUND."""
         mock_time.time.side_effect = [0.0, 0.1]
         rpc_error = grpc.RpcError()
         rpc_error.code = lambda: grpc.StatusCode.NOT_FOUND
@@ -232,6 +248,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_retries_on_transient_error(self, mock_client, mock_time):
+        """Verify polling continues past transient gRPC UNAVAILABLE errors."""
         mock_time.time.side_effect = [0.0, 1.0, 2.0]
         rpc_error = grpc.RpcError()
         rpc_error.code = lambda: grpc.StatusCode.UNAVAILABLE
@@ -248,6 +265,7 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_raises_on_permission_denied(self, mock_client, mock_time):
+        """Verify RuntimeError is raised on gRPC PERMISSION_DENIED."""
         mock_time.time.side_effect = [0.0, 0.1]
         rpc_error = grpc.RpcError()
         rpc_error.code = lambda: grpc.StatusCode.PERMISSION_DENIED
@@ -259,8 +277,11 @@ class TestPollSparkJob:
 
 
 class TestCreateJob:
+    """Tests for create_job star_plugin wrapper."""
+
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_returns_dict(self, mock_client):
+        """Verify create_job returns a dict with metadata and status."""
         returned_job = _make_spark_job(conditions=[_succeeded_condition()])
         mock_client.SparkJobService.create_spark_job.return_value = returned_job
 
@@ -276,9 +297,12 @@ class TestCreateJob:
 
 
 class TestSensorJob:
+    """Tests for sensor_job star_plugin wrapper."""
+
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_default_timeout(self, mock_client, mock_time):
+        """Verify sensor_job uses default timeout when timeout_seconds is 0."""
         mock_time.time.side_effect = [0.0, 0.1]
         succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
         mock_client.SparkJobService.get_spark_job.return_value = succeeded_job
@@ -290,6 +314,7 @@ class TestSensorJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_custom_timeout(self, mock_client, mock_time):
+        """Verify sensor_job passes custom timeout and poll interval through."""
         mock_time.time.side_effect = [0.0, 0.1]
         succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
         mock_client.SparkJobService.get_spark_job.return_value = succeeded_job
