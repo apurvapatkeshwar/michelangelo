@@ -112,6 +112,7 @@ class TestCreateSparkJob:
             main_application_file="s3://bucket/app.jar",
             main_class="com.example.Main",
             args=["--date", "2026-01-01"],
+            image="apache/spark:3.5.5",
             driver_cpu=2,
             driver_memory="4G",
             executor_cpu=4,
@@ -135,8 +136,10 @@ class TestCreateSparkJob:
         assert list(spark_job.spec.main_args) == ["--date", "2026-01-01"]
         assert spark_job.spec.driver.pod.resource.cpu == 2
         assert spark_job.spec.driver.pod.resource.memory == "4G"
+        assert spark_job.spec.driver.pod.image == "apache/spark:3.5.5"
         assert spark_job.spec.executor.pod.resource.cpu == 4
         assert spark_job.spec.executor.pod.resource.memory == "8G"
+        assert spark_job.spec.executor.pod.image == "apache/spark:3.5.5"
         assert spark_job.spec.executor.instances == 10
         assert spark_job.spec.spark_conf["spark.sql.shuffle.partitions"] == "200"
         assert list(spark_job.spec.deps.jars) == ["s3://bucket/dep.jar"]

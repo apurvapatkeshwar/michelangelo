@@ -72,6 +72,7 @@ def create_spark_job(
     main_application_file: str,
     main_class: str | None = None,
     args: list[str] | None = None,
+    image: str | None = None,
     driver_cpu: int | None = None,
     driver_memory: str | None = None,
     executor_cpu: int | None = None,
@@ -93,6 +94,8 @@ def create_spark_job(
     if driver_memory is not None:
         driver_resource.memory = driver_memory
     driver_pod = PodSpec(resource=driver_resource)
+    if image:
+        driver_pod.image = image
     driver.pod.CopyFrom(driver_pod)
 
     executor = ExecutorSpec()
@@ -102,6 +105,8 @@ def create_spark_job(
     if executor_memory is not None:
         executor_resource.memory = executor_memory
     executor_pod = PodSpec(resource=executor_resource)
+    if image:
+        executor_pod.image = image
     executor.pod.CopyFrom(executor_pod)
     if executor_instances is not None:
         executor.instances = executor_instances
@@ -227,6 +232,7 @@ def create_job(
     main_application_file: str,
     main_class: str | None = None,
     args: list[str] | None = None,
+    image: str | None = None,
     driver_cpu: int | None = None,
     driver_memory: str | None = None,
     executor_cpu: int | None = None,
@@ -243,6 +249,7 @@ def create_job(
         main_application_file=main_application_file,
         main_class=main_class,
         args=args,
+        image=image,
         driver_cpu=driver_cpu,
         driver_memory=driver_memory,
         executor_cpu=executor_cpu,
