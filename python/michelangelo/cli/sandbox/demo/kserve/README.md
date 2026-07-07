@@ -126,43 +126,39 @@ the one KServe actually auto-selects for `michelangelo/kserve-model-format:
 triton` (see comments in the file for why the *other*
 `clusterservingruntime-triton.yaml` in this directory is dead/unused).
 
-## Step 4 — Package and upload the model repo
+Model packaging and upload is handled automatically by running the standard
+pipeline (`examples/bert_cola/{train,serve}.py` via `ma pipeline dev_run`) —
+`serve.py` calls `MinioStorageBackend.upload_flat()` after registering the
+model, uploading the packaged directory flat to
+`s3://deploy-models/<revision_name>/`, which is exactly the prefix
+`BatchRolloutActor` derives and hands to `backend.LoadModel` for every
+backend, including KServe. No manual upload step needed.
 
-Run the standard pipeline's packaging step (or reuse an already-packaged
-dir) to get a `CustomTritonPackager` output directory, then flat-upload it
-to the S3 prefix KServe will read as a model repo:
+Resulting layout in MinIO (Triton model-repo convention: one `config.pbtxt`
+per model, versions as numbered subdirs):
+
+```
+s3://deploy-models/<revision_name>/bert-cola/config.pbtxt
+s3://deploy-models/<revision_name>/bert-cola/0/model.py
+s3://deploy-models/<revision_name>/bert-cola/0/user_model.py
+s3://deploy-models/<revision_name>/bert-cola/0/model_class.txt
+s3://deploy-models/<revision_name>/bert-cola/0/model/  (HF checkpoint files)
+s3://deploy-models/<revision_name>/bert-cola/0/examples/bert_cola/model.py
+s3://deploy-models/<revision_name>/bert-cola/0/michelangelo/...  (bundled deps)
+```
+
+If you need to inspect or replace a specific revision's model repo by hand
+(or upload a manually-packaged directory), `upload_model_repo.py` in this
+directory does the same flat upload standalone:
 
 ```bash
 python upload_model_repo.py \
   --local-dir /tmp/bert_cola_deployable_xxxx \
   --bucket deploy-models \
-  --prefix bert-cola/kserve-repo
+  --prefix <revision_name>
 ```
 
-**Known limitation**: the standard pipeline (`examples/bert_cola/serve.py`
-→ `MinioStorageBackend.upload()`) tars the whole deployable dir into a
-single `__dir__.tar` object, which is what the existing (non-KServe) Triton
-backend expects. KServe's storage-initializer downloads `storageUri` as a
-directory prefix with no untar step, so that tarred layout doesn't work
-for KServe — `upload_model_repo.py` above is a standalone workaround, not
-yet integrated into `serve.py`/`MinioStorageBackend`. If this demo path
-becomes a first-class flow, that's the place to fix it properly (e.g. an
-`upload_flat()` variant on `MinioStorageBackend`).
-
-Expected resulting layout in MinIO (Triton model-repo convention: one
-`config.pbtxt` per model, versions as numbered subdirs):
-
-```
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/config.pbtxt
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/0/model.py
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/0/user_model.py
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/0/model_class.txt
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/0/model/  (HF checkpoint files)
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/0/examples/bert_cola/model.py
-s3://deploy-models/bert-cola/kserve-repo/bert-cola/0/michelangelo/...  (bundled deps)
-```
-
-## Step 5 — Apply the InferenceServer and Deployment CRs
+## Step 4 — Apply the InferenceServer and Deployment CRs
 
 ```bash
 kubectl --context k3d-michelangelo-sandbox apply -f inferenceserver-bert-cola.yaml

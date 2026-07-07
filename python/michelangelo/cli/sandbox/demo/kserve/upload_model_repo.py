@@ -1,22 +1,18 @@
 """Flat-upload a CustomTritonPackager output directory to MinIO for KServe.
 
 KServe's S3 storage-initializer downloads `storageUri` as a directory
-prefix — it does not untar anything. The standard pipeline path
-(MinioStorageBackend.upload(), used by examples/bert_cola/serve.py) tars the
-whole deployable dir into a single `__dir__.tar` object, which works for the
-existing Triton backend (a plain container that reads a local mount) but is
-NOT a valid layout for KServe's predictor. This script uploads the same
-directory tree flat, file by file, under a `kserve-repo/` prefix instead.
-
-This is a standalone demo/dev tool, not wired into the pipeline — see the
-"Known limitations" section of ../README.md for why it hasn't been folded
-into MinioStorageBackend / serve.py yet.
+prefix — it does not untar anything. `examples/bert_cola/serve.py` now does
+this automatically via `MinioStorageBackend.upload_flat()`, uploading to the
+revision-keyed prefix (`s3://deploy-models/<revision_name>/`) that the
+deployment controller derives for every backend. This script remains for
+one-off manual re-uploads (e.g. inspecting/replacing a specific revision's
+model repo by hand, or uploading a manually-packaged directory).
 
 Usage:
     python upload_model_repo.py \
         --local-dir /tmp/bert_cola_deployable_xxxx \
         --bucket deploy-models \
-        --prefix bert-cola/kserve-repo \
+        --prefix <revision_name> \
         --endpoint host.docker.internal:9091
 """
 
@@ -48,7 +44,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--local-dir", required=True, help="CustomTritonPackager output dir")
     parser.add_argument("--bucket", default="deploy-models")
-    parser.add_argument("--prefix", default="bert-cola/kserve-repo")
+    parser.add_argument("--prefix", required=True, help="Usually the target revision name")
     parser.add_argument("--endpoint", default="host.docker.internal:9091")
     parser.add_argument("--access-key", default=os.environ.get("AWS_ACCESS_KEY_ID", "minioadmin"))
     parser.add_argument("--secret-key", default=os.environ.get("AWS_SECRET_ACCESS_KEY", "minioadmin"))

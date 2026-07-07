@@ -43,7 +43,9 @@ def upload_and_deploy(checkpoint_uri: str) -> str:
         2. Package as Triton Python backend via CustomTritonPackager.
         3. Upload raw + deployable to MinIO via MinioStorageBackend.
         4. Register with model registry via APIRegistryClient → Model + Revision.
-        5. Create Deployment CRD → controller runs zonal rollout.
+        5. Flat-upload the deployable dir to the revision-keyed prefix the
+           deployment controller reads from (required for KServe backends).
+        6. Create Deployment CRD → controller runs zonal rollout.
 
     Returns:
         deployment_name — name of the created Deployment CRD.
@@ -137,7 +139,16 @@ def upload_and_deploy(checkpoint_uri: str) -> str:
         revision_name = registered.version
         log.info("Model registered: version=%s", revision_name)
 
-        # Step 5: Create Deployment CRD → controller runs zonal rollout.
+        # Step 5: Flat-upload the deployable dir to the revision-keyed prefix
+        # the deployment controller reads from. BatchRolloutActor derives
+        # storageURI as s3://deploy-models/<revision_name>/ regardless of
+        # backend (see batch_rollout_actor.go); KServe's storage-initializer
+        # fetches storageUri as a plain directory with no untar step, so this
+        # must be a flat layout, not the tarred deployable_uri above.
+        kserve_uri = storage.upload_flat(deployable_dir, revision_name)
+        log.info("Flat-uploaded deployable to %s for KServe/backend loading", kserve_uri)
+
+        # Step 6: Create Deployment CRD → controller runs zonal rollout.
         deployment_name = f"{_MODEL_NAME}-deployment"
         deployment = deployment_pb2.Deployment(
             metadata=meta_pb2.ObjectMeta(name=deployment_name, namespace=ma_namespace),
