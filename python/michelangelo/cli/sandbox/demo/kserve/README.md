@@ -126,30 +126,21 @@ the one KServe actually auto-selects for `michelangelo/kserve-model-format:
 triton` (see comments in the file for why the *other*
 `clusterservingruntime-triton.yaml` in this directory is dead/unused).
 
-Model packaging and upload is handled automatically by running the standard
-pipeline (`examples/bert_cola/{train,serve}.py` via `ma pipeline dev_run`) —
-`serve.py` calls `MinioStorageBackend.upload_flat()` after registering the
-model, uploading the packaged directory flat to
-`s3://deploy-models/<revision_name>/`, which is exactly the prefix
-`BatchRolloutActor` derives and hands to `backend.LoadModel` for every
-backend, including KServe. No manual upload step needed.
+## Step 4 — Run the bert-cola pipeline
 
-Resulting layout in MinIO (Triton model-repo convention: one `config.pbtxt`
-per model, versions as numbered subdirs):
-
-```
-s3://deploy-models/<revision_name>/bert-cola/config.pbtxt
-s3://deploy-models/<revision_name>/bert-cola/0/model.py
-s3://deploy-models/<revision_name>/bert-cola/0/user_model.py
-s3://deploy-models/<revision_name>/bert-cola/0/model_class.txt
-s3://deploy-models/<revision_name>/bert-cola/0/model/  (HF checkpoint files)
-s3://deploy-models/<revision_name>/bert-cola/0/examples/bert_cola/model.py
-s3://deploy-models/<revision_name>/bert-cola/0/michelangelo/...  (bundled deps)
+```bash
+ma pipeline dev_run --pipeline examples/bert_cola/pipeline.yaml
 ```
 
-If you need to inspect or replace a specific revision's model repo by hand
-(or upload a manually-packaged directory), `upload_model_repo.py` in this
-directory does the same flat upload standalone:
+This trains the model and runs `serve.py`, which packages, registers, and
+uploads everything automatically. Specifically, `serve.py` calls
+`MinioStorageBackend.upload_flat()` after registration to write the deployable
+directory as individual objects under the revision key —
+`s3://deploy-models/<revision_name>/` — which is the flat layout KServe's
+storage-initializer expects. No manual upload needed.
+
+If you need to upload a manually-packaged directory by hand,
+`upload_model_repo.py` does the same flat upload standalone:
 
 ```bash
 python upload_model_repo.py \
@@ -158,7 +149,7 @@ python upload_model_repo.py \
   --prefix <revision_name>
 ```
 
-## Step 4 — Apply the InferenceServer and Deployment CRs
+## Step 5 — Apply the InferenceServer and Deployment CRs
 
 ```bash
 kubectl --context k3d-michelangelo-sandbox apply -f inferenceserver-bert-cola.yaml
