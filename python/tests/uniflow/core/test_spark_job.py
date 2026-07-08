@@ -26,6 +26,7 @@ from michelangelo.uniflow.core.lib.spark.job import (
     create_job,
     create_spark_job,
     poll_spark_job,
+    run_spark_job,
     sensor_job,
 )
 
@@ -327,6 +328,82 @@ class TestSensorJob:
             name="test-job",
             timeout_seconds=3600,
             poll_seconds=5,
+        )
+
+        assert result["metadata"]["name"] == "test-job"
+
+
+class TestRunSparkJob:
+    """Tests for run_spark_job combined create+poll wrapper."""
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_creates_and_polls_to_success(self, mock_client, mock_time):
+        """Verify run_spark_job creates a job then polls it to success."""
+        mock_time.time.side_effect = [0.0, 0.1]
+        created_job = _make_spark_job()
+        succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.return_value = succeeded_job
+
+        result = run_spark_job(
+            namespace="my-ns",
+            main_application_file="s3://bucket/app.jar",
+            main_class="com.example.Main",
+            timeout_seconds=300,
+        )
+
+        assert isinstance(result, dict)
+        assert result["metadata"]["name"] == "test-job"
+        mock_client.SparkJobService.create_spark_job.assert_called_once()
+        mock_client.SparkJobService.get_spark_job.assert_called_once()
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_raises_on_job_failure(self, mock_client, mock_time):
+        """Verify run_spark_job raises RuntimeError when the job fails."""
+        mock_time.time.side_effect = [0.0, 0.1]
+        created_job = _make_spark_job()
+        failed_job = _make_spark_job(conditions=[_failed_condition()])
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.return_value = failed_job
+
+        with pytest.raises(RuntimeError, match="failed"):
+            run_spark_job(
+                namespace="my-ns",
+                main_application_file="s3://bucket/app.jar",
+            )
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_raises_on_timeout(self, mock_client, mock_time):
+        """Verify run_spark_job raises TimeoutError when polling exceeds timeout."""
+        mock_time.time.side_effect = [0.0, 100.0]
+        created_job = _make_spark_job()
+        running_job = _make_spark_job()
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.return_value = running_job
+
+        with pytest.raises(TimeoutError, match="timed out"):
+            run_spark_job(
+                namespace="my-ns",
+                main_application_file="s3://bucket/app.jar",
+                timeout_seconds=10,
+            )
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_default_timeout(self, mock_client, mock_time):
+        """Verify run_spark_job uses default timeout when timeout_seconds is 0."""
+        mock_time.time.side_effect = [0.0, 0.1]
+        created_job = _make_spark_job()
+        succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.return_value = succeeded_job
+
+        result = run_spark_job(
+            namespace="my-ns",
+            main_application_file="s3://bucket/app.jar",
         )
 
         assert result["metadata"]["name"] == "test-job"

@@ -1,7 +1,8 @@
 """Spark job builtins for Uniflow workflows.
 
-Provides pure-Python equivalents of the Go/Starlark spark.create_job and
-spark.sensor_job builtins, using APIClient.SparkJobService directly.
+Provides pure-Python equivalents of the Go/Starlark spark.create_job,
+spark.sensor_job, and spark.run_job builtins, using APIClient.SparkJobService
+directly.
 """
 
 from michelangelo.uniflow.core.lib.spark.job import (
@@ -10,6 +11,7 @@ from michelangelo.uniflow.core.lib.spark.job import (
     create_job,
     create_spark_job,
     poll_spark_job,
+    run_spark_job,
     sensor_job,
 )
 
@@ -19,5 +21,6 @@ __all__ = [
     "create_job",
     "create_spark_job",
     "poll_spark_job",
+    "run_spark_job",
     "sensor_job",
 ]

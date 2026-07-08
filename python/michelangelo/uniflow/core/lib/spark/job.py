@@ -280,3 +280,55 @@ def sensor_job(
         timeout_seconds=timeout_seconds,
         poll_seconds=poll_seconds,
     )
+
+
+@star_plugin("spark.run_job")
+def run_spark_job(
+    namespace: str,
+    main_application_file: str,
+    main_class: str | None = None,
+    args: list[str] | None = None,
+    image: str | None = None,
+    driver_cpu: int | None = None,
+    driver_memory: str | None = None,
+    executor_cpu: int | None = None,
+    executor_memory: str | None = None,
+    executor_instances: int | None = None,
+    spark_conf: dict[str, str] | None = None,
+    deps_jars: list[str] | None = None,
+    deps_py_files: list[str] | None = None,
+    spark_version: str = "3.5.5",
+    timeout_seconds: int = 0,
+    poll_seconds: int = _DEFAULT_POLL_SECONDS,
+) -> dict[str, Any]:
+    """Submit a SparkJob and wait for it to reach a terminal state.
+
+    Combines create_spark_job + poll_spark_job into a single call, matching
+    the pipeline.run_pipeline() pattern for use directly in @workflow() bodies.
+    """
+    if timeout_seconds == 0:
+        timeout_seconds = _DEFAULT_TIMEOUT_SECONDS
+
+    created = create_spark_job(
+        namespace=namespace,
+        main_application_file=main_application_file,
+        main_class=main_class,
+        args=args,
+        image=image,
+        driver_cpu=driver_cpu,
+        driver_memory=driver_memory,
+        executor_cpu=executor_cpu,
+        executor_memory=executor_memory,
+        executor_instances=executor_instances,
+        spark_conf=spark_conf,
+        deps_jars=deps_jars,
+        deps_py_files=deps_py_files,
+        spark_version=spark_version,
+    )
+
+    return poll_spark_job(
+        namespace=created.metadata.namespace,
+        name=created.metadata.name,
+        timeout_seconds=timeout_seconds,
+        poll_seconds=poll_seconds,
+    )

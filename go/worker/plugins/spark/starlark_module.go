@@ -47,6 +47,7 @@ func newModule() starlark.Value {
 	m.attributes = map[string]*starlark.Builtin{
 		"create_job": starlark.NewBuiltin("create_job", m.createJob),
 		"sensor_job": starlark.NewBuiltin("sensor_job", m.sensorJob),
+		"run_job":    starlark.NewBuiltin("run_job", m.runJob),
 	}
 	m.properties = map[string]star.PropertyFactory{
 		"running_condition_type":   getRunningConditionType,
@@ -66,6 +67,68 @@ func (r *module) Attr(n string) (starlark.Value, error) {
 		r, n, r.attributes, r.properties)
 }
 func (r *module) AttrNames() []string { return ext.SortedKeys(r.attributes) }
+
+func (r *module) doCreateJob(ctx workflow.Context, sparkJob *v2pb.SparkJob, timeout int64) (*spark.CreateSparkJobActivityResponse, error) {
+	logger := workflow.GetLogger(ctx)
+
+	srp := utils.DefaultRetryPolicy
+	srp.ExpirationInterval = time.Second * time.Duration(timeout)
+	srp.InitialInterval = time.Second * time.Duration(poll)
+	createCtx := workflow.WithRetryPolicy(ctx, srp)
+
+	var createRes spark.CreateSparkJobActivityResponse
+	if err := workflow.ExecuteActivity(createCtx, spark.Activities.CreateSparkJob, v2pb.CreateSparkJobRequest{
+		SparkJob: sparkJob,
+	}).Get(ctx, &createRes); err != nil {
+		logger.Error("builtin-error", ext.ZapError(err)...)
+		return nil, err
+	}
+	return &createRes, nil
+}
+
+func (r *module) doSensorJob(ctx workflow.Context, sparkJob *v2pb.SparkJob, timeout int64, pollInterval int, assertConditionType string) (*spark.SensorSparkJobResponse, error) {
+	logger := workflow.GetLogger(ctx)
+
+	srp := utils.DefaultSensorRetryPolicy
+	srp.ExpirationInterval = time.Second * time.Duration(timeout)
+	srp.InitialInterval = time.Second * time.Duration(pollInterval)
+	sensorCtx := workflow.WithRetryPolicy(ctx, srp)
+
+	getSparkJobRequest := v2pb.GetSparkJobRequest{
+		Name:      sparkJob.Name,
+		Namespace: sparkJob.Namespace,
+	}
+	var getSparkJobResponse spark.SensorSparkJobResponse
+	maxSensorTries := maxJobSensorRetries
+	for i := 0; i < maxSensorTries; i++ {
+		if err := workflow.ExecuteActivity(sensorCtx, spark.Activities.SensorSparkJob, getSparkJobRequest).Get(ctx, &getSparkJobResponse); err != nil {
+			if workflow.IsCanceledError(ctx, err) {
+				ctx, _ = workflow.NewDisconnectedContext(ctx)
+				terminateRequest := spark.TerminateSparkJobRequest{
+					Name:      sparkJob.Name,
+					Namespace: sparkJob.Namespace,
+					Type:      v2pb.TERMINATION_TYPE_FAILED,
+					Reason:    reasonForCancel,
+				}
+				var terminateResponse v2pb.UpdateSparkJobResponse
+				if terminateErr := workflow.ExecuteActivity(ctx, spark.Activities.TerminateSparkJob, terminateRequest).Get(ctx, &terminateResponse); terminateErr != nil {
+					logger.Error(errorReasonTermninateJob, ext.ZapError(terminateErr)...)
+					return nil, terminateErr
+				}
+				return &spark.SensorSparkJobResponse{
+					SparkJob: terminateResponse.SparkJob,
+					Terminal: true,
+				}, nil
+			}
+			logger.Error(errorReasonSensorJob, ext.ZapError(err)...)
+			continue
+		}
+		if getSparkJobResponse.Terminal {
+			break
+		}
+	}
+	return &getSparkJobResponse, nil
+}
 
 func (r *module) createJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	ctx := service.GetContext(t)
@@ -91,16 +154,8 @@ func (r *module) createJob(t *starlark.Thread, _ *starlark.Builtin, args starlar
 		return nil, err
 	}
 
-	srp := utils.DefaultRetryPolicy
-	srp.ExpirationInterval = time.Second * time.Duration(timeout)
-	srp.InitialInterval = time.Second * time.Duration(poll)
-	createCtx := workflow.WithRetryPolicy(ctx, srp)
-
-	var createRes spark.CreateSparkJobActivityResponse
-	if err := workflow.ExecuteActivity(createCtx, spark.Activities.CreateSparkJob, v2pb.CreateSparkJobRequest{
-		SparkJob: &sparkJob,
-	}).Get(ctx, &createRes); err != nil {
-		logger.Error("builtin-error", ext.ZapError(err)...)
+	createRes, err := r.doCreateJob(ctx, &sparkJob, timeout)
+	if err != nil {
 		return nil, err
 	}
 
@@ -149,51 +204,69 @@ func (r *module) sensorJob(t *starlark.Thread, _ *starlark.Builtin, args starlar
 		return nil, err
 	}
 
-	srp := utils.DefaultSensorRetryPolicy
-	srp.ExpirationInterval = time.Second * time.Duration(timeout)
-	srp.InitialInterval = time.Second * time.Duration(poll)
-	sensorCtx := workflow.WithRetryPolicy(ctx, srp)
-
-	getSparkJobRequest := v2pb.GetSparkJobRequest{
-		Name:      sparkJob.Name,
-		Namespace: sparkJob.Namespace,
-	}
-	var getSparkJobResponse spark.SensorSparkJobResponse
-	maxSensorTries := maxJobSensorRetries
-	for i := 0; i < maxSensorTries; i++ {
-		if err := workflow.ExecuteActivity(sensorCtx, spark.Activities.SensorSparkJob, getSparkJobRequest).Get(ctx, &getSparkJobResponse); err != nil {
-			if workflow.IsCanceledError(ctx, err) {
-				// killing spark job in cadence once workflow is cancelled
-				ctx, _ = workflow.NewDisconnectedContext(ctx)
-				terminateRequest := spark.TerminateSparkJobRequest{
-					Name:      sparkJob.Name,
-					Namespace: sparkJob.Namespace,
-					Type:      v2pb.TERMINATION_TYPE_FAILED,
-					Reason:    reasonForCancel,
-				}
-				var terminateResponse v2pb.UpdateSparkJobResponse
-				if terminateErr := workflow.ExecuteActivity(ctx, spark.Activities.TerminateSparkJob, terminateRequest).Get(ctx, &terminateResponse); terminateErr != nil {
-					logger.Error(errorReasonTermninateJob, ext.ZapError(terminateErr)...)
-					return nil, terminateErr
-				}
-				var res starlark.Value
-				if convertErr := utils.AsStar(terminateResponse.SparkJob, &res); convertErr != nil {
-					logger.Error(errorReasonConvertJob, ext.ZapError(err)...)
-					return nil, convertErr
-				}
-				return res, nil
-			}
-			logger.Error(errorReasonSensorJob, ext.ZapError(err)...)
-			continue
-		}
-		// we will break as long as succeeded condition has been set
-		if getSparkJobResponse.Terminal {
-			break
-		}
+	sensorRes, err := r.doSensorJob(ctx, &sparkJob, timeout, poll, assertConditionType)
+	if err != nil {
+		return nil, err
 	}
 
 	var sparkJobValue starlark.Value
-	if err := utils.AsStar(getSparkJobResponse.SparkJob, &sparkJobValue); err != nil {
+	if err := utils.AsStar(sensorRes.SparkJob, &sparkJobValue); err != nil {
+		logger.Error(errorReasonConvertStarlarkValue, ext.ZapError(err)...)
+		return nil, err
+	}
+	return sparkJobValue, nil
+}
+
+// run_job creates a spark job and waits for it to reach a terminal state.
+//
+//	run_job(job, timeout_seconds=0, poll_seconds=10, assert_condition_type="succeeded") -> job
+//
+//	  job: a spark job spec dict (same format as create_job)
+//	  timeout_seconds: int: max time for the entire create+wait cycle
+//	  poll_seconds: int: job status poll interval
+//	  assert_condition_type: str: condition type to wait for
+//
+//	  return: dict: final job status
+func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	ctx := service.GetContext(t)
+	logger := workflow.GetLogger(ctx)
+
+	var _job *starlark.Dict
+	var timeout int64
+	pollSeconds := defaultPollSeconds
+	assertConditionType := utils.SucceededCondition
+
+	if err := starlark.UnpackArgs("run_job", args, kwargs,
+		"job", &_job,
+		"timeout_seconds?", &timeout,
+		"poll_seconds?", &pollSeconds,
+		"assert_condition_type?", &assertConditionType,
+	); err != nil {
+		logger.Error(errorReasonUnpackArgs, ext.ZapError(err)...)
+		return nil, err
+	}
+	if timeout == 0 {
+		timeout = int64(utils.LongTimeout.Seconds())
+	}
+
+	var sparkJob v2pb.SparkJob
+	if err := utils.AsGo(_job, &sparkJob); err != nil {
+		logger.Error(errorReasonConvertJob, ext.ZapError(err)...)
+		return nil, err
+	}
+
+	createRes, err := r.doCreateJob(ctx, &sparkJob, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	sensorRes, err := r.doSensorJob(ctx, createRes.SparkJob, timeout, pollSeconds, assertConditionType)
+	if err != nil {
+		return nil, err
+	}
+
+	var sparkJobValue starlark.Value
+	if err := utils.AsStar(sensorRes.SparkJob, &sparkJobValue); err != nil {
 		logger.Error(errorReasonConvertStarlarkValue, ext.ZapError(err)...)
 		return nil, err
 	}

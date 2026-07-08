@@ -105,3 +105,53 @@ func (s *SparkModuleTestSuite) TestSensorJobSuccessfully() {
 	var res any
 	require.NoError(s.env.Cadence.GetResult(&res))
 }
+
+func (s *SparkModuleTestSuite) TestRunJobSuccessfully() {
+	env := s.env.Cadence.GetTestWorkflowEnvironment()
+	env.RegisterActivity(spark.Activities.CreateSparkJob)
+	env.RegisterActivity(spark.Activities.SensorSparkJob)
+
+	sparkJob := &v2pb.SparkJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-spark-job",
+			Namespace: "default",
+		},
+		Spec: v2pb.SparkJobSpec{
+			MainClass: "org.apache.spark.examples.SparkPi",
+		},
+	}
+
+	env.OnActivity(spark.Activities.CreateSparkJob, mock.Anything, mock.Anything).Once().
+		Return(func(ctx context.Context, req v2pb.CreateSparkJobRequest) (*spark.CreateSparkJobActivityResponse, error) {
+			return &spark.CreateSparkJobActivityResponse{
+				SparkJob:   sparkJob,
+				ActivityID: "",
+			}, nil
+		})
+
+	env.OnActivity(spark.Activities.SensorSparkJob, mock.Anything, mock.Anything).
+		Return(func(ctx context.Context, req v2pb.GetSparkJobRequest) (*spark.SensorSparkJobResponse, error) {
+			return &spark.SensorSparkJobResponse{
+				SparkJob: &v2pb.SparkJob{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-spark-job",
+						Namespace: "default",
+					},
+					Status: v2pb.SparkJobStatus{
+						StatusConditions: []*apipb.Condition{
+							{
+								Type:   "Succeeded",
+								Status: apipb.CONDITION_STATUS_TRUE,
+							},
+						},
+					},
+				},
+				Terminal: true,
+			}, nil
+		})
+
+	s.env.Cadence.ExecuteFunction("/test.star", "test_run_job", nil, nil, nil)
+	require := s.Require()
+	var res any
+	require.NoError(s.env.Cadence.GetResult(&res))
+}
