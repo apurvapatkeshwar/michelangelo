@@ -42,6 +42,10 @@ _DEFAULT_TIMEOUT_SECONDS = 10 * 365 * 24 * 60 * 60
 _DEFAULT_POLL_SECONDS = 10
 
 
+class SparkJobKilledError(RuntimeError):
+    """Raised when a SparkJob is killed. Not retryable."""
+
+
 def _spark_job_to_dict(job: SparkJob) -> dict[str, Any]:
     conditions = []
     for c in job.status.status_conditions:
@@ -180,7 +184,9 @@ def poll_spark_job(
                     cond.type == KILLED_CONDITION_TYPE
                     and cond.status == CONDITION_STATUS_TRUE
                 ):
-                    raise RuntimeError(f"Spark job {name} was killed: {cond.message}")
+                    raise SparkJobKilledError(
+                        f"Spark job {name} was killed: {cond.message}"
+                    )
 
                 if (
                     cond.type == SUCCEEDED_CONDITION_TYPE
@@ -336,6 +342,8 @@ def run_spark_job(
                 timeout_seconds=timeout_seconds,
                 poll_seconds=poll_seconds,
             )
+        except SparkJobKilledError:
+            raise
         except RuntimeError as e:
             if attempt < retry_attempts:
                 log.info(

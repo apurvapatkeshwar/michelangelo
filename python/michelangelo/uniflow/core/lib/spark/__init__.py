@@ -8,6 +8,7 @@ directly.
 from michelangelo.uniflow.core.lib.spark.job import (
     KILLED_CONDITION_TYPE,
     SUCCEEDED_CONDITION_TYPE,
+    SparkJobKilledError,
     create_job,
     create_spark_job,
     poll_spark_job,
@@ -18,6 +19,7 @@ from michelangelo.uniflow.core.lib.spark.job import (
 __all__ = [
     "KILLED_CONDITION_TYPE",
     "SUCCEEDED_CONDITION_TYPE",
+    "SparkJobKilledError",
     "create_job",
     "create_spark_job",
     "poll_spark_job",

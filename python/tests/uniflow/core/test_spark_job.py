@@ -22,6 +22,7 @@ from michelangelo.gen.k8s.io.apimachinery.pkg.apis.meta.v1.generated_pb2 import 
 from michelangelo.uniflow.core.lib.spark.job import (
     KILLED_CONDITION_TYPE,
     SUCCEEDED_CONDITION_TYPE,
+    SparkJobKilledError,
     _spark_job_to_dict,
     create_job,
     create_spark_job,
@@ -207,12 +208,12 @@ class TestPollSparkJob:
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
     def test_raises_on_killed(self, mock_client, mock_time):
-        """Verify RuntimeError is raised when job has Killed condition."""
+        """Verify SparkJobKilledError is raised when job has Killed condition."""
         mock_time.time.side_effect = [0.0, 0.1]
         killed_job = _make_spark_job(conditions=[_killed_condition()])
         mock_client.SparkJobService.get_spark_job.return_value = killed_job
 
-        with pytest.raises(RuntimeError, match="was killed"):
+        with pytest.raises(SparkJobKilledError, match="was killed"):
             poll_spark_job("test-ns", "test-job")
 
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
@@ -450,3 +451,22 @@ class TestRunSparkJob:
             )
 
         assert mock_client.SparkJobService.create_spark_job.call_count == 2
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_retry_stops_on_kill(self, mock_client, mock_time):
+        """Verify run_spark_job does not retry when job is killed."""
+        mock_time.time.side_effect = [0.0, 0.1]
+        created_job = _make_spark_job()
+        killed_job = _make_spark_job(conditions=[_killed_condition()])
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.return_value = killed_job
+
+        with pytest.raises(SparkJobKilledError, match="was killed"):
+            run_spark_job(
+                namespace="my-ns",
+                main_application_file="s3://bucket/app.jar",
+                retry_attempts=2,
+            )
+
+        assert mock_client.SparkJobService.create_spark_job.call_count == 1
