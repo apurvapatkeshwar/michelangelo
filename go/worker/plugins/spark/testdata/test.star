@@ -70,38 +70,16 @@ def test_sensor_job():
     spark.sensor_job(spec, assert_condition_type = "Succeeded")
 
 def test_run_job():
-    spec = {
-        "kind": "SparkJob",
-        "metadata": {
-            "namespace": "test-namespace",
-            "name": "test-name",
-        },
-        "spec": {
-            "user": {
-                "name": "michelangelo",
-                "proxyUser": "michelangelo",
-            },
-            "driver": {
-                "pod": {
-                    "resource": {
-                        "cpu": 1,
-                        "memory": "1G",
-                    },
-                },
-            },
-            "executor": {
-                "pod": {
-                    "resource": {
-                        "cpu": 1,
-                        "memory": "1G",
-                    },
-                },
-                "instances": 1,
-            },
-            "mainClass": "org.apache.spark.examples.SparkPi",
-            "mainApplicationFile": "local:///opt/spark/examples/jars/spark-examples.jar",
-            "mainArgs": ["2"],
-            "sparkVersion": "3.5.5",
-        },
-    }
-    spark.run_job(job = spec)
+    spark.run_job(
+        namespace = "test-namespace",
+        main_application_file = "local:///opt/spark/examples/jars/spark-examples.jar",
+        main_class = "org.apache.spark.examples.SparkPi",
+        args = ["2"],
+        image = "apache/spark:3.5.5",
+        driver_cpu = 1,
+        driver_memory = "1G",
+        executor_cpu = 1,
+        executor_memory = "1G",
+        executor_instances = 1,
+        spark_version = "3.5.5",
+    )

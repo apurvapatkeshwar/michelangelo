@@ -12,6 +12,7 @@ import (
 	"github.com/michelangelo-ai/michelangelo/go/worker/plugins/utils"
 	v2pb "github.com/michelangelo-ai/michelangelo/proto-go/api/v2"
 	"go.starlark.net/starlark"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // These are some error reasons
@@ -217,30 +218,54 @@ func (r *module) sensorJob(t *starlark.Thread, _ *starlark.Builtin, args starlar
 	return sparkJobValue, nil
 }
 
-// run_job creates a spark job and waits for it to reach a terminal state.
+// run_job creates a spark job from flat parameters and waits for it to reach a terminal state.
+// The kwargs match run_spark_job()'s Python signature exactly, so the transpiled
+// __spark__.run_job(...) call works without restructuring.
 //
-//	run_job(job, timeout_seconds=0, poll_seconds=10, assert_condition_type="succeeded") -> job
-//
-//	  job: a spark job spec dict (same format as create_job)
-//	  timeout_seconds: int: max time for the entire create+wait cycle
-//	  poll_seconds: int: job status poll interval
-//	  assert_condition_type: str: condition type to wait for
+//	run_job(namespace, main_application_file, main_class=None, args=None, image=None,
+//	        driver_cpu=None, driver_memory=None, executor_cpu=None, executor_memory=None,
+//	        executor_instances=None, spark_conf=None, deps_jars=None, deps_py_files=None,
+//	        spark_version="3.5.5", timeout_seconds=0, poll_seconds=10) -> job
 //
 //	  return: dict: final job status
 func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	ctx := service.GetContext(t)
 	logger := workflow.GetLogger(ctx)
 
-	var _job *starlark.Dict
+	var namespace string
+	var mainApplicationFile string
+	var mainClass string
+	var mainArgs *starlark.List
+	var image string
+	var driverCPU int
+	var driverMemory string
+	var executorCPU int
+	var executorMemory string
+	var executorInstances int
+	var sparkConf *starlark.Dict
+	var depsJars *starlark.List
+	var depsPyFiles *starlark.List
+	var sparkVersion string = "3.5.5"
 	var timeout int64
 	pollSeconds := defaultPollSeconds
-	assertConditionType := utils.SucceededCondition
 
 	if err := starlark.UnpackArgs("run_job", args, kwargs,
-		"job", &_job,
+		"namespace", &namespace,
+		"main_application_file", &mainApplicationFile,
+		"main_class?", &mainClass,
+		"args?", &mainArgs,
+		"image?", &image,
+		"driver_cpu?", &driverCPU,
+		"driver_memory?", &driverMemory,
+		"executor_cpu?", &executorCPU,
+		"executor_memory?", &executorMemory,
+		"executor_instances?", &executorInstances,
+		"spark_conf?", &sparkConf,
+		"deps_jars?", &depsJars,
+		"deps_py_files?", &depsPyFiles,
+		"spark_version?", &sparkVersion,
 		"timeout_seconds?", &timeout,
 		"poll_seconds?", &pollSeconds,
-		"assert_condition_type?", &assertConditionType,
 	); err != nil {
 		logger.Error(errorReasonUnpackArgs, ext.ZapError(err)...)
 		return nil, err
@@ -249,18 +274,79 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		timeout = int64(utils.LongTimeout.Seconds())
 	}
 
-	var sparkJob v2pb.SparkJob
-	if err := utils.AsGo(_job, &sparkJob); err != nil {
-		logger.Error(errorReasonConvertJob, ext.ZapError(err)...)
-		return nil, err
+	sparkJob := &v2pb.SparkJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:    namespace,
+			GenerateName: "uniflow-splg-",
+		},
+		Spec: v2pb.SparkJobSpec{
+			MainApplicationFile: mainApplicationFile,
+			MainClass:           mainClass,
+			SparkVersion:        sparkVersion,
+			Driver: &v2pb.DriverSpec{
+				Pod: &v2pb.PodSpec{
+					Resource: &v2pb.ResourceSpec{
+						Cpu:    int32(driverCPU),
+						Memory: driverMemory,
+					},
+					Image: image,
+				},
+			},
+			Executor: &v2pb.ExecutorSpec{
+				Pod: &v2pb.PodSpec{
+					Resource: &v2pb.ResourceSpec{
+						Cpu:    int32(executorCPU),
+						Memory: executorMemory,
+					},
+					Image: image,
+				},
+				Instances: int32(executorInstances),
+			},
+		},
 	}
 
-	createRes, err := r.doCreateJob(ctx, &sparkJob, timeout)
+	if mainArgs != nil {
+		for i := 0; i < mainArgs.Len(); i++ {
+			if s, ok := mainArgs.Index(i).(starlark.String); ok {
+				sparkJob.Spec.MainArgs = append(sparkJob.Spec.MainArgs, string(s))
+			}
+		}
+	}
+
+	if sparkConf != nil {
+		sparkJob.Spec.SparkConf = make(map[string]string)
+		for _, item := range sparkConf.Items() {
+			if k, ok := item[0].(starlark.String); ok {
+				if v, ok := item[1].(starlark.String); ok {
+					sparkJob.Spec.SparkConf[string(k)] = string(v)
+				}
+			}
+		}
+	}
+
+	deps := &v2pb.Dependencies{}
+	if depsJars != nil {
+		for i := 0; i < depsJars.Len(); i++ {
+			if s, ok := depsJars.Index(i).(starlark.String); ok {
+				deps.Jars = append(deps.Jars, string(s))
+			}
+		}
+	}
+	if depsPyFiles != nil {
+		for i := 0; i < depsPyFiles.Len(); i++ {
+			if s, ok := depsPyFiles.Index(i).(starlark.String); ok {
+				deps.PyFiles = append(deps.PyFiles, string(s))
+			}
+		}
+	}
+	sparkJob.Spec.Deps = deps
+
+	createRes, err := r.doCreateJob(ctx, sparkJob, timeout)
 	if err != nil {
 		return nil, err
 	}
 
-	sensorRes, err := r.doSensorJob(ctx, createRes.SparkJob, timeout, pollSeconds, assertConditionType)
+	sensorRes, err := r.doSensorJob(ctx, createRes.SparkJob, timeout, pollSeconds, utils.SucceededCondition)
 	if err != nil {
 		return nil, err
 	}

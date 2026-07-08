@@ -111,20 +111,25 @@ func (s *SparkModuleTestSuite) TestRunJobSuccessfully() {
 	env.RegisterActivity(spark.Activities.CreateSparkJob)
 	env.RegisterActivity(spark.Activities.SensorSparkJob)
 
-	sparkJob := &v2pb.SparkJob{
+	createdJob := &v2pb.SparkJob{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-spark-job",
-			Namespace: "default",
+			Name:      "uniflow-splg-abc12",
+			Namespace: "test-namespace",
 		},
 		Spec: v2pb.SparkJobSpec{
-			MainClass: "org.apache.spark.examples.SparkPi",
+			MainClass:           "org.apache.spark.examples.SparkPi",
+			MainApplicationFile: "local:///opt/spark/examples/jars/spark-examples.jar",
 		},
 	}
 
+	var createJobReq v2pb.CreateSparkJobRequest
 	env.OnActivity(spark.Activities.CreateSparkJob, mock.Anything, mock.Anything).Once().
+		Run(func(args mock.Arguments) {
+			createJobReq = args.Get(1).(v2pb.CreateSparkJobRequest)
+		}).
 		Return(func(ctx context.Context, req v2pb.CreateSparkJobRequest) (*spark.CreateSparkJobActivityResponse, error) {
 			return &spark.CreateSparkJobActivityResponse{
-				SparkJob:   sparkJob,
+				SparkJob:   createdJob,
 				ActivityID: "",
 			}, nil
 		})
@@ -134,8 +139,8 @@ func (s *SparkModuleTestSuite) TestRunJobSuccessfully() {
 			return &spark.SensorSparkJobResponse{
 				SparkJob: &v2pb.SparkJob{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-spark-job",
-						Namespace: "default",
+						Name:      "uniflow-splg-abc12",
+						Namespace: "test-namespace",
 					},
 					Status: v2pb.SparkJobStatus{
 						StatusConditions: []*apipb.Condition{
@@ -154,4 +159,10 @@ func (s *SparkModuleTestSuite) TestRunJobSuccessfully() {
 	require := s.Require()
 	var res any
 	require.NoError(s.env.Cadence.GetResult(&res))
+	require.Equal("test-namespace", createJobReq.SparkJob.Namespace)
+	require.Equal("org.apache.spark.examples.SparkPi", createJobReq.SparkJob.Spec.MainClass)
+	require.Equal("local:///opt/spark/examples/jars/spark-examples.jar", createJobReq.SparkJob.Spec.MainApplicationFile)
+	require.Equal("apache/spark:3.5.5", createJobReq.SparkJob.Spec.Driver.Pod.Image)
+	require.Equal(int32(1), createJobReq.SparkJob.Spec.Driver.Pod.Resource.Cpu)
+	require.Equal("1G", createJobReq.SparkJob.Spec.Driver.Pod.Resource.Memory)
 }
