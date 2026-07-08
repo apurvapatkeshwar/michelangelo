@@ -41,13 +41,81 @@ model independently.
   all).
 - Two k3d clusters already exist: `michelangelo-compute-1` and
   `michelangelo-sandbox`, with the Michelangelo `controllermgr` and
-  `apiserver` running (locally via `bazel run //go/cmd/controllermgr` /
-  `//go/cmd/apiserver`, pointed at the sandbox cluster).
+  `apiserver` running on the sandbox cluster (see below).
 - MinIO running and reachable at `host.docker.internal:9091` (used as the
   S3-compatible model store).
 - A trained bert-cola checkpoint. Either run the full pipeline
   (`examples/bert_cola/{train,serve}.py` via `ma pipeline dev_run`) or reuse
   an existing one already uploaded to MinIO.
+
+## Deploying controllermgr to the sandbox cluster
+
+`controllermgr` must run somewhere that can reach both the sandbox API server
+and Temporal. The simplest option for local dev is to run it as a pod inside
+the sandbox cluster via the existing Michelangelo Helm chart.
+
+**1. Make sure the sandbox Helm release has `controllermgr` enabled** (it is
+by default in `values-k3d.yaml`):
+
+```bash
+helm upgrade --install michelangelo helm/michelangelo \
+  --kube-context k3d-michelangelo-sandbox \
+  -n default \
+  -f helm/michelangelo/values-k3d.yaml \
+  --set workflow.engine=temporal \
+  --set workflow.endpoint=michelangelo-temporal-frontend:7233
+```
+
+**2. Verify the pod is running:**
+
+```bash
+kubectl --context k3d-michelangelo-sandbox get pod -n default -l app=michelangelo-controllermgr
+```
+
+**Running it locally instead (advanced):**
+
+If you prefer to run `controllermgr` on the host (e.g. to test unreleased code),
+you need two things:
+
+- `RUNTIME_ENVIRONMENT=local` so `go/cmd/controllermgr/config/local.yaml`
+  is loaded on top of `base.yaml` (overrides the Cadence host with Temporal)
+- A port-forward so Temporal is reachable on `localhost:7233`:
+
+```bash
+kubectl --context k3d-michelangelo-sandbox port-forward \
+  svc/michelangelo-temporal-frontend 7233:7233 &
+
+CONFIG_DIR=go/cmd/controllermgr/config \
+RUNTIME_ENVIRONMENT=local \
+tools/bazel run //go/cmd/controllermgr
+```
+
+> **Note:** The Temporal schema is stored in MySQL, which has no persistent
+> volume in the sandbox. If MySQL restarts, the schema is wiped and you must
+> re-run the schema setup before restarting `controllermgr`:
+>
+> ```bash
+> ADMIN=$(kubectl get pod -n default -l app=michelangelo-temporal-admintools -o name | head -1)
+> kubectl exec $ADMIN -- temporal-sql-tool --ep mysql --port 3306 \
+>   --user root --password root --db temporal --pl mysql8 \
+>   setup-schema --version 0.0
+> kubectl exec $ADMIN -- temporal-sql-tool --ep mysql --port 3306 \
+>   --user root --password root --db temporal_visibility --pl mysql8 \
+>   create-database
+> kubectl exec $ADMIN -- temporal-sql-tool --ep mysql --port 3306 \
+>   --user root --password root --db temporal_visibility --pl mysql8 \
+>   setup-schema --version 0.0
+> kubectl exec $ADMIN -- temporal-sql-tool --ep mysql --port 3306 \
+>   --user root --password root --db temporal --pl mysql8 \
+>   update-schema --schema-dir /etc/temporal/schema/mysql/v8/temporal/versioned
+> kubectl exec $ADMIN -- temporal-sql-tool --ep mysql --port 3306 \
+>   --user root --password root --db temporal_visibility --pl mysql8 \
+>   update-schema --schema-dir /etc/temporal/schema/mysql/v8/visibility/versioned
+> kubectl exec $ADMIN -- temporal operator namespace create default
+> kubectl rollout restart deployment michelangelo-temporal-frontend \
+>   michelangelo-temporal-history michelangelo-temporal-matching \
+>   michelangelo-temporal-worker michelangelo-worker -n default
+> ```
 
 ## Step 1 — Install KServe on every target cluster
 
