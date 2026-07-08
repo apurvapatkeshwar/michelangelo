@@ -407,3 +407,46 @@ class TestRunSparkJob:
         )
 
         assert result["metadata"]["name"] == "test-job"
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_retry_then_succeed(self, mock_client, mock_time):
+        """Verify run_spark_job retries on failure and succeeds on second attempt."""
+        mock_time.time.side_effect = [0.0, 0.1, 0.0, 0.1]
+        created_job = _make_spark_job()
+        failed_job = _make_spark_job(conditions=[_failed_condition()])
+        succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.side_effect = [
+            failed_job,
+            succeeded_job,
+        ]
+
+        result = run_spark_job(
+            namespace="my-ns",
+            main_application_file="s3://bucket/app.jar",
+            retry_attempts=1,
+        )
+
+        assert result["metadata"]["name"] == "test-job"
+        assert mock_client.SparkJobService.create_spark_job.call_count == 2
+        assert mock_client.SparkJobService.get_spark_job.call_count == 2
+
+    @patch("michelangelo.uniflow.core.lib.spark.job.time")
+    @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
+    def test_retry_exhausted(self, mock_client, mock_time):
+        """Verify run_spark_job raises after exhausting all retry attempts."""
+        mock_time.time.side_effect = [0.0, 0.1, 0.0, 0.1]
+        created_job = _make_spark_job()
+        failed_job = _make_spark_job(conditions=[_failed_condition()])
+        mock_client.SparkJobService.create_spark_job.return_value = created_job
+        mock_client.SparkJobService.get_spark_job.return_value = failed_job
+
+        with pytest.raises(RuntimeError, match="failed"):
+            run_spark_job(
+                namespace="my-ns",
+                main_application_file="s3://bucket/app.jar",
+                retry_attempts=1,
+            )
+
+        assert mock_client.SparkJobService.create_spark_job.call_count == 2

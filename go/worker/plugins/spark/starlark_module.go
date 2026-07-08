@@ -10,6 +10,7 @@ import (
 	"github.com/cadence-workflow/starlark-worker/workflow"
 	"github.com/michelangelo-ai/michelangelo/go/worker/activities/spark"
 	"github.com/michelangelo-ai/michelangelo/go/worker/plugins/utils"
+	apipb "github.com/michelangelo-ai/michelangelo/proto-go/api"
 	v2pb "github.com/michelangelo-ai/michelangelo/proto-go/api/v2"
 	"go.starlark.net/starlark"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -248,6 +249,7 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	var sparkVersion string = "3.5.5"
 	var timeout int64
 	pollSeconds := defaultPollSeconds
+	var retryAttempts int
 
 	if err := starlark.UnpackArgs("run_job", args, kwargs,
 		"namespace", &namespace,
@@ -266,6 +268,7 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		"spark_version?", &sparkVersion,
 		"timeout_seconds?", &timeout,
 		"poll_seconds?", &pollSeconds,
+		"retry_attempts?", &retryAttempts,
 	); err != nil {
 		logger.Error(errorReasonUnpackArgs, ext.ZapError(err)...)
 		return nil, err
@@ -341,22 +344,66 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	sparkJob.Spec.Deps = deps
 
-	createRes, err := r.doCreateJob(ctx, sparkJob, timeout)
-	if err != nil {
-		return nil, err
-	}
+	var lastSensorRes *spark.SensorSparkJobResponse
+	totalAttempts := retryAttempts + 1
+	for attempt := 1; attempt <= totalAttempts; attempt++ {
+		createRes, err := r.doCreateJob(ctx, sparkJob, timeout)
+		if err != nil {
+			return nil, err
+		}
 
-	sensorRes, err := r.doSensorJob(ctx, createRes.SparkJob, timeout, pollSeconds, utils.SucceededCondition)
-	if err != nil {
-		return nil, err
+		sensorRes, err := r.doSensorJob(ctx, createRes.SparkJob, timeout, pollSeconds, utils.SucceededCondition)
+		if err != nil {
+			return nil, err
+		}
+		lastSensorRes = sensorRes
+
+		if isSparkJobSucceeded(sensorRes.SparkJob) {
+			break
+		}
+
+		if isSparkJobKilled(sensorRes.SparkJob) {
+			logger.Error("spark job killed, no retry", ext.ZapError(fmt.Errorf("spark job killed"))...)
+			break
+		}
+
+		if attempt < totalAttempts {
+			logger.Info(fmt.Sprintf("spark job failed (attempt %d/%d), retrying", attempt, totalAttempts))
+		} else {
+			logger.Error(fmt.Sprintf("spark job failed after all %d attempts", totalAttempts))
+		}
 	}
 
 	var sparkJobValue starlark.Value
-	if err := utils.AsStar(sensorRes.SparkJob, &sparkJobValue); err != nil {
+	if err := utils.AsStar(lastSensorRes.SparkJob, &sparkJobValue); err != nil {
 		logger.Error(errorReasonConvertStarlarkValue, ext.ZapError(err)...)
 		return nil, err
 	}
 	return sparkJobValue, nil
+}
+
+func isSparkJobSucceeded(job *v2pb.SparkJob) bool {
+	if job == nil {
+		return false
+	}
+	for _, c := range job.Status.GetStatusConditions() {
+		if c.Type == utils.SucceededCondition && c.Status == apipb.CONDITION_STATUS_TRUE {
+			return true
+		}
+	}
+	return false
+}
+
+func isSparkJobKilled(job *v2pb.SparkJob) bool {
+	if job == nil {
+		return false
+	}
+	for _, c := range job.Status.GetStatusConditions() {
+		if c.Type == utils.KilledCondition && c.Status == apipb.CONDITION_STATUS_TRUE {
+			return true
+		}
+	}
+	return false
 }
 
 func getRunningConditionType(receiver starlark.Value) (starlark.Value, error) {

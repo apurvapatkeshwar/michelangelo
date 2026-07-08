@@ -300,35 +300,50 @@ def run_spark_job(
     spark_version: str = "3.5.5",
     timeout_seconds: int = 0,
     poll_seconds: int = _DEFAULT_POLL_SECONDS,
+    retry_attempts: int = 0,
 ) -> dict[str, Any]:
     """Submit a SparkJob and wait for it to reach a terminal state.
 
     Combines create_spark_job + poll_spark_job into a single call, matching
     the pipeline.run_pipeline() pattern for use directly in @workflow() bodies.
+    On failure or kill, re-submits up to retry_attempts times before raising.
     """
     if timeout_seconds == 0:
         timeout_seconds = _DEFAULT_TIMEOUT_SECONDS
 
-    created = create_spark_job(
-        namespace=namespace,
-        main_application_file=main_application_file,
-        main_class=main_class,
-        args=args,
-        image=image,
-        driver_cpu=driver_cpu,
-        driver_memory=driver_memory,
-        executor_cpu=executor_cpu,
-        executor_memory=executor_memory,
-        executor_instances=executor_instances,
-        spark_conf=spark_conf,
-        deps_jars=deps_jars,
-        deps_py_files=deps_py_files,
-        spark_version=spark_version,
-    )
+    for attempt in range(retry_attempts + 1):
+        created = create_spark_job(
+            namespace=namespace,
+            main_application_file=main_application_file,
+            main_class=main_class,
+            args=args,
+            image=image,
+            driver_cpu=driver_cpu,
+            driver_memory=driver_memory,
+            executor_cpu=executor_cpu,
+            executor_memory=executor_memory,
+            executor_instances=executor_instances,
+            spark_conf=spark_conf,
+            deps_jars=deps_jars,
+            deps_py_files=deps_py_files,
+            spark_version=spark_version,
+        )
 
-    return poll_spark_job(
-        namespace=created.metadata.namespace,
-        name=created.metadata.name,
-        timeout_seconds=timeout_seconds,
-        poll_seconds=poll_seconds,
-    )
+        try:
+            return poll_spark_job(
+                namespace=created.metadata.namespace,
+                name=created.metadata.name,
+                timeout_seconds=timeout_seconds,
+                poll_seconds=poll_seconds,
+            )
+        except RuntimeError as e:
+            if attempt < retry_attempts:
+                log.info(
+                    "Spark job %s failed (attempt %d/%d), retrying: %s",
+                    created.metadata.name,
+                    attempt + 1,
+                    retry_attempts + 1,
+                    e,
+                )
+            else:
+                raise

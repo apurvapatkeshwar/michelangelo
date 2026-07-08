@@ -166,3 +166,65 @@ func (s *SparkModuleTestSuite) TestRunJobSuccessfully() {
 	require.Equal(int32(1), createJobReq.SparkJob.Spec.Driver.Pod.Resource.Cpu)
 	require.Equal("1G", createJobReq.SparkJob.Spec.Driver.Pod.Resource.Memory)
 }
+
+func (s *SparkModuleTestSuite) TestRunJobRetryThenSucceed() {
+	env := s.env.Cadence.GetTestWorkflowEnvironment()
+	env.RegisterActivity(spark.Activities.CreateSparkJob)
+	env.RegisterActivity(spark.Activities.SensorSparkJob)
+
+	createCallCount := 0
+	env.OnActivity(spark.Activities.CreateSparkJob, mock.Anything, mock.Anything).
+		Return(func(ctx context.Context, req v2pb.CreateSparkJobRequest) (*spark.CreateSparkJobActivityResponse, error) {
+			createCallCount++
+			return &spark.CreateSparkJobActivityResponse{
+				SparkJob: &v2pb.SparkJob{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "uniflow-splg-retry",
+						Namespace: "test-namespace",
+					},
+				},
+				ActivityID: "",
+			}, nil
+		})
+
+	sensorCallCount := 0
+	env.OnActivity(spark.Activities.SensorSparkJob, mock.Anything, mock.Anything).
+		Return(func(ctx context.Context, req v2pb.GetSparkJobRequest) (*spark.SensorSparkJobResponse, error) {
+			sensorCallCount++
+			if sensorCallCount == 1 {
+				return &spark.SensorSparkJobResponse{
+					SparkJob: &v2pb.SparkJob{
+						Status: v2pb.SparkJobStatus{
+							StatusConditions: []*apipb.Condition{
+								{
+									Type:   "Succeeded",
+									Status: apipb.CONDITION_STATUS_FALSE,
+								},
+							},
+						},
+					},
+					Terminal: true,
+				}, nil
+			}
+			return &spark.SensorSparkJobResponse{
+				SparkJob: &v2pb.SparkJob{
+					Status: v2pb.SparkJobStatus{
+						StatusConditions: []*apipb.Condition{
+							{
+								Type:   "Succeeded",
+								Status: apipb.CONDITION_STATUS_TRUE,
+							},
+						},
+					},
+				},
+				Terminal: true,
+			}, nil
+		})
+
+	s.env.Cadence.ExecuteFunction("/test.star", "test_run_job_retry", nil, nil, nil)
+	require := s.Require()
+	var res any
+	require.NoError(s.env.Cadence.GetResult(&res))
+	require.Equal(2, createCallCount)
+	require.Equal(2, sensorCallCount)
+}
