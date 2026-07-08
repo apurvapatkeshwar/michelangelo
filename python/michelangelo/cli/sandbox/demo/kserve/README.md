@@ -12,8 +12,7 @@ simultaneously on two separate k3d clusters — `michelangelo-compute-1` and
                     k3d-michelangelo-sandbox (control plane + target)
                     ┌─────────────────────────────────────────────┐
    controllermgr    │  InferenceServer CR (this repo's CRD)        │
-   (runs locally    │    inference-server-bert-cola-kserve         │
-   on the host, ────┼──►  clusterTargets:                         │
+   (pod in sandbox ─┼──►  clusterTargets:                         │
    not in a pod)    │      - michelangelo-compute-1 ───────────────┼──┐
                     │      - michelangelo-sandbox                  │  │
                     │                                               │  │
@@ -48,7 +47,7 @@ model independently.
   (`examples/bert_cola/{train,serve}.py` via `ma pipeline dev_run`) or reuse
   an existing one already uploaded to MinIO.
 
-## Deploying controllermgr to the sandbox cluster
+## Step 0 — Deploy controllermgr and apiserver to the sandbox cluster
 
 `controllermgr` must run somewhere that can reach both the sandbox API server
 and Temporal. The simplest option for local dev is to run it as a pod inside
@@ -117,7 +116,7 @@ tools/bazel run //go/cmd/controllermgr
 >   michelangelo-temporal-worker michelangelo-worker -n default
 > ```
 
-## Step 1 — Install KServe on every target cluster
+## Step 2 — Install KServe on every target cluster
 
 Check first — you likely only need to do this for clusters that don't have
 it yet:
@@ -159,7 +158,7 @@ kubectl --context k3d-<cluster> apply -f ../../resources/rbac-inferenceserver.ya
 kubectl --context k3d-<cluster> apply -f minio-s3-secret.yaml
 ```
 
-## Step 2 — Build and import the CPU Triton+torch image
+## Step 3 — Build and import the CPU Triton+torch image
 
 The stock `nvcr.io/nvidia/tritonserver` images don't include `torch`, and
 (see "Known issues") only 24.09-py3 and later actually work CPU-only.
@@ -182,7 +181,7 @@ If `k3d image import` fails with `input/output error` on some nodes, that's
 usually Docker Desktop disk pressure, not a real problem with the image —
 see "Known issues" below, then just retry the import.
 
-## Step 3 — Apply the ClusterServingRuntime
+## Step 4 — Apply the ClusterServingRuntime
 
 ```bash
 kubectl --context k3d-michelangelo-compute-1 apply -f clusterservingruntime-tritonserver-cpu.yaml
@@ -194,7 +193,7 @@ the one KServe actually auto-selects for `michelangelo/kserve-model-format:
 triton` (see comments in the file for why the *other*
 `clusterservingruntime-triton.yaml` in this directory is dead/unused).
 
-## Step 4 — Run the bert-cola pipeline
+## Step 5 — Run the bert-cola pipeline
 
 ```bash
 ma pipeline dev_run --pipeline examples/bert_cola/pipeline.yaml
@@ -217,7 +216,7 @@ python upload_model_repo.py \
   --prefix <revision_name>
 ```
 
-## Step 5 — Apply the InferenceServer and Deployment CRs
+## Step 6 — Apply the InferenceServer and Deployment CRs
 
 ```bash
 kubectl --context k3d-michelangelo-sandbox apply -f inferenceserver-bert-cola.yaml
