@@ -174,6 +174,66 @@ kubectl --context k3d-michelangelo-sandbox annotate inferenceserver inference-se
   michelangelo/force-reconcile="$(date +%s)" --overwrite
 ```
 
+## Configuring health-metric gates on the rollout
+
+The `Deployment` CR supports PromQL-based health rules via `spec.healthCheckConfig`.
+During a zonal rollout the `HealthCheckGate` evaluates every rule against Prometheus
+after each cluster is updated; if any rule breaches its threshold the rollout is
+automatically rolled back before it reaches the next cluster.
+
+```yaml
+spec:
+  strategy:
+    zonal:
+      rolloutPeriodInSeconds: 60   # wait between clusters
+  healthCheckConfig:
+    # Prometheus reachable from controllermgr (running on the host).
+    prometheusUrl: "http://localhost:9093"   # port-forward michelangelo-prometheus-server:80
+    rules:
+      # Roll back if the model's error rate exceeds 1 % over the last 2 minutes.
+      - name: "error-rate"
+        query: 'rate(nv_inference_request_failure{model="bert-cola"}[2m])'
+        op: GT
+        threshold: 0.01
+      # Roll back if p99 inference latency exceeds 500 ms.
+      - name: "p99-latency-us"
+        query: >
+          histogram_quantile(0.99,
+            rate(nv_inference_request_duration_us_bucket{model="bert-cola"}[2m]))
+        op: GT
+        threshold: 500000
+```
+
+**Available Triton metrics** (scraped from `:8002/metrics` on each predictor pod):
+
+| Metric | Description |
+|--------|-------------|
+| `nv_inference_request_success` | Cumulative successful requests |
+| `nv_inference_request_failure` | Cumulative failed requests |
+| `nv_inference_request_duration_us` | End-to-end latency histogram (µs) |
+| `nv_inference_queue_duration_us` | Queue wait time histogram (µs) |
+| `nv_inference_compute_infer_duration_us` | GPU/CPU compute time histogram (µs) |
+| `nv_inference_pending_request_count` | Instantaneous queue depth |
+| `nv_cpu_utilization` | CPU utilization [0–1] |
+
+To scrape these from the sandbox Prometheus, port-forward the predictor pod's
+metrics port and query it directly during development:
+
+```bash
+kubectl --context k3d-michelangelo-sandbox port-forward -n default \
+  svc/inference-server-bert-cola-kserve-predictor 8002:8002 &
+curl -s http://localhost:8002/metrics | grep nv_inference_request
+```
+
+The `prometheusUrl` in `healthCheckConfig` must be reachable from wherever
+`controllermgr` runs (the host Mac in local dev). Port-forward sandbox Prometheus
+to a local port and use that URL:
+
+```bash
+kubectl --context k3d-michelangelo-sandbox port-forward -n default \
+  svc/michelangelo-prometheus-server 9093:80 &
+```
+
 ## Verify
 
 **1. Check the InferenceServer CR's status** (the source of truth for
