@@ -43,7 +43,13 @@ _DEFAULT_POLL_SECONDS = 10
 
 
 class SparkJobKilledError(RuntimeError):
-    """Raised when a SparkJob is killed. Not retryable."""
+    """Raised when a SparkJob's Killed condition is TRUE.
+
+    Subclass of RuntimeError. run_spark_job()'s retry loop catches and
+    retries this the same way as a failed job — Killed is commonly caused
+    by infra instability, not deliberate cancellation. Callers who need
+    to distinguish a kill from a failure can catch this type specifically.
+    """
 
 
 def _spark_job_to_dict(job: SparkJob) -> dict[str, Any]:
@@ -211,7 +217,9 @@ def poll_spark_job(
                 grpc.StatusCode.DEADLINE_EXCEEDED,
                 grpc.StatusCode.RESOURCE_EXHAUSTED,
             ):
-                log.debug("Transient error polling spark job %s: %s", name, e.details())
+                log.warning(
+                    "Transient error polling spark job %s: %s", name, e.details()
+                )
             elif e.code() in (
                 grpc.StatusCode.PERMISSION_DENIED,
                 grpc.StatusCode.UNAUTHENTICATED,
@@ -221,11 +229,11 @@ def poll_spark_job(
                     f"Failed to get spark job {name}: {e.details()}"
                 ) from e
             else:
-                log.debug("Error polling spark job %s: %s", name, e.details())
+                log.warning("Error polling spark job %s: %s", name, e.details())
         except RuntimeError:
             raise
         except Exception as e:
-            log.debug("Error polling spark job %s: %s", name, e)
+            log.warning("Error polling spark job %s: %s", name, e)
 
         time.sleep(poll_seconds)
 

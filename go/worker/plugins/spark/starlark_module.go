@@ -82,7 +82,7 @@ func (r *module) doCreateJob(ctx workflow.Context, sparkJob *v2pb.SparkJob, time
 	if err := workflow.ExecuteActivity(createCtx, spark.Activities.CreateSparkJob, v2pb.CreateSparkJobRequest{
 		SparkJob: sparkJob,
 	}).Get(ctx, &createRes); err != nil {
-		logger.Error("builtin-error", ext.ZapError(err)...)
+		logger.Error("spark.create_job activity failed", ext.ZapError(err)...)
 		return nil, err
 	}
 	return &createRes, nil
@@ -371,7 +371,7 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		if attempt < totalAttempts {
 			logger.Info(fmt.Sprintf("spark job failed (attempt %d/%d), retrying", attempt, totalAttempts))
 		} else {
-			logger.Error(fmt.Sprintf("spark job failed after all %d attempts", totalAttempts))
+			return nil, fmt.Errorf("spark job failed after all %d attempts exhausted", totalAttempts)
 		}
 	}
 
