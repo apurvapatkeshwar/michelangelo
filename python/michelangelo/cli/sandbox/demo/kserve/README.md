@@ -35,43 +35,63 @@ model independently.
 
 ## Prerequisites
 
-- Docker Desktop running, with real free disk space (Triton images are
-  ~20GB each — see "Known issues" below if Docker Desktop won't start at
-  all).
-- Two k3d clusters already exist: `michelangelo-compute-1` and
-  `michelangelo-sandbox`, with the Michelangelo `controllermgr` and
-  `apiserver` running on the sandbox cluster (see below).
-- MinIO running and reachable at `host.docker.internal:9091` (used as the
-  S3-compatible model store).
-- A trained bert-cola checkpoint. Either run the full pipeline
-  (`examples/bert_cola/{train,serve}.py` via `ma pipeline dev_run`) or reuse
-  an existing one already uploaded to MinIO.
+- Docker Desktop running with at least 60 GB of free disk space (Triton
+  images are ~20 GB each — see "Known issues" below if Docker Desktop won't
+  start at all).
+- `k3d`, `kubectl`, `helm`, and `ma` (the Michelangelo CLI) installed.
 
-## Step 0 — Deploy controllermgr and apiserver to the sandbox cluster
+## Step 0 — Stand up two k3d clusters with the Michelangelo sandbox
 
-`controllermgr` must run somewhere that can reach both the sandbox API server
-and Temporal. The simplest option for local dev is to run it as a pod inside
-the sandbox cluster via the existing Michelangelo Helm chart.
+Starting point: a machine with Docker Desktop running. Everything below creates
+the clusters, installs the sandbox, and gets `controllermgr`/`apiserver` running
+as pods so the rest of the demo can proceed.
 
-**1. Make sure the sandbox Helm release has `controllermgr` enabled** (it is
-by default in `values-k3d.yaml`):
+**1. Create the two clusters:**
+
+```bash
+# Control plane + serving target
+python -m michelangelo.cli.sandbox.sandbox create-cluster michelangelo-sandbox
+
+# Compute-only serving target (no Michelangelo control-plane components)
+python -m michelangelo.cli.sandbox.sandbox create-cluster michelangelo-compute-1
+```
+
+**2. Install the Michelangelo sandbox on the control-plane cluster:**
 
 ```bash
 helm upgrade --install michelangelo helm/michelangelo \
   --kube-context k3d-michelangelo-sandbox \
-  -n default \
+  -n default --create-namespace \
   -f helm/michelangelo/values-k3d.yaml \
   --set workflow.engine=temporal \
   --set workflow.endpoint=michelangelo-temporal-frontend:7233
 ```
 
-**2. Verify the pod is running:**
+Wait for all pods to be ready:
 
 ```bash
-kubectl --context k3d-michelangelo-sandbox get pod -n default -l app=michelangelo-controllermgr
+kubectl --context k3d-michelangelo-sandbox rollout status \
+  deployment/michelangelo-apiserver \
+  deployment/michelangelo-controllermgr \
+  deployment/michelangelo-worker \
+  -n default --timeout=180s
 ```
 
-**Running it locally instead (advanced):**
+**3. Verify `controllermgr` and `apiserver` are running:**
+
+```bash
+kubectl --context k3d-michelangelo-sandbox get pod -n default \
+  -l 'app in (michelangelo-controllermgr,michelangelo-apiserver)'
+```
+
+> **Temporal schema note:** Temporal's MySQL backend has no persistent volume
+> in the sandbox. If MySQL ever restarts (e.g. after a machine reboot), the
+> schema is wiped and `controllermgr`/`worker` will crash-loop with
+> `Table 'temporal.schema_version' doesn't exist`. Re-run the schema setup
+> from the runbook at the bottom of this section, then restart the affected
+> deployments.
+
+**Running controllermgr locally instead (advanced):**
 
 If you prefer to run `controllermgr` on the host (e.g. to test unreleased code),
 you need two things:
