@@ -342,8 +342,6 @@ def run_spark_job(
                 timeout_seconds=timeout_seconds,
                 poll_seconds=poll_seconds,
             )
-        except SparkJobKilledError:
-            raise
         except RuntimeError as e:
             if attempt < retry_attempts:
                 log.info(

@@ -344,6 +344,12 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 	sparkJob.Spec.Deps = deps
 
+	// Retry loop: re-submit a fresh SparkJob on any non-succeeded terminal
+	// state (Failed or Killed). Killed is retried because it's commonly caused
+	// by infra instability (node preemption, resource pressure), not deliberate
+	// cancellation. Explicit run cancellation is handled separately by
+	// doSensorJob's workflow.IsCanceledError path, which tears down the Cadence
+	// context and calls TerminateSparkJob — that path never reaches this loop.
 	var lastSensorRes *spark.SensorSparkJobResponse
 	totalAttempts := retryAttempts + 1
 	for attempt := 1; attempt <= totalAttempts; attempt++ {
@@ -359,11 +365,6 @@ func (r *module) runJob(t *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		lastSensorRes = sensorRes
 
 		if isSparkJobSucceeded(sensorRes.SparkJob) {
-			break
-		}
-
-		if isSparkJobKilled(sensorRes.SparkJob) {
-			logger.Error("spark job killed, no retry", ext.ZapError(fmt.Errorf("spark job killed"))...)
 			break
 		}
 
@@ -388,18 +389,6 @@ func isSparkJobSucceeded(job *v2pb.SparkJob) bool {
 	}
 	for _, c := range job.Status.GetStatusConditions() {
 		if c.Type == utils.SucceededCondition && c.Status == apipb.CONDITION_STATUS_TRUE {
-			return true
-		}
-	}
-	return false
-}
-
-func isSparkJobKilled(job *v2pb.SparkJob) bool {
-	if job == nil {
-		return false
-	}
-	for _, c := range job.Status.GetStatusConditions() {
-		if c.Type == utils.KilledCondition && c.Status == apipb.CONDITION_STATUS_TRUE {
 			return true
 		}
 	}

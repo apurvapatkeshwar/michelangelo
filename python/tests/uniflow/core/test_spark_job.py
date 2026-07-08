@@ -454,19 +454,24 @@ class TestRunSparkJob:
 
     @patch("michelangelo.uniflow.core.lib.spark.job.time")
     @patch("michelangelo.uniflow.core.lib.spark.job.APIClient")
-    def test_retry_stops_on_kill(self, mock_client, mock_time):
-        """Verify run_spark_job does not retry when job is killed."""
-        mock_time.time.side_effect = [0.0, 0.1]
+    def test_retry_on_kill_then_succeed(self, mock_client, mock_time):
+        """Verify run_spark_job retries on killed job (infra-driven, not deliberate)."""
+        mock_time.time.side_effect = [0.0, 0.1, 0.0, 0.1]
         created_job = _make_spark_job()
         killed_job = _make_spark_job(conditions=[_killed_condition()])
+        succeeded_job = _make_spark_job(conditions=[_succeeded_condition()])
         mock_client.SparkJobService.create_spark_job.return_value = created_job
-        mock_client.SparkJobService.get_spark_job.return_value = killed_job
+        mock_client.SparkJobService.get_spark_job.side_effect = [
+            killed_job,
+            succeeded_job,
+        ]
 
-        with pytest.raises(SparkJobKilledError, match="was killed"):
-            run_spark_job(
-                namespace="my-ns",
-                main_application_file="s3://bucket/app.jar",
-                retry_attempts=2,
-            )
+        result = run_spark_job(
+            namespace="my-ns",
+            main_application_file="s3://bucket/app.jar",
+            retry_attempts=1,
+        )
 
-        assert mock_client.SparkJobService.create_spark_job.call_count == 1
+        assert result["metadata"]["name"] == "test-job"
+        assert mock_client.SparkJobService.create_spark_job.call_count == 2
+        assert mock_client.SparkJobService.get_spark_job.call_count == 2
