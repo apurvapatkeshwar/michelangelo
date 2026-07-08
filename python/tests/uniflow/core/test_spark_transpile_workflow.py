@@ -3,6 +3,7 @@
 Used to verify the transpiler rewrites run_spark_job to __spark__.run_job.
 """
 
+import michelangelo.uniflow.core as uniflow
 from michelangelo.uniflow.core import workflow
 from michelangelo.uniflow.core.lib.spark.job import run_spark_job
 
@@ -22,3 +23,8 @@ def spark_pi_workflow():
         executor_memory="1g",
         executor_instances=1,
     )
+
+
+if __name__ == "__main__":
+    ctx = uniflow.create_context()
+    ctx.run(spark_pi_workflow)
