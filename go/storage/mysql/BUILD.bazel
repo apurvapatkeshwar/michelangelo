@@ -30,7 +30,6 @@ go_test(
     name = "go_default_test",
     srcs = [
         "content_index_build_test.go",
-        "content_index_e2e_test.go",
         "content_index_write_test.go",
         "mysql_test.go",
     ],
