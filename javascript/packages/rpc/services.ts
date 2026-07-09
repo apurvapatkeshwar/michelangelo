@@ -16,6 +16,19 @@ import type { FetchTransport, ServiceClient, Services } from './types';
 
 const typeRegistry = createRegistry(TypedStructSchema);
 
+let servicesPromise: Promise<Services> | null = null;
+
+/**
+ * Gets the RPC services, initializing them with runtime configuration on first call.
+ */
+export async function getServices(): Promise<Services> {
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+  if (!servicesPromise) {
+    servicesPromise = createServices();
+  }
+  return servicesPromise;
+}
+
 /**
  * Builds a service client whose methods JSON-encode the request, POST it
  * through the fetch transport, and decode the JSON response back into a
@@ -43,8 +56,6 @@ function createServiceClient<T extends DescService>(
   return client as ServiceClient<T>;
 }
 
-let servicesPromise: Promise<Services> | null = null;
-
 async function createServices(): Promise<Services> {
   const { apiBaseUrl } = await getRuntimeConfig();
 
@@ -59,15 +70,4 @@ async function createServices(): Promise<Services> {
     TriggerRunService: createServiceClient(TriggerRunService, transport),
     ModelService: createServiceClient(ModelService, transport),
   } as const;
-}
-
-/**
- * Gets the RPC services, initializing them with runtime configuration on first call.
- */
-export async function getServices(): Promise<Services> {
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  if (!servicesPromise) {
-    servicesPromise = createServices();
-  }
-  return servicesPromise;
 }

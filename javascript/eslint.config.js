@@ -9,6 +9,7 @@ import requireCastComment from './eslint-local-rules/require-cast-comment.js';
 import noFixtureConstants from './eslint-local-rules/no-fixture-constants.js';
 import noModuleScopeTestSetup from './eslint-local-rules/no-module-scope-test-setup.js';
 import typesInTypesFile from './eslint-local-rules/types-in-types-file.js';
+import primaryExportFirst from './eslint-local-rules/primary-export-first.js';
 import tseslint from 'typescript-eslint';
 import prettierConfig from 'eslint-config-prettier';
 import baseUIEslint from 'eslint-plugin-baseui';
@@ -242,6 +243,7 @@ export default [
           'filename-matches-export': filenameMatchesExport,
           'require-cast-comment': requireCastComment,
           'types-in-types-file': typesInTypesFile,
+          'primary-export-first': primaryExportFirst,
         },
       },
     },
@@ -252,6 +254,7 @@ export default [
       'local/filename-matches-export': 'error',
       'local/require-cast-comment': 'error',
       'local/types-in-types-file': 'error',
+      'local/primary-export-first': 'error',
     },
   },
 
