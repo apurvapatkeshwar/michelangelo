@@ -28,12 +28,3 @@ The right amount of complexity is the minimum needed for the current task.
 
 - Only optimize with data justifying it — profile before changing anything
 - Unoptimized readable code is better than optimized unreadable code
-
-## Code Ordering Within a File
-
-Put the primary export first. Private helpers and implementation details should follow, not precede, the thing they support. Readers should see the main thing before the internals.
-
-The mechanical case — a helper function, arrow function, or class declared above the single primary export it supports — is enforced by `local/primary-export-first` (see `eslint-local-rules/primary-export-first.md`). That rule only fires on single-export files and only flags function-like helpers; it intentionally leaves two things to judgment:
-
-- **Files with multiple top-level exports** — there's no single "primary" to anchor ordering on, so use your own sense of what a reader should see first.
-- **Plain data constants** (object/array/string/number literals) placed above the export — these read more like configuration than "implementation details," so ordering them is a style call, not a lint violation.
