@@ -178,7 +178,7 @@ func TestBuildFieldCriterionSQL_MapsBaseField(t *testing.T) {
 			},
 		},
 	}
-	queryStrs, params, err := buildFieldCriterionSQL(op, nil, nil)
+	queryStrs, params, err := buildFieldCriterionSQL(op, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{" `create_time` > ?"}, queryStrs)
 	require.Equal(t, []interface{}{"2026-01-01"}, params)
@@ -194,7 +194,7 @@ func TestBuildFieldCriterionSQL_SkipsLabel(t *testing.T) {
 			},
 		},
 	}
-	queryStrs, params, err := buildFieldCriterionSQL(op, nil, nil)
+	queryStrs, params, err := buildFieldCriterionSQL(op, nil)
 	require.NoError(t, err)
 	require.Empty(t, queryStrs)
 	require.Empty(t, params)
@@ -217,7 +217,7 @@ func TestBuildFieldCriterionSQL_IndexPathMapValidation(t *testing.T) {
 				},
 			},
 		}
-		queryStrs, _, err := buildFieldCriterionSQL(op, indexPathToKeyMap, nil)
+		queryStrs, _, err := buildFieldCriterionSQL(op, indexPathToKeyMap)
 		require.NoError(t, err)
 		require.Equal(t, []string{" `framework_col` = ?"}, queryStrs)
 	})
@@ -232,7 +232,7 @@ func TestBuildFieldCriterionSQL_IndexPathMapValidation(t *testing.T) {
 				},
 			},
 		}
-		_, _, err := buildFieldCriterionSQL(op, indexPathToKeyMap, nil)
+		_, _, err := buildFieldCriterionSQL(op, indexPathToKeyMap)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "unsupported field")
 	})
@@ -248,7 +248,7 @@ func TestBuildFieldCriterionSQL_IndexPathMapValidation(t *testing.T) {
 				},
 			},
 		}
-		queryStrs, _, err := buildFieldCriterionSQL(op, indexPathToKeyMap, nil)
+		queryStrs, _, err := buildFieldCriterionSQL(op, indexPathToKeyMap)
 		require.NoError(t, err)
 		require.Equal(t, []string{" `create_time` > ?"}, queryStrs)
 	})
@@ -270,7 +270,7 @@ func TestBuildCriterionSQL_AndCombination(t *testing.T) {
 			},
 		},
 	}
-	sql, params, err := buildCriterionSQL(op, "pipeline_run", nil, nil)
+	sql, params, err := buildCriterionSQL(op, "pipeline_run", nil)
 	require.NoError(t, err)
 	// Field criteria come first, then label criteria, joined by " AND" (suffix-trim pattern).
 	require.Equal(t,
@@ -278,141 +278,6 @@ func TestBuildCriterionSQL_AndCombination(t *testing.T) {
 		sql,
 	)
 	require.Equal(t, []interface{}{"RUNNING", "env", "prod"}, params)
-}
-
-// revisionContentIndexMap mirrors what the content_index codegen would emit for
-// the Revision CRD wrapping a Pipeline: content paths (CRD prefix already
-// stripped by processFieldName) → candidate sidecar tables + columns. Each path
-// here has a single candidate (only the Pipeline base type indexes it).
-var revisionContentIndexMap = map[string][]contentIndexEntry{
-	"spec.content.spec.type":          {{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "pipeline_type", UIDCol: "revision_uid"}},
-	"spec.content.spec.owner.name":    {{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "owner", UIDCol: "revision_uid"}},
-	"spec.content.spec.commit.branch": {{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "branch", UIDCol: "revision_uid"}},
-}
-
-// revisionMultiTypeContentIndexMap models a Revision that wraps both a Pipeline
-// and a Model, where both base types index the same path (owner). The path
-// therefore has two candidate sidecar tables.
-var revisionMultiTypeContentIndexMap = map[string][]contentIndexEntry{
-	"spec.content.spec.owner.name": {
-		{BaseType: "Pipeline", Table: "pipeline_revision_unmarshalled", Column: "owner", UIDCol: "revision_uid"},
-		{BaseType: "Model", Table: "model_revision_unmarshalled", Column: "owner", UIDCol: "revision_uid"},
-	},
-}
-
-// TestBuildContentCriterionSQL_EqualAndIn proves a content-indexed field (one
-// that lives inside spec.content, unreachable as a column on the revision table)
-// is filtered via a uid-IN-subquery against the generated sidecar table — the
-// core of the option #6 read path.
-func TestBuildContentCriterionSQL_EqualAndIn(t *testing.T) {
-	t.Run("equal", func(t *testing.T) {
-		op := &apipb.CriterionOperation{
-			Criterion: []*apipb.Criterion{
-				{
-					FieldName:  "revision.spec.content.spec.type",
-					Operator:   apipb.CRITERION_OPERATOR_EQUAL,
-					MatchValue: stringMatchValue(t, "PIPELINE_TYPE_TRAIN"),
-				},
-			},
-		}
-		queryStrs, params, err := buildContentCriterionSQL(op, revisionContentIndexMap)
-		require.NoError(t, err)
-		require.Equal(t,
-			[]string{" `uid` IN (SELECT `revision_uid` FROM `pipeline_revision_unmarshalled` WHERE `pipeline_type` = ? )"},
-			queryStrs,
-		)
-		require.Equal(t, []interface{}{"PIPELINE_TYPE_TRAIN"}, params)
-	})
-
-	t.Run("in_multi_value", func(t *testing.T) {
-		op := &apipb.CriterionOperation{
-			Criterion: []*apipb.Criterion{
-				{
-					FieldName:  "revision.spec.content.spec.owner.name",
-					Operator:   apipb.CRITERION_OPERATOR_IN,
-					MatchValue: stringMatchValue(t, "bob,diana"),
-				},
-			},
-		}
-		queryStrs, params, err := buildContentCriterionSQL(op, revisionContentIndexMap)
-		require.NoError(t, err)
-		require.Equal(t,
-			[]string{" `uid` IN (SELECT `revision_uid` FROM `pipeline_revision_unmarshalled` WHERE `owner` IN (?,?) )"},
-			queryStrs,
-		)
-		require.Equal(t, []interface{}{"bob", "diana"}, params)
-	})
-
-	t.Run("nil_map_is_noop", func(t *testing.T) {
-		op := &apipb.CriterionOperation{
-			Criterion: []*apipb.Criterion{
-				{FieldName: "revision.spec.content.spec.type", Operator: apipb.CRITERION_OPERATOR_EQUAL, MatchValue: stringMatchValue(t, "x")},
-			},
-		}
-		queryStrs, params, err := buildContentCriterionSQL(op, nil)
-		require.NoError(t, err)
-		require.Empty(t, queryStrs)
-		require.Empty(t, params)
-	})
-}
-
-// TestBuildContentCriterionSQL_SharedPathAcrossBaseTypes proves the multi-type
-// fix: when two base types index the same content path (owner, on both the
-// Pipeline and Model sidecar tables), the filter OR's one uid-IN-subquery per
-// table. A revision lives in exactly one sidecar table, so OR-ing can't
-// double-count; a base_type filter (AND-ed in by the caller) scopes to one kind.
-func TestBuildContentCriterionSQL_SharedPathAcrossBaseTypes(t *testing.T) {
-	op := &apipb.CriterionOperation{
-		Criterion: []*apipb.Criterion{
-			{
-				FieldName:  "revision.spec.content.spec.owner.name",
-				Operator:   apipb.CRITERION_OPERATOR_EQUAL,
-				MatchValue: stringMatchValue(t, "bob"),
-			},
-		},
-	}
-	queryStrs, params, err := buildContentCriterionSQL(op, revisionMultiTypeContentIndexMap)
-	require.NoError(t, err)
-	require.Equal(t,
-		[]string{" (`uid` IN (SELECT `revision_uid` FROM `pipeline_revision_unmarshalled` WHERE `owner` = ? ) OR `uid` IN (SELECT `revision_uid` FROM `model_revision_unmarshalled` WHERE `owner` = ? ))"},
-		queryStrs,
-	)
-	require.Equal(t, []interface{}{"bob", "bob"}, params)
-}
-
-// TestBuildCriterionSQL_ContentAndIndexedField is the end-to-end translator
-// proof: a request mixing a content field (owner, in the sidecar) AND a
-// regular indexed field (base_type, a column on the revision table) produces a
-// uid-IN-subquery for the content field AND a direct column predicate for the
-// indexed field — and the restrictive indexPathToKeyMap does NOT reject the
-// content field (buildFieldCriterionSQL skips it).
-func TestBuildCriterionSQL_ContentAndIndexedField(t *testing.T) {
-	indexPathToKeyMap := map[string]string{
-		"spec.base_type.kind": "base_type",
-	}
-	op := &apipb.CriterionOperation{
-		LogicalOperator: apipb.LOGICAL_OPERATOR_AND,
-		Criterion: []*apipb.Criterion{
-			{
-				FieldName:  "revision.spec.base_type.kind",
-				Operator:   apipb.CRITERION_OPERATOR_EQUAL,
-				MatchValue: stringMatchValue(t, "Pipeline"),
-			},
-			{
-				FieldName:  "revision.spec.content.spec.type",
-				Operator:   apipb.CRITERION_OPERATOR_EQUAL,
-				MatchValue: stringMatchValue(t, "PIPELINE_TYPE_TRAIN"),
-			},
-		},
-	}
-	sql, params, err := buildCriterionSQL(op, "revision", indexPathToKeyMap, revisionContentIndexMap)
-	require.NoError(t, err)
-	// Field criteria first, then content criteria, joined by " AND".
-	require.Equal(t,
-		" `base_type` = ? AND `uid` IN (SELECT `revision_uid` FROM `pipeline_revision_unmarshalled` WHERE `pipeline_type` = ? )",
-		sql,
-	)
-	require.Equal(t, []interface{}{"Pipeline", "PIPELINE_TYPE_TRAIN"}, params)
 }
 
 func TestBuildCriterionSQL_OrCombination(t *testing.T) {
@@ -431,7 +296,7 @@ func TestBuildCriterionSQL_OrCombination(t *testing.T) {
 			},
 		},
 	}
-	sql, _, err := buildCriterionSQL(op, "pipeline_run", nil, nil)
+	sql, _, err := buildCriterionSQL(op, "pipeline_run", nil)
 	require.NoError(t, err)
 	require.Equal(t, " `name` = ? OR `name` = ?", sql)
 }
@@ -464,7 +329,7 @@ func TestBuildCriterionSQL_SubOperations(t *testing.T) {
 			},
 		},
 	}
-	sql, params, err := buildCriterionSQL(op, "pipeline_run", nil, nil)
+	sql, params, err := buildCriterionSQL(op, "pipeline_run", nil)
 	require.NoError(t, err)
 	// Sub-operation is wrapped as " (<sub>)" where <sub> has its own leading space.
 	require.Equal(t, " `state` = ? AND ( `name` = ? OR `name` = ?)", sql)
@@ -472,7 +337,7 @@ func TestBuildCriterionSQL_SubOperations(t *testing.T) {
 }
 
 func TestBuildCriterionSQL_NilOperation(t *testing.T) {
-	sql, params, err := buildCriterionSQL(nil, "pipeline_run", nil, nil)
+	sql, params, err := buildCriterionSQL(nil, "pipeline_run", nil)
 	require.NoError(t, err)
 	require.Empty(t, sql)
 	require.Empty(t, params)

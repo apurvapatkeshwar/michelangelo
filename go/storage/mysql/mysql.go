@@ -54,37 +54,6 @@ type mysqlMetadataStorage struct {
 	// When an entry exists, criteria referencing unknown paths are rejected with
 	// codes.InvalidArgument (matches the internal indexPathToKeyMap behavior).
 	indexPathToKeyMaps map[schema.GroupVersionKind]map[string]string
-	// contentIndexMaps optionally maps content-indexed field paths (paths that
-	// reach into a google.protobuf.Any content field, e.g. "spec.content.spec.type")
-	// to their sidecar "*_unmarshalled" table(s) + column, per GVK. These fields
-	// can't be columns on the CRD's own table because they live inside an opaque
-	// Any, so they're filtered via a uid-IN-subquery against the sidecar table
-	// (see buildContentCriterionSQL). Populated by the content_index codegen.
-	//
-	// The inner value is a slice because a single wrapper CRD can wrap multiple
-	// base types (a Revision may hold a Pipeline or a Model), and two base types
-	// can index the same path (e.g. owner). Each base type gets its own sidecar
-	// table, so a shared path resolves to one candidate per table.
-	contentIndexMaps map[schema.GroupVersionKind]map[string][]contentIndexEntry
-	// contentIndexWriteSpecs drives sidecar population on Upsert: per wrapper GVK,
-	// where its content blob is and which sidecar table each wrapped base kind
-	// populates. Built alongside contentIndexMaps from the same ContentIndex.
-	contentIndexWriteSpecs map[schema.GroupVersionKind]contentIndexWriteSpec
-}
-
-// contentIndexEntry locates a content-indexed field in one base type's sidecar table.
-type contentIndexEntry struct {
-	// BaseType is the wrapped base-type kind this sidecar table holds, e.g.
-	// "Pipeline" or "Model". Distinguishes tables when more than one base type
-	// indexes the same content path.
-	BaseType string
-	// Table is the sidecar table name, e.g. "pipeline_revision_unmarshalled".
-	Table string
-	// Column is the indexed column in the sidecar table, e.g. "pipeline_type".
-	Column string
-	// UIDCol is the sidecar's foreign-key column back to the CRD table's uid,
-	// e.g. "revision_uid".
-	UIDCol string
 }
 
 // NewMetadataStorage creates a new MySQL metadata storage.
@@ -92,12 +61,7 @@ type contentIndexEntry struct {
 // indexPathToKeyMaps may be nil (permissive — accept any field name in
 // ListOptionsExt). When provided, it constrains the field names allowed per
 // GVK. See mysqlMetadataStorage.indexPathToKeyMaps for details.
-//
-// contentIndex may be nil (no content sidecar indexing). When provided, its
-// ReadMaps route content-path criteria to sidecar subqueries (reads) and its
-// WriteSpecs drive sidecar population on Upsert (writes). Build it with
-// BuildContentIndex.
-func NewMetadataStorage(config Config, scheme *runtime.Scheme, indexPathToKeyMaps map[schema.GroupVersionKind]map[string]string, contentIndex *ContentIndex) (storage.MetadataStorage, error) {
+func NewMetadataStorage(config Config, scheme *runtime.Scheme, indexPathToKeyMaps map[schema.GroupVersionKind]map[string]string) (storage.MetadataStorage, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC",
 		config.User, config.Password, config.Host, config.Port, config.Database)
 
@@ -131,27 +95,11 @@ func NewMetadataStorage(config Config, scheme *runtime.Scheme, indexPathToKeyMap
 	}
 
 	return &mysqlMetadataStorage{
-		db:                     db,
-		config:                 config,
-		scheme:                 scheme,
-		indexPathToKeyMaps:     indexPathToKeyMaps,
-		contentIndexMaps:       contentIndexReadMaps(contentIndex),
-		contentIndexWriteSpecs: contentIndexWriteSpecs(contentIndex),
+		db:                 db,
+		config:             config,
+		scheme:             scheme,
+		indexPathToKeyMaps: indexPathToKeyMaps,
 	}, nil
-}
-
-func contentIndexReadMaps(ci *ContentIndex) map[schema.GroupVersionKind]map[string][]contentIndexEntry {
-	if ci == nil {
-		return nil
-	}
-	return ci.ReadMaps
-}
-
-func contentIndexWriteSpecs(ci *ContentIndex) map[schema.GroupVersionKind]contentIndexWriteSpec {
-	if ci == nil {
-		return nil
-	}
-	return ci.WriteSpecs
 }
 
 // Upsert adds a new object or updates an existing one
@@ -214,16 +162,6 @@ func (m *mysqlMetadataStorage) Upsert(ctx context.Context, object runtime.Object
 	// Upsert annotations
 	err = m.upsertAnnotations(ctx, tx, tableName, string(metaObj.GetUID()), metaObj.GetAnnotations())
 	if err != nil {
-		return err
-	}
-
-	// Populate content sidecar ("*_unmarshalled") tables for wrapper CRDs, in the
-	// same transaction so they can't drift from the main row. No-op for non-wrappers.
-	contentRows, err := m.contentIndexRows(object)
-	if err != nil {
-		return err
-	}
-	if err := m.upsertContentIndex(ctx, tx, contentRows); err != nil {
 		return err
 	}
 
@@ -342,7 +280,6 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 		return status.Errorf(codes.InvalidArgument, "unable to determine table name for type: %s", typeMeta.Kind)
 	}
 	indexPathToKeyMap := m.indexPathToKeyMap(typeMeta)
-	contentIndexMap := m.contentIndexMap(typeMeta)
 
 	// Build ORDER BY first because the SpecUpdateTimestamp label-ordering case
 	// requires us to add a CTE + JOIN before SELECT — we need to know whether
@@ -412,7 +349,7 @@ func (m *mysqlMetadataStorage) List(ctx context.Context, typeMeta *metav1.TypeMe
 
 	// Structured proto path: append the rendered criterion tree.
 	if listOptionsExt != nil && listOptionsExt.Operation != nil {
-		criterionSQL, criterionArgs, err := buildCriterionSQL(listOptionsExt.Operation, tableName, indexPathToKeyMap, contentIndexMap)
+		criterionSQL, criterionArgs, err := buildCriterionSQL(listOptionsExt.Operation, tableName, indexPathToKeyMap)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to build criterion SQL: %v", err)
 		}
@@ -582,13 +519,6 @@ func isLabelFieldInMetadata(fieldName string) bool {
 // Implementing this requires plumbing a registry from the object/scheme layer
 // (or the storage constructor) down into this function — not done here to keep
 // the change scoped to mysql.go.
-//
-// Content criteria (buildContentCriterionSQL) go through this same function and
-// so inherit the mandatory "<crd>." prefix, which they then discard — the kind
-// is already implied by which endpoint/table is being queried, so the prefix
-// carries no information for a content path. Not special-cased here because
-// this parser is shared with base-index filtering; changing its contract is out
-// of scope for this pass.
 func processFieldName(fieldName string) (string, error) {
 	if strings.IndexByte(fieldName, '.') < 0 {
 		return "", status.Errorf(codes.InvalidArgument, "field name %q invalid: at least <crd>.<field> is required", fieldName)
@@ -730,7 +660,7 @@ func buildLabelCriterionSQL(op *apipb.CriterionOperation, tableName string) ([]s
 // names; criteria referencing paths not in the map are rejected. When nil,
 // field names are passed through unchanged after the bare baseOrderByFields
 // rewrite (permissive mode).
-func buildFieldCriterionSQL(op *apipb.CriterionOperation, indexPathToKeyMap map[string]string, contentIndexMap map[string][]contentIndexEntry) ([]string, []interface{}, error) {
+func buildFieldCriterionSQL(op *apipb.CriterionOperation, indexPathToKeyMap map[string]string) ([]string, []interface{}, error) {
 	var queryStrs []string
 	var params []interface{}
 
@@ -741,12 +671,6 @@ func buildFieldCriterionSQL(op *apipb.CriterionOperation, indexPathToKeyMap map[
 		fieldName, err := processFieldName(item.GetFieldName())
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "field name invalid: %v", err)
-		}
-
-		// Content-indexed fields live in a sidecar table, not as a column on this
-		// table; buildContentCriterionSQL handles them via a uid-IN-subquery.
-		if _, ok := contentIndexMap[fieldName]; ok {
-			continue
 		}
 
 		// Resolve to a column name. Order: per-CRD indexPathToKeyMap, then
@@ -781,73 +705,6 @@ func buildFieldCriterionSQL(op *apipb.CriterionOperation, indexPathToKeyMap map[
 	return queryStrs, params, nil
 }
 
-// buildContentCriterionSQL converts content-indexed criteria into uid-IN-subquery
-// fragments against the per-base-type sidecar ("*_unmarshalled") tables. Mirrors
-// buildLabelCriterionSQL: content fields can't be columns on the CRD's own table
-// (they live inside an opaque google.protobuf.Any), so each criterion becomes a
-// membership test against the sidecar table(s), which the content_index codegen
-// keeps in sync with the wrapped content.
-//
-// A path may resolve to more than one sidecar table when several base types wrap
-// the same field (e.g. a Revision's Pipeline and Model both have an owner). In
-// that case we OR one subquery per table — a row lives in exactly one sidecar
-// table, so OR-ing never double-counts, and combined with a base_type filter the
-// query still scopes to a single kind. A path indexed by only one base type
-// (e.g. spec.content.spec.type for a Pipeline) yields a single subquery.
-//
-// Fragment shape (leading space, for AND/OR concatenation):
-//
-//	single table:   " `uid` IN (SELECT `<uid_col>` FROM `<t1>` WHERE `<col>` OP ? )"
-//	shared path:    " (`uid` IN (SELECT ... FROM `<t1>` ...) OR `uid` IN (SELECT ... FROM `<t2>` ...))"
-func buildContentCriterionSQL(op *apipb.CriterionOperation, contentIndexMap map[string][]contentIndexEntry) ([]string, []interface{}, error) {
-	if contentIndexMap == nil {
-		return nil, nil, nil
-	}
-	var queryStrs []string
-	var params []interface{}
-
-	for _, item := range op.GetCriterion() {
-		if isLabelField(item.GetFieldName()) || isLabelFieldInMetadata(item.GetFieldName()) {
-			continue
-		}
-		fieldName, err := processFieldName(item.GetFieldName())
-		if err != nil {
-			return nil, nil, status.Errorf(codes.InvalidArgument, "content field name invalid: %v", err)
-		}
-		candidates, ok := contentIndexMap[fieldName]
-		if !ok || len(candidates) == 0 {
-			continue // not a content field — handled by buildFieldCriterionSQL
-		}
-
-		criterionOp := item.GetOperator()
-		var valueStr string
-		if !isNoParamOp(criterionOp) {
-			valueStr, err = extractMatchValue(item.GetMatchValue())
-			if err != nil {
-				return nil, nil, status.Errorf(codes.InvalidArgument, "content field value invalid: %v", err)
-			}
-		}
-
-		// One uid membership subquery per candidate sidecar table.
-		subqueries := make([]string, 0, len(candidates))
-		for _, entry := range candidates {
-			valueSQL, valueParams, err := convertCriterionOperator(entry.Column, criterionOp, valueStr)
-			if err != nil {
-				return nil, nil, status.Errorf(codes.InvalidArgument, "error converting content criterion: %v", err)
-			}
-			subqueries = append(subqueries, "`uid` IN (SELECT `"+entry.UIDCol+"` FROM `"+entry.Table+"` WHERE"+valueSQL+" )")
-			params = append(params, valueParams...)
-		}
-
-		if len(subqueries) == 1 {
-			queryStrs = append(queryStrs, " "+subqueries[0])
-		} else {
-			queryStrs = append(queryStrs, " ("+strings.Join(subqueries, " OR ")+")")
-		}
-	}
-
-	return queryStrs, params, nil
-}
 // buildCriterionSQL recursively converts a CriterionOperation into a SQL WHERE fragment.
 // Output is byte-equivalent to the internal buildQueryFromListOptExtV2:
 // - Each fragment is suffixed with the logical operator (" AND" or " OR")
@@ -859,7 +716,7 @@ func buildContentCriterionSQL(op *apipb.CriterionOperation, contentIndexMap map[
 //
 // indexPathToKeyMap is forwarded to buildFieldCriterionSQL — see that function
 // for the validation contract.
-func buildCriterionSQL(op *apipb.CriterionOperation, tableName string, indexPathToKeyMap map[string]string, contentIndexMap map[string][]contentIndexEntry) (string, []interface{}, error) {
+func buildCriterionSQL(op *apipb.CriterionOperation, tableName string, indexPathToKeyMap map[string]string) (string, []interface{}, error) {
 	if op == nil {
 		return "", nil, nil
 	}
@@ -870,7 +727,7 @@ func buildCriterionSQL(op *apipb.CriterionOperation, tableName string, indexPath
 	}
 	logicalOpStr := " " + logicalOp
 
-	fieldQueryStrs, fieldParams, err := buildFieldCriterionSQL(op, indexPathToKeyMap, contentIndexMap)
+	fieldQueryStrs, fieldParams, err := buildFieldCriterionSQL(op, indexPathToKeyMap)
 	if err != nil {
 		return "", nil, err
 	}
@@ -878,13 +735,9 @@ func buildCriterionSQL(op *apipb.CriterionOperation, tableName string, indexPath
 	if err != nil {
 		return "", nil, err
 	}
-	contentQueryStrs, contentParams, err := buildContentCriterionSQL(op, contentIndexMap)
-	if err != nil {
-		return "", nil, err
-	}
 
 	var queryStr strings.Builder
-	queryParams := make([]interface{}, 0, len(fieldParams)+len(labelParams)+len(contentParams))
+	queryParams := make([]interface{}, 0, len(fieldParams)+len(labelParams))
 
 	for _, q := range fieldQueryStrs {
 		queryStr.WriteString(q)
@@ -898,14 +751,8 @@ func buildCriterionSQL(op *apipb.CriterionOperation, tableName string, indexPath
 	}
 	queryParams = append(queryParams, labelParams...)
 
-	for _, q := range contentQueryStrs {
-		queryStr.WriteString(q)
-		queryStr.WriteString(logicalOpStr)
-	}
-	queryParams = append(queryParams, contentParams...)
-
 	for _, sub := range op.SubOperations {
-		subSQL, subParams, err := buildCriterionSQL(sub, tableName, indexPathToKeyMap, contentIndexMap)
+		subSQL, subParams, err := buildCriterionSQL(sub, tableName, indexPathToKeyMap)
 		if err != nil {
 			return "", nil, err
 		}
@@ -1383,17 +1230,6 @@ func (m *mysqlMetadataStorage) indexPathToKeyMap(typeMeta *metav1.TypeMeta) map[
 		return nil
 	}
 	return m.indexPathToKeyMaps[gv.WithKind(typeMeta.Kind)]
-}
-
-func (m *mysqlMetadataStorage) contentIndexMap(typeMeta *metav1.TypeMeta) map[string][]contentIndexEntry {
-	if m.contentIndexMaps == nil || typeMeta == nil {
-		return nil
-	}
-	gv, err := schema.ParseGroupVersion(typeMeta.APIVersion)
-	if err != nil {
-		return nil
-	}
-	return m.contentIndexMaps[gv.WithKind(typeMeta.Kind)]
 }
 
 func getTableNameFromTypeMeta(typeMeta *metav1.TypeMeta) string {
