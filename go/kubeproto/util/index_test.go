@@ -3,6 +3,7 @@ package util_test
 import (
 	"testing"
 
+	api "github.com/michelangelo-ai/michelangelo/proto-go/api"
 	testpb "github.com/michelangelo-ai/michelangelo/proto-go/test/kubeproto"
 	testerrpb "github.com/michelangelo-ai/michelangelo/proto-go/test/kubeproto/indexing_errors"
 
@@ -258,6 +259,38 @@ func TestParseIndexedFieldsErrors(t *testing.T) {
 	}
 
 	assert.Equal(t, len(tests), tested)
+}
+
+// TestGeneratedContentIndexedKeyValuePairs exercises the generated content
+// extractor (GetContentIndexedKeyValuePairs) on the real generated TestBase type.
+// TestBase opts into "test_wrapper" only and its content_index declares a
+// primitive (spec.name -> test_name) and a composite (spec.ref -> the
+// ResourceIdentifier's namespace+name subfields), so this asserts: per-wrapper
+// keying, primitive extraction, composite subfield expansion, and that a wrapper
+// the base did NOT opt into yields no entry.
+func TestGeneratedContentIndexedKeyValuePairs(t *testing.T) {
+	mb := &testpb.TestBase{
+		Spec: testpb.TestBaseSpec{
+			Name: "m1",
+			Ref:  &api.ResourceIdentifier{Namespace: "ns", Name: "r1"},
+		},
+	}
+
+	result := mb.GetContentIndexedKeyValuePairs()
+
+	// Only the opted-in wrapper kind appears.
+	_, hasDraft := result["test_draft"]
+	assert.False(t, hasDraft, "test_draft was not opted into via revisioned_in")
+	fields, ok := result["test_wrapper"]
+	assert.True(t, ok, "test_wrapper sidecar columns should be present")
+
+	cols := map[string]interface{}{}
+	for _, f := range fields {
+		cols[f.Key] = f.Value
+	}
+	assert.Equal(t, "m1", cols["test_name"])          // primitive
+	assert.Equal(t, "ns", cols["test_ref_namespace"]) // composite subfield
+	assert.Equal(t, "r1", cols["test_ref_name"])      // composite subfield
 }
 
 func assertPanic(t *testing.T, expected interface{}, f func()) {

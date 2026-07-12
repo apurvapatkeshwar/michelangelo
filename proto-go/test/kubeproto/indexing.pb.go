@@ -456,6 +456,464 @@ func (m *TestIndexingList) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TestIndexingList proto.InternalMessageInfo
 
+type TestBaseSpec struct {
+	Name string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Ref  *api.ResourceIdentifier `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+}
+
+func (m *TestBaseSpec) Reset()      { *m = TestBaseSpec{} }
+func (*TestBaseSpec) ProtoMessage() {}
+func (*TestBaseSpec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{5}
+}
+func (m *TestBaseSpec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestBaseSpec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestBaseSpec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestBaseSpec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestBaseSpec.Merge(m, src)
+}
+func (m *TestBaseSpec) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestBaseSpec) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestBaseSpec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestBaseSpec proto.InternalMessageInfo
+
+func (m *TestBaseSpec) GetName() string {
+	if m != nil {
+		return m.Name
+	}
+	return ""
+}
+
+func (m *TestBaseSpec) GetRef() *api.ResourceIdentifier {
+	if m != nil {
+		return m.Ref
+	}
+	return nil
+}
+
+type TestBaseStatus struct {
+	Count int32 `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+}
+
+func (m *TestBaseStatus) Reset()      { *m = TestBaseStatus{} }
+func (*TestBaseStatus) ProtoMessage() {}
+func (*TestBaseStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{6}
+}
+func (m *TestBaseStatus) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestBaseStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestBaseStatus.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestBaseStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestBaseStatus.Merge(m, src)
+}
+func (m *TestBaseStatus) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestBaseStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestBaseStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestBaseStatus proto.InternalMessageInfo
+
+func (m *TestBaseStatus) GetCount() int32 {
+	if m != nil {
+		return m.Count
+	}
+	return 0
+}
+
+func (m *TestBase) Reset()      { *m = TestBase{} }
+func (*TestBase) ProtoMessage() {}
+func (*TestBase) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{7}
+}
+func (m *TestBase) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestBase) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestBase.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestBase) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestBase.Merge(m, src)
+}
+func (m *TestBase) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestBase) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestBase.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestBase proto.InternalMessageInfo
+
+func (m *TestBaseList) Reset()      { *m = TestBaseList{} }
+func (*TestBaseList) ProtoMessage() {}
+func (*TestBaseList) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{8}
+}
+func (m *TestBaseList) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestBaseList) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestBaseList.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestBaseList) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestBaseList.Merge(m, src)
+}
+func (m *TestBaseList) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestBaseList) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestBaseList.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestBaseList proto.InternalMessageInfo
+
+type TestWrapperSpec struct {
+	Content string `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+}
+
+func (m *TestWrapperSpec) Reset()      { *m = TestWrapperSpec{} }
+func (*TestWrapperSpec) ProtoMessage() {}
+func (*TestWrapperSpec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{9}
+}
+func (m *TestWrapperSpec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestWrapperSpec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestWrapperSpec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestWrapperSpec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestWrapperSpec.Merge(m, src)
+}
+func (m *TestWrapperSpec) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestWrapperSpec) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestWrapperSpec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestWrapperSpec proto.InternalMessageInfo
+
+func (m *TestWrapperSpec) GetContent() string {
+	if m != nil {
+		return m.Content
+	}
+	return ""
+}
+
+type TestWrapperStatus struct {
+	Count int32 `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+}
+
+func (m *TestWrapperStatus) Reset()      { *m = TestWrapperStatus{} }
+func (*TestWrapperStatus) ProtoMessage() {}
+func (*TestWrapperStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{10}
+}
+func (m *TestWrapperStatus) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestWrapperStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestWrapperStatus.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestWrapperStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestWrapperStatus.Merge(m, src)
+}
+func (m *TestWrapperStatus) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestWrapperStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestWrapperStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestWrapperStatus proto.InternalMessageInfo
+
+func (m *TestWrapperStatus) GetCount() int32 {
+	if m != nil {
+		return m.Count
+	}
+	return 0
+}
+
+func (m *TestWrapper) Reset()      { *m = TestWrapper{} }
+func (*TestWrapper) ProtoMessage() {}
+func (*TestWrapper) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{11}
+}
+func (m *TestWrapper) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestWrapper) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestWrapper.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestWrapper) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestWrapper.Merge(m, src)
+}
+func (m *TestWrapper) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestWrapper) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestWrapper.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestWrapper proto.InternalMessageInfo
+
+func (m *TestWrapperList) Reset()      { *m = TestWrapperList{} }
+func (*TestWrapperList) ProtoMessage() {}
+func (*TestWrapperList) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{12}
+}
+func (m *TestWrapperList) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestWrapperList) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestWrapperList.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestWrapperList) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestWrapperList.Merge(m, src)
+}
+func (m *TestWrapperList) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestWrapperList) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestWrapperList.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestWrapperList proto.InternalMessageInfo
+
+type TestDraftSpec struct {
+	Content string `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+}
+
+func (m *TestDraftSpec) Reset()      { *m = TestDraftSpec{} }
+func (*TestDraftSpec) ProtoMessage() {}
+func (*TestDraftSpec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{13}
+}
+func (m *TestDraftSpec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestDraftSpec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestDraftSpec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestDraftSpec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestDraftSpec.Merge(m, src)
+}
+func (m *TestDraftSpec) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestDraftSpec) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestDraftSpec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestDraftSpec proto.InternalMessageInfo
+
+func (m *TestDraftSpec) GetContent() string {
+	if m != nil {
+		return m.Content
+	}
+	return ""
+}
+
+type TestDraftStatus struct {
+	Count int32 `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+}
+
+func (m *TestDraftStatus) Reset()      { *m = TestDraftStatus{} }
+func (*TestDraftStatus) ProtoMessage() {}
+func (*TestDraftStatus) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{14}
+}
+func (m *TestDraftStatus) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestDraftStatus) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestDraftStatus.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestDraftStatus) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestDraftStatus.Merge(m, src)
+}
+func (m *TestDraftStatus) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestDraftStatus) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestDraftStatus.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestDraftStatus proto.InternalMessageInfo
+
+func (m *TestDraftStatus) GetCount() int32 {
+	if m != nil {
+		return m.Count
+	}
+	return 0
+}
+
+func (m *TestDraft) Reset()      { *m = TestDraft{} }
+func (*TestDraft) ProtoMessage() {}
+func (*TestDraft) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{15}
+}
+func (m *TestDraft) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestDraft) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestDraft.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestDraft) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestDraft.Merge(m, src)
+}
+func (m *TestDraft) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestDraft) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestDraft.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestDraft proto.InternalMessageInfo
+
+func (m *TestDraftList) Reset()      { *m = TestDraftList{} }
+func (*TestDraftList) ProtoMessage() {}
+func (*TestDraftList) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ac22c718d23a440c, []int{16}
+}
+func (m *TestDraftList) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TestDraftList) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TestDraftList.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TestDraftList) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TestDraftList.Merge(m, src)
+}
+func (m *TestDraftList) XXX_Size() int {
+	return m.Size()
+}
+func (m *TestDraftList) XXX_DiscardUnknown() {
+	xxx_messageInfo_TestDraftList.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TestDraftList proto.InternalMessageInfo
+
 func init() {
 	proto.RegisterEnum("michelangelo.test.kubeproto.EnumType", EnumType_name, EnumType_value)
 	proto.RegisterType((*SampleMessage)(nil), "michelangelo.test.kubeproto.SampleMessage")
@@ -463,6 +921,18 @@ func init() {
 	proto.RegisterType((*TestIndexingStatus)(nil), "michelangelo.test.kubeproto.TestIndexingStatus")
 	proto.RegisterType((*TestIndexing)(nil), "michelangelo.test.kubeproto.TestIndexing")
 	proto.RegisterType((*TestIndexingList)(nil), "michelangelo.test.kubeproto.TestIndexingList")
+	proto.RegisterType((*TestBaseSpec)(nil), "michelangelo.test.kubeproto.TestBaseSpec")
+	proto.RegisterType((*TestBaseStatus)(nil), "michelangelo.test.kubeproto.TestBaseStatus")
+	proto.RegisterType((*TestBase)(nil), "michelangelo.test.kubeproto.TestBase")
+	proto.RegisterType((*TestBaseList)(nil), "michelangelo.test.kubeproto.TestBaseList")
+	proto.RegisterType((*TestWrapperSpec)(nil), "michelangelo.test.kubeproto.TestWrapperSpec")
+	proto.RegisterType((*TestWrapperStatus)(nil), "michelangelo.test.kubeproto.TestWrapperStatus")
+	proto.RegisterType((*TestWrapper)(nil), "michelangelo.test.kubeproto.TestWrapper")
+	proto.RegisterType((*TestWrapperList)(nil), "michelangelo.test.kubeproto.TestWrapperList")
+	proto.RegisterType((*TestDraftSpec)(nil), "michelangelo.test.kubeproto.TestDraftSpec")
+	proto.RegisterType((*TestDraftStatus)(nil), "michelangelo.test.kubeproto.TestDraftStatus")
+	proto.RegisterType((*TestDraft)(nil), "michelangelo.test.kubeproto.TestDraft")
+	proto.RegisterType((*TestDraftList)(nil), "michelangelo.test.kubeproto.TestDraftList")
 }
 
 func init() {
@@ -470,80 +940,98 @@ func init() {
 }
 
 var fileDescriptor_ac22c718d23a440c = []byte{
-	// 1166 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x56, 0xcd, 0x73, 0xdb, 0x44,
-	0x14, 0xb7, 0xea, 0x3a, 0xb5, 0x9f, 0x5d, 0x37, 0x59, 0x28, 0x78, 0x0c, 0x55, 0xdd, 0xa4, 0xa1,
-	0x6e, 0x86, 0xae, 0x62, 0xc5, 0x75, 0xd3, 0x72, 0x60, 0x2c, 0x9a, 0x69, 0x0c, 0x49, 0xda, 0x51,
-	0xdc, 0x30, 0x70, 0xd1, 0xc8, 0xf6, 0x5a, 0x15, 0xb6, 0x3e, 0x46, 0x5a, 0x67, 0xc8, 0x8d, 0xe1,
-	0xa8, 0x13, 0xff, 0x11, 0x47, 0x38, 0xe6, 0xd8, 0xe1, 0x44, 0x9c, 0x4b, 0x8f, 0xe5, 0xca, 0x01,
-	0x18, 0xed, 0x4a, 0xfe, 0x4a, 0xe3, 0x84, 0x99, 0x9e, 0xac, 0x7d, 0xef, 0xf7, 0xde, 0xfb, 0xed,
-	0xfb, 0x5a, 0xc3, 0x9a, 0x65, 0xb6, 0x5f, 0x91, 0xbe, 0x6e, 0x1b, 0xa4, 0xef, 0x48, 0x94, 0xf8,
-	0x54, 0xea, 0x0d, 0x5a, 0xc4, 0xf5, 0x1c, 0xea, 0x48, 0xa6, 0xdd, 0x21, 0x3f, 0x9a, 0xb6, 0x81,
-	0xd9, 0x11, 0x7d, 0x32, 0x89, 0xc5, 0x21, 0x16, 0x8f, 0xb0, 0xc5, 0x6a, 0x6f, 0xd3, 0xc7, 0xa6,
-	0x23, 0xe9, 0xae, 0x69, 0xe9, 0xed, 0x57, 0xa6, 0x4d, 0xbc, 0x23, 0xc9, 0xed, 0x19, 0xa1, 0xc0,
-	0x97, 0x2c, 0x42, 0x75, 0xe9, 0xb0, 0x22, 0x19, 0xc4, 0x26, 0x9e, 0x4e, 0x49, 0x87, 0xbb, 0x2c,
-	0x8a, 0x53, 0xe1, 0x75, 0xd7, 0x94, 0x1c, 0x97, 0x9a, 0x8e, 0xed, 0x9f, 0xab, 0x3f, 0x94, 0xa5,
-	0x81, 0x4f, 0xbc, 0x48, 0x7f, 0xdb, 0x70, 0x1c, 0xa3, 0x4f, 0x24, 0x76, 0x6a, 0x0d, 0xba, 0x12,
-	0x35, 0x2d, 0xe2, 0x53, 0xdd, 0x72, 0x39, 0x60, 0xf9, 0x9f, 0x24, 0x5c, 0xdf, 0xd7, 0x2d, 0xb7,
-	0x4f, 0x76, 0x89, 0xef, 0xeb, 0x06, 0x41, 0xb7, 0x00, 0xa8, 0xe5, 0x6a, 0x3e, 0xf5, 0x4c, 0xdb,
-	0x28, 0x08, 0x25, 0xa1, 0x9c, 0x51, 0x33, 0xd4, 0x72, 0xf7, 0x99, 0x00, 0xad, 0xc0, 0x75, 0x76,
-	0x6d, 0xd2, 0xd1, 0x4c, 0x9b, 0x6e, 0xc8, 0x85, 0x2b, 0x25, 0xa1, 0x9c, 0x52, 0x73, 0x91, 0xb0,
-	0x11, 0xca, 0x66, 0x40, 0xb5, 0x6a, 0x21, 0x59, 0x12, 0xca, 0xc9, 0x49, 0x50, 0xad, 0x8a, 0xb6,
-	0x21, 0x3e, 0x6b, 0xc4, 0x1e, 0x58, 0x85, 0xab, 0x25, 0xa1, 0x9c, 0x97, 0x57, 0xf1, 0x9c, 0x2c,
-	0xe2, 0x2d, 0x7b, 0x60, 0x35, 0x8f, 0x5c, 0xa2, 0x66, 0x23, 0xd3, 0x50, 0x80, 0x44, 0x00, 0xc7,
-	0x26, 0x9a, 0xd3, 0x0d, 0x59, 0x17, 0x52, 0x21, 0xe5, 0xed, 0x84, 0x9a, 0x76, 0x6c, 0xf2, 0xbc,
-	0xbb, 0x4f, 0x3d, 0xb4, 0x0c, 0xb9, 0x48, 0xcf, 0xd9, 0x2c, 0x84, 0x6c, 0xb6, 0x13, 0x2a, 0x30,
-	0x04, 0x67, 0xd3, 0x07, 0xf0, 0x48, 0x5f, 0x0f, 0x93, 0xab, 0x55, 0x0b, 0xd7, 0x4a, 0x42, 0x39,
-	0x2b, 0xdf, 0x9d, 0xe6, 0xa2, 0xbb, 0x26, 0x56, 0x89, 0xef, 0x0c, 0xbc, 0x36, 0x69, 0x74, 0x88,
-	0x4d, 0xcd, 0xae, 0x49, 0x3c, 0xe5, 0xde, 0x1f, 0x6f, 0xae, 0xac, 0xc0, 0x9d, 0x29, 0xe8, 0xa0,
-	0x45, 0x3c, 0xdc, 0x76, 0x2c, 0xd6, 0x31, 0x1a, 0x3d, 0x72, 0x89, 0x56, 0x55, 0x33, 0x71, 0x80,
-	0x2a, 0xba, 0x33, 0xbe, 0x7b, 0xcb, 0x71, 0xfa, 0x85, 0x74, 0x49, 0x28, 0xa7, 0x47, 0x97, 0x52,
-	0x1c, 0xa7, 0x8f, 0x56, 0x21, 0x1f, 0x43, 0xa2, 0x5a, 0x64, 0x58, 0x2d, 0xe2, 0xcc, 0x46, 0xf5,
-	0xc0, 0xf0, 0x41, 0x0c, 0xeb, 0x3b, 0xb6, 0x11, 0x63, 0x81, 0x61, 0x97, 0x22, 0xd5, 0x8e, 0x63,
-	0x1b, 0x1c, 0xaf, 0xe4, 0x47, 0xb9, 0xe8, 0x9a, 0xa4, 0xdf, 0x59, 0xfe, 0x35, 0x09, 0x8b, 0x4d,
-	0xe2, 0xd3, 0x46, 0xd4, 0xcb, 0xfb, 0x2e, 0x69, 0x23, 0x04, 0x57, 0x6d, 0xdd, 0x22, 0x51, 0xf5,
-	0xd9, 0x37, 0x6a, 0x00, 0xf8, 0xac, 0x51, 0x34, 0xcb, 0x37, 0x58, 0xd5, 0xb3, 0xf2, 0xda, 0xdc,
-	0x62, 0x4d, 0xf5, 0x95, 0x9a, 0xe1, 0xd6, 0xbb, 0xbe, 0x81, 0x9a, 0x63, 0xce, 0x5e, 0x94, 0x4f,
-	0xcd, 0xec, 0xb0, 0x26, 0xb9, 0x64, 0xd2, 0x47, 0x37, 0x1b, 0xab, 0x50, 0x03, 0x62, 0xa1, 0x16,
-	0x4e, 0x80, 0x66, 0xda, 0x5d, 0x87, 0x35, 0x55, 0x56, 0xbe, 0x75, 0xd6, 0xe7, 0xa1, 0x8c, 0x5f,
-	0xfa, 0xc4, 0x6b, 0xd8, 0x5d, 0x47, 0xbd, 0x11, 0xd9, 0xc5, 0x82, 0xf7, 0xd2, 0x50, 0xdf, 0xc2,
-	0x52, 0xec, 0x63, 0x9c, 0xb6, 0x6b, 0xff, 0x37, 0x6d, 0xdb, 0x09, 0x35, 0xcf, 0xc3, 0xc6, 0xd9,
-	0x3b, 0x53, 0x41, 0x1d, 0xd0, 0x54, 0x01, 0xa9, 0x4e, 0x07, 0x3e, 0xfa, 0x10, 0x52, 0x6d, 0x67,
-	0x60, 0x53, 0x56, 0xc3, 0x94, 0xca, 0x0f, 0xe8, 0x21, 0xa4, 0xc3, 0x0d, 0xc0, 0xb8, 0x2c, 0x30,
-	0x2e, 0x45, 0xcc, 0x57, 0x04, 0x8e, 0x57, 0x04, 0x6e, 0xc6, 0x2b, 0x42, 0xbd, 0x16, 0x62, 0x77,
-	0x7d, 0x63, 0xf9, 0xdf, 0x34, 0xe4, 0x26, 0x63, 0xa0, 0x6f, 0x20, 0xc3, 0x9a, 0x3a, 0xdc, 0x5b,
-	0x2c, 0x42, 0x56, 0xc6, 0x98, 0x6f, 0x38, 0x3c, 0xb9, 0xe1, 0xb0, 0xdb, 0x33, 0x42, 0x81, 0x8f,
-	0x43, 0x24, 0x3e, 0xac, 0xe0, 0x70, 0x7a, 0x77, 0x09, 0xd5, 0xd5, 0x34, 0x8d, 0xbe, 0xd0, 0x0e,
-	0xa4, 0x43, 0x6d, 0x47, 0xa7, 0x7a, 0xd4, 0x57, 0xeb, 0x97, 0xf3, 0xf5, 0xbc, 0xf5, 0x03, 0x69,
-	0x53, 0xee, 0x2d, 0xf6, 0x80, 0xea, 0x70, 0xd5, 0x77, 0x49, 0x3b, 0xea, 0xa6, 0x07, 0x73, 0x53,
-	0x3d, 0xdb, 0xf8, 0x2a, 0x33, 0x45, 0xcf, 0x60, 0xc1, 0x67, 0x59, 0x8c, 0xda, 0x47, 0xba, 0xbc,
-	0x13, 0x66, 0xa6, 0x46, 0xe6, 0x4f, 0x7e, 0x5b, 0xf8, 0x59, 0xc9, 0xad, 0xc1, 0x9e, 0x6e, 0x11,
-	0xdf, 0xd5, 0xdb, 0xa4, 0x13, 0x28, 0x08, 0x32, 0x61, 0x0c, 0xcc, 0x66, 0x2a, 0xd5, 0x23, 0x47,
-	0xeb, 0x95, 0x40, 0xb9, 0x09, 0x39, 0x6e, 0x81, 0x79, 0x99, 0x98, 0x5c, 0x0e, 0x94, 0xcf, 0xe0,
-	0x16, 0x03, 0x8f, 0x3b, 0x08, 0x4f, 0x2d, 0x5f, 0x0e, 0xdc, 0xb8, 0x08, 0x58, 0xab, 0x72, 0x60,
-	0x35, 0x50, 0xee, 0x40, 0x81, 0x01, 0xdf, 0x31, 0x7f, 0x1c, 0xf3, 0x30, 0x50, 0x6e, 0xc3, 0x47,
-	0x53, 0x98, 0xd1, 0x34, 0x71, 0x44, 0x2d, 0x50, 0x56, 0xe1, 0xd3, 0xf3, 0xc2, 0x85, 0xab, 0x9c,
-	0xe3, 0x1e, 0x05, 0x4a, 0x01, 0x6e, 0x30, 0xdc, 0x78, 0x98, 0xb8, 0x6a, 0x33, 0x50, 0x8a, 0xb0,
-	0x34, 0xa9, 0x9a, 0x60, 0xf9, 0x38, 0x50, 0x1e, 0xc0, 0xdd, 0x29, 0xbb, 0x79, 0xd7, 0xaf, 0xac,
-	0x07, 0xca, 0x0a, 0x14, 0x67, 0xf9, 0xcc, 0x84, 0xac, 0x54, 0x02, 0xe5, 0x73, 0x58, 0x39, 0xc7,
-	0xeb, 0x19, 0x12, 0x15, 0x99, 0x93, 0xe7, 0x45, 0x89, 0x47, 0x86, 0xab, 0x36, 0x58, 0xbc, 0xb8,
-	0xdf, 0x70, 0x87, 0xf4, 0x49, 0xb8, 0xd4, 0x47, 0x63, 0xc3, 0x51, 0xd5, 0x40, 0xf9, 0x18, 0xf2,
-	0xa3, 0x21, 0xc1, 0x3d, 0xd3, 0xe6, 0x19, 0xae, 0x3c, 0x9c, 0x9b, 0xbf, 0xf0, 0x39, 0xe0, 0xb8,
-	0xda, 0x3c, 0xc6, 0x67, 0xe1, 0x8f, 0x02, 0xe5, 0x1e, 0x88, 0xe7, 0xb9, 0xe5, 0xcf, 0x02, 0x47,
-	0x6e, 0x06, 0xca, 0x93, 0xc8, 0xf1, 0x3b, 0x90, 0x13, 0xaf, 0x08, 0x87, 0x3f, 0x2e, 0xe6, 0x0e,
-	0xea, 0xea, 0x57, 0xdb, 0x75, 0xb5, 0xfc, 0xa8, 0xb6, 0x79, 0x3f, 0x50, 0x30, 0xac, 0x5e, 0xc0,
-	0x6a, 0xc2, 0x5c, 0x5e, 0x0f, 0x94, 0x3a, 0xac, 0x5d, 0x60, 0x30, 0x1b, 0x54, 0xae, 0x4c, 0x07,
-	0x5d, 0xfe, 0x4b, 0x98, 0x7e, 0xa6, 0x76, 0x4c, 0x9f, 0xbe, 0xdf, 0x2d, 0xf4, 0xf5, 0x99, 0x2d,
-	0x74, 0x49, 0x5f, 0x21, 0x95, 0x99, 0x1d, 0xf4, 0x25, 0xa4, 0x4c, 0x4a, 0x2c, 0xbf, 0x90, 0x2c,
-	0x25, 0xcb, 0x59, 0xf9, 0xfe, 0xa5, 0xf7, 0x87, 0xca, 0xed, 0x9e, 0x24, 0xff, 0xae, 0x27, 0xd6,
-	0x34, 0x48, 0xc7, 0xff, 0x77, 0xd0, 0x4d, 0x58, 0xda, 0xda, 0x7b, 0xb9, 0xab, 0x35, 0xbf, 0x7b,
-	0xb1, 0xa5, 0x35, 0xf6, 0x0e, 0xea, 0x3b, 0x8d, 0xa7, 0x8b, 0x09, 0xb4, 0x04, 0xd7, 0xc7, 0xe2,
-	0xa7, 0x5b, 0x07, 0x8b, 0xc2, 0x34, 0x72, 0xbf, 0x59, 0x7f, 0xd6, 0xd8, 0x7b, 0xb6, 0x78, 0x05,
-	0x21, 0xc8, 0x8f, 0xc5, 0x2f, 0xd4, 0xe7, 0x4f, 0x17, 0x93, 0xca, 0x17, 0xc7, 0x27, 0x62, 0xe2,
-	0xf5, 0x89, 0x98, 0x78, 0x7b, 0x22, 0x0a, 0x3f, 0x0d, 0x45, 0xe1, 0xf7, 0xa1, 0x28, 0x1c, 0x0f,
-	0x45, 0xe1, 0xcf, 0xa1, 0x28, 0xbc, 0x19, 0x8a, 0x89, 0xb7, 0x43, 0x51, 0xf8, 0xe5, 0x54, 0x4c,
-	0x1c, 0x9f, 0x8a, 0x89, 0xd7, 0xa7, 0x62, 0xe2, 0xfb, 0xcc, 0x88, 0x76, 0x6b, 0x81, 0xfd, 0x6c,
-	0xfc, 0x17, 0x00, 0x00, 0xff, 0xff, 0x74, 0x8b, 0xe2, 0x1b, 0x22, 0x0b, 0x00, 0x00,
+	// 1449 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x58, 0xcd, 0x73, 0xd3, 0xd6,
+	0x16, 0xb7, 0x62, 0x92, 0xd8, 0x27, 0x8e, 0x49, 0xf4, 0x80, 0xe7, 0xc9, 0x7b, 0x08, 0xe3, 0x10,
+	0x70, 0x02, 0x5c, 0xc7, 0x8e, 0x31, 0xe1, 0xe3, 0xc1, 0xb3, 0x48, 0x4a, 0xdc, 0x26, 0x81, 0x51,
+	0x02, 0x4c, 0xd9, 0x68, 0x14, 0xfb, 0x5a, 0xa8, 0xb1, 0x3e, 0x46, 0xba, 0x4e, 0x9b, 0x5d, 0x87,
+	0xa5, 0x56, 0xfd, 0x07, 0xfa, 0x47, 0x74, 0xd5, 0x99, 0x6e, 0xba, 0x6c, 0x97, 0x2c, 0x99, 0xae,
+	0x4a, 0xd8, 0xd0, 0xe9, 0xa2, 0x74, 0xdb, 0x45, 0xdb, 0xd1, 0xbd, 0x92, 0x2d, 0x39, 0x89, 0xed,
+	0xce, 0xb0, 0xc8, 0x0a, 0xeb, 0xdc, 0xdf, 0xf9, 0xb8, 0xbf, 0xf3, 0x3b, 0xe7, 0x32, 0x81, 0x05,
+	0x5d, 0xab, 0xbf, 0xc0, 0x2d, 0xc5, 0x50, 0x71, 0xcb, 0x2c, 0x10, 0xec, 0x90, 0xc2, 0x6e, 0x7b,
+	0x07, 0x5b, 0xb6, 0x49, 0xcc, 0x82, 0x66, 0x34, 0xf0, 0x17, 0x9a, 0xa1, 0x22, 0xfa, 0xc9, 0xff,
+	0x27, 0x8c, 0x45, 0x1e, 0x16, 0x75, 0xb0, 0x33, 0xe5, 0xdd, 0x65, 0x07, 0x69, 0x66, 0x41, 0xb1,
+	0x34, 0x5d, 0xa9, 0xbf, 0xd0, 0x0c, 0x6c, 0xef, 0x17, 0xac, 0x5d, 0xd5, 0x33, 0x38, 0x05, 0x1d,
+	0x13, 0xa5, 0xb0, 0x57, 0x2c, 0xa8, 0xd8, 0xc0, 0xb6, 0x42, 0x70, 0x83, 0x85, 0x9c, 0x11, 0x22,
+	0xe9, 0x15, 0x4b, 0x2b, 0x98, 0x16, 0xd1, 0x4c, 0xc3, 0x39, 0xf6, 0x7c, 0xaf, 0x54, 0x68, 0x3b,
+	0xd8, 0xf6, 0xcf, 0x2f, 0xa8, 0xa6, 0xa9, 0xb6, 0x70, 0x81, 0x7e, 0xed, 0xb4, 0x9b, 0x05, 0xa2,
+	0xe9, 0xd8, 0x21, 0x8a, 0x6e, 0x31, 0x40, 0xee, 0xcf, 0x38, 0x4c, 0x6e, 0x29, 0xba, 0xd5, 0xc2,
+	0x1b, 0xd8, 0x71, 0x14, 0x15, 0xf3, 0xe7, 0x01, 0x88, 0x6e, 0xc9, 0x0e, 0xb1, 0x35, 0x43, 0xcd,
+	0x70, 0x59, 0x2e, 0x9f, 0x94, 0x92, 0x44, 0xb7, 0xb6, 0xa8, 0x81, 0x9f, 0x85, 0x49, 0x7a, 0x6d,
+	0xdc, 0x90, 0x35, 0x83, 0x2c, 0x95, 0x32, 0x23, 0x59, 0x2e, 0x3f, 0x2a, 0xa5, 0x7c, 0x63, 0xcd,
+	0xb3, 0xf5, 0x80, 0x2a, 0xe5, 0x4c, 0x3c, 0xcb, 0xe5, 0xe3, 0x61, 0x50, 0xa5, 0xcc, 0xaf, 0x41,
+	0xf0, 0x2d, 0x63, 0xa3, 0xad, 0x67, 0x4e, 0x65, 0xb9, 0x7c, 0xba, 0x34, 0x87, 0xfa, 0xb0, 0x88,
+	0x56, 0x8d, 0xb6, 0xbe, 0xbd, 0x6f, 0x61, 0x69, 0xc2, 0x77, 0xf5, 0x0c, 0xbc, 0x00, 0x60, 0x1a,
+	0x58, 0x36, 0x9b, 0x5e, 0xd5, 0x99, 0x51, 0xaf, 0xe4, 0xb5, 0x98, 0x94, 0x30, 0x0d, 0xfc, 0xa8,
+	0xb9, 0x45, 0x6c, 0x3e, 0x07, 0x29, 0xff, 0x9c, 0x55, 0x33, 0xe6, 0x55, 0xb3, 0x16, 0x93, 0x80,
+	0x22, 0x58, 0x35, 0x2d, 0x00, 0x1b, 0xb7, 0x14, 0x8f, 0x5c, 0xb9, 0x9c, 0x19, 0xcf, 0x72, 0xf9,
+	0x89, 0xd2, 0xa5, 0x68, 0x2d, 0x8a, 0xa5, 0x21, 0x09, 0x3b, 0x66, 0xdb, 0xae, 0xe3, 0x5a, 0x03,
+	0x1b, 0x44, 0x6b, 0x6a, 0xd8, 0x16, 0xaf, 0xfc, 0xf4, 0x6e, 0x64, 0x16, 0x2e, 0x46, 0xa0, 0xed,
+	0x1d, 0x6c, 0xa3, 0xba, 0xa9, 0x53, 0xc5, 0xc8, 0x64, 0xdf, 0xc2, 0x72, 0x59, 0x4a, 0x06, 0x09,
+	0xca, 0xfc, 0xc5, 0xee, 0xdd, 0x77, 0x4c, 0xb3, 0x95, 0x49, 0x64, 0xb9, 0x7c, 0xa2, 0x73, 0x29,
+	0xd1, 0x34, 0x5b, 0xfc, 0x1c, 0xa4, 0x03, 0x88, 0xdf, 0x8b, 0x24, 0xed, 0x45, 0xc0, 0xac, 0xdf,
+	0x0f, 0x04, 0xff, 0x0a, 0x60, 0x2d, 0xd3, 0x50, 0x03, 0x2c, 0x50, 0xec, 0xb4, 0x7f, 0xb4, 0x6e,
+	0x1a, 0x2a, 0xc3, 0x8b, 0xe9, 0x0e, 0x17, 0x4d, 0x0d, 0xb7, 0x1a, 0xb9, 0xef, 0xe3, 0x30, 0xb5,
+	0x8d, 0x1d, 0x52, 0xf3, 0xb5, 0xbc, 0x65, 0xe1, 0x3a, 0xcf, 0xc3, 0x29, 0x43, 0xd1, 0xb1, 0xdf,
+	0x7d, 0xfa, 0x9b, 0xaf, 0x01, 0x38, 0x54, 0x28, 0xb2, 0xee, 0xa8, 0xb4, 0xeb, 0x13, 0xa5, 0x85,
+	0xbe, 0xcd, 0x8a, 0xe8, 0x4a, 0x4a, 0x32, 0xef, 0x0d, 0x47, 0xe5, 0xb7, 0xbb, 0x35, 0xdb, 0x3e,
+	0x9f, 0xb2, 0xd6, 0xa0, 0x22, 0x19, 0x92, 0xf4, 0xce, 0xcd, 0xba, 0x47, 0x7c, 0x0d, 0x02, 0xa3,
+	0xec, 0x4d, 0x80, 0xac, 0x19, 0x4d, 0x93, 0x8a, 0x6a, 0xa2, 0x74, 0xfe, 0x70, 0xcc, 0xbd, 0x12,
+	0x7a, 0xe2, 0x60, 0xbb, 0x66, 0x34, 0x4d, 0xe9, 0xb4, 0xef, 0x17, 0x18, 0x3e, 0x88, 0xa0, 0x9e,
+	0xc1, 0x74, 0x10, 0xa3, 0x4b, 0xdb, 0xf8, 0x3f, 0xa5, 0x6d, 0x2d, 0x26, 0xa5, 0x59, 0xda, 0x80,
+	0xbd, 0x43, 0x1d, 0x54, 0x80, 0x8f, 0x34, 0x90, 0x28, 0xa4, 0xed, 0xf0, 0x67, 0x60, 0xb4, 0x6e,
+	0xb6, 0x0d, 0x42, 0x7b, 0x38, 0x2a, 0xb1, 0x0f, 0xfe, 0x06, 0x24, 0xbc, 0x0d, 0x40, 0x6b, 0x19,
+	0xa3, 0xb5, 0xcc, 0x20, 0xb6, 0x22, 0x50, 0xb0, 0x22, 0xd0, 0x76, 0xb0, 0x22, 0xa4, 0x71, 0x0f,
+	0xbb, 0xe1, 0xa8, 0xb9, 0xbf, 0x12, 0x90, 0x0a, 0xe7, 0xe0, 0x3f, 0x81, 0x24, 0x15, 0xb5, 0xb7,
+	0xb7, 0x68, 0x86, 0x89, 0x12, 0x42, 0x6c, 0xc3, 0xa1, 0xf0, 0x86, 0x43, 0xd6, 0xae, 0xea, 0x19,
+	0x1c, 0xe4, 0x21, 0xd1, 0x5e, 0x11, 0x79, 0xd3, 0xbb, 0x81, 0x89, 0x22, 0x25, 0x88, 0xff, 0x8b,
+	0x5f, 0x87, 0x84, 0x77, 0xda, 0x50, 0x88, 0xe2, 0xeb, 0x6a, 0x71, 0xb8, 0x58, 0x8f, 0x76, 0x3e,
+	0xc3, 0x75, 0xc2, 0xa2, 0x05, 0x11, 0xf8, 0x2a, 0x9c, 0x72, 0x2c, 0x5c, 0xf7, 0xd5, 0x74, 0xbd,
+	0x2f, 0xd5, 0xbd, 0xc2, 0x97, 0xa8, 0x2b, 0xff, 0x10, 0xc6, 0x1c, 0xca, 0xa2, 0x2f, 0x9f, 0xc2,
+	0xf0, 0x41, 0xa8, 0x9b, 0xe4, 0xbb, 0xdf, 0xfe, 0x61, 0xec, 0xa5, 0x98, 0x5a, 0x80, 0x4d, 0x45,
+	0xc7, 0x8e, 0xa5, 0xd4, 0x71, 0xc3, 0x15, 0x79, 0x48, 0x7a, 0x39, 0x10, 0x9d, 0xa9, 0xd1, 0x5d,
+	0xbc, 0xbf, 0x58, 0x74, 0xc5, 0xb3, 0x90, 0x62, 0x1e, 0x88, 0xb5, 0x89, 0xda, 0x4b, 0xae, 0x78,
+	0x19, 0xce, 0x53, 0x70, 0x57, 0x41, 0x28, 0xb2, 0x7c, 0x19, 0x70, 0x69, 0x10, 0xb0, 0x52, 0x66,
+	0xc0, 0xb2, 0x2b, 0x5e, 0x84, 0x0c, 0x05, 0x1e, 0x31, 0x7f, 0x0c, 0x73, 0xc3, 0x15, 0x2f, 0xc0,
+	0xb9, 0x08, 0xa6, 0x33, 0x4d, 0x0c, 0x51, 0x71, 0xc5, 0x39, 0xf8, 0xef, 0x71, 0xe9, 0xbc, 0x55,
+	0xce, 0x70, 0x37, 0x5d, 0x31, 0x03, 0xa7, 0x29, 0xae, 0x3b, 0x4c, 0xec, 0x68, 0xd9, 0x15, 0x67,
+	0x60, 0x3a, 0x7c, 0x14, 0xaa, 0xf2, 0x96, 0x2b, 0x5e, 0x87, 0x4b, 0x11, 0xbf, 0x7e, 0xd7, 0x2f,
+	0x2e, 0xba, 0xe2, 0x2c, 0xcc, 0xf4, 0xd6, 0xd3, 0x93, 0xb2, 0x58, 0x74, 0xc5, 0x6b, 0x30, 0x7b,
+	0x4c, 0xd4, 0x43, 0x45, 0x14, 0x4b, 0xac, 0x78, 0xd6, 0x94, 0x60, 0x64, 0xd8, 0xd1, 0x12, 0xcd,
+	0x17, 0xe8, 0x0d, 0x35, 0x70, 0x0b, 0x7b, 0x4b, 0xbd, 0x33, 0x36, 0x0c, 0x55, 0x76, 0xc5, 0x7f,
+	0x43, 0xba, 0x33, 0x24, 0x68, 0x57, 0x33, 0x18, 0xc3, 0xc5, 0x1b, 0x7d, 0xf9, 0xf3, 0x9e, 0x03,
+	0x86, 0xab, 0xf4, 0xab, 0xf8, 0x30, 0xfc, 0xa6, 0x2b, 0x5e, 0x01, 0xe1, 0xb8, 0xb0, 0xec, 0x59,
+	0x60, 0xc8, 0x65, 0x57, 0xbc, 0xed, 0x07, 0x3e, 0x02, 0x19, 0x7a, 0x45, 0x18, 0xfc, 0xd6, 0x4c,
+	0xea, 0x69, 0x55, 0x7a, 0xb0, 0x56, 0x95, 0xf2, 0x37, 0x2b, 0xcb, 0xf3, 0xae, 0x88, 0x60, 0x6e,
+	0x40, 0x55, 0x21, 0xf7, 0xd2, 0xa2, 0x2b, 0x56, 0x61, 0x61, 0x80, 0x43, 0x6f, 0xd2, 0x52, 0x31,
+	0x9a, 0x34, 0xf7, 0x3b, 0x17, 0x7d, 0xa6, 0xd6, 0x35, 0x87, 0x7c, 0xd8, 0x2d, 0xf4, 0xf1, 0xa1,
+	0x2d, 0x34, 0x64, 0x2c, 0xaf, 0x94, 0x9e, 0x1d, 0x74, 0x1f, 0x46, 0x35, 0x82, 0x75, 0x27, 0x13,
+	0xcf, 0xc6, 0xf3, 0x13, 0xa5, 0xf9, 0xa1, 0xf7, 0x87, 0xc4, 0xfc, 0x6e, 0xc7, 0xff, 0xa8, 0xc6,
+	0x72, 0xcf, 0xd9, 0xd2, 0x15, 0x15, 0x07, 0x1f, 0xfb, 0x2a, 0x57, 0x20, 0x6e, 0xe3, 0xa6, 0x5f,
+	0xf0, 0x70, 0x4f, 0xa7, 0xe7, 0x90, 0xbb, 0x0c, 0xe9, 0x4e, 0xec, 0x3e, 0x0f, 0x46, 0xee, 0xeb,
+	0x38, 0x24, 0x02, 0xe0, 0x49, 0xde, 0xfa, 0xff, 0x8b, 0x6c, 0xfd, 0xc1, 0x84, 0x07, 0xa4, 0xfa,
+	0x1b, 0xff, 0x41, 0xcf, 0xc6, 0xbf, 0x3a, 0x5c, 0x80, 0xe8, 0xb6, 0xb7, 0x5f, 0x8a, 0xf7, 0xbf,
+	0x1b, 0xbb, 0x0b, 0x29, 0xfa, 0x9f, 0xbe, 0xcf, 0x6d, 0xc5, 0xb2, 0xb0, 0xcd, 0x9f, 0x0b, 0x2f,
+	0xfc, 0x24, 0x3d, 0xa2, 0x3f, 0xcf, 0x40, 0x82, 0xda, 0x6d, 0xdc, 0xe4, 0x13, 0xd4, 0x6c, 0xe3,
+	0xa6, 0x2b, 0x1e, 0x03, 0x77, 0xc5, 0x23, 0xf1, 0xb9, 0x5f, 0xb8, 0xae, 0x48, 0x4e, 0xf6, 0x4c,
+	0xdc, 0x89, 0xce, 0xc4, 0xdc, 0x50, 0x0c, 0x47, 0xe6, 0xe1, 0x2a, 0x9c, 0xf6, 0xec, 0xcf, 0x18,
+	0xb1, 0x74, 0x24, 0x32, 0x30, 0x5e, 0x37, 0x0d, 0x82, 0x7d, 0xd9, 0x26, 0xa5, 0xe0, 0x33, 0x37,
+	0x0f, 0xd3, 0x61, 0x70, 0x3f, 0x8d, 0x7f, 0x3b, 0x02, 0x13, 0x21, 0xec, 0x49, 0x96, 0xf9, 0xff,
+	0x23, 0x32, 0xbf, 0x36, 0x90, 0xc3, 0x10, 0x57, 0xbe, 0xd2, 0x3f, 0xea, 0x51, 0x3a, 0x1a, 0x3a,
+	0x46, 0x54, 0xec, 0xf1, 0x97, 0x62, 0x2c, 0xf7, 0x1b, 0x17, 0x69, 0xc9, 0xc9, 0x16, 0xe0, 0xbd,
+	0xa8, 0x00, 0xf3, 0xc3, 0x5e, 0x3c, 0xa2, 0xc1, 0x79, 0x98, 0xf4, 0x8e, 0x56, 0x6c, 0xa5, 0x49,
+	0x06, 0x28, 0xf0, 0x0a, 0xe3, 0x86, 0x41, 0xfb, 0xe9, 0xef, 0x9b, 0x11, 0x48, 0x76, 0x90, 0x27,
+	0x59, 0x7d, 0xf7, 0x22, 0xea, 0x5b, 0x18, 0x48, 0x60, 0x87, 0x25, 0x5f, 0x7b, 0x2b, 0x3d, 0xda,
+	0xbb, 0x36, 0x64, 0x84, 0x23, 0x94, 0xf7, 0x2b, 0x17, 0x6a, 0xc4, 0xc9, 0xd6, 0xdd, 0xdd, 0xa8,
+	0xee, 0x2e, 0x0f, 0x77, 0xe9, 0xb0, 0xea, 0x16, 0x64, 0x48, 0x04, 0x7f, 0xf9, 0xe0, 0xcf, 0xc2,
+	0xf4, 0xea, 0xe6, 0x93, 0x0d, 0x79, 0xfb, 0xd3, 0xc7, 0xab, 0x72, 0x6d, 0xf3, 0x69, 0x75, 0xbd,
+	0xb6, 0x32, 0x15, 0xe3, 0xa7, 0x61, 0xb2, 0x6b, 0x5e, 0x59, 0x7d, 0x3a, 0xc5, 0x45, 0x91, 0x5b,
+	0xdb, 0xd5, 0x87, 0xb5, 0xcd, 0x87, 0x53, 0x23, 0x3c, 0x0f, 0xe9, 0xae, 0xf9, 0xb1, 0xf4, 0x68,
+	0x65, 0x2a, 0x2e, 0xde, 0x79, 0xf5, 0x46, 0x88, 0xbd, 0x7e, 0x23, 0xc4, 0xde, 0xbf, 0x11, 0xb8,
+	0x2f, 0x0f, 0x04, 0xee, 0xc7, 0x03, 0x81, 0x7b, 0x75, 0x20, 0x70, 0x3f, 0x1f, 0x08, 0xdc, 0xbb,
+	0x03, 0x21, 0xf6, 0xfe, 0x40, 0xe0, 0xbe, 0x7a, 0x2b, 0xc4, 0x5e, 0xbd, 0x15, 0x62, 0xaf, 0xdf,
+	0x0a, 0xb1, 0xe7, 0xc9, 0x4e, 0xcd, 0x3b, 0x63, 0xf4, 0x9f, 0xa5, 0xbf, 0x03, 0x00, 0x00, 0xff,
+	0xff, 0x7b, 0xa2, 0xd5, 0xab, 0x2c, 0x13, 0x00, 0x00,
 }
 
 func (x EnumType) String() string {
@@ -647,6 +1135,69 @@ func (this *TestIndexingStatus) GoString() string {
 	if this.TimeMsg != nil {
 		s = append(s, "TimeMsg: "+fmt.Sprintf("%#v", this.TimeMsg)+",\n")
 	}
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *TestBaseSpec) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 6)
+	s = append(s, "&kubeproto.TestBaseSpec{")
+	s = append(s, "Name: "+fmt.Sprintf("%#v", this.Name)+",\n")
+	if this.Ref != nil {
+		s = append(s, "Ref: "+fmt.Sprintf("%#v", this.Ref)+",\n")
+	}
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *TestBaseStatus) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&kubeproto.TestBaseStatus{")
+	s = append(s, "Count: "+fmt.Sprintf("%#v", this.Count)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *TestWrapperSpec) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&kubeproto.TestWrapperSpec{")
+	s = append(s, "Content: "+fmt.Sprintf("%#v", this.Content)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *TestWrapperStatus) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&kubeproto.TestWrapperStatus{")
+	s = append(s, "Count: "+fmt.Sprintf("%#v", this.Count)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *TestDraftSpec) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&kubeproto.TestDraftSpec{")
+	s = append(s, "Content: "+fmt.Sprintf("%#v", this.Content)+",\n")
+	s = append(s, "}")
+	return strings.Join(s, "")
+}
+func (this *TestDraftStatus) GoString() string {
+	if this == nil {
+		return "nil"
+	}
+	s := make([]string, 0, 5)
+	s = append(s, "&kubeproto.TestDraftStatus{")
+	s = append(s, "Count: "+fmt.Sprintf("%#v", this.Count)+",\n")
 	s = append(s, "}")
 	return strings.Join(s, "")
 }
@@ -966,6 +1517,282 @@ func (m *TestIndexingList) MarshalTo(dAtA []byte) (int, error) {
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
+func (m *TestBaseSpec) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestBaseSpec) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestBaseSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Ref != nil {
+		{
+			size, err := m.Ref.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintIndexing(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = encodeVarintIndexing(dAtA, i, uint64(len(m.Name)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TestBaseStatus) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestBaseStatus) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestBaseStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Count != 0 {
+		i = encodeVarintIndexing(dAtA, i, uint64(m.Count))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TestBase) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestBase) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestBaseList) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestBaseList) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestWrapperSpec) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestWrapperSpec) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestWrapperSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Content) > 0 {
+		i -= len(m.Content)
+		copy(dAtA[i:], m.Content)
+		i = encodeVarintIndexing(dAtA, i, uint64(len(m.Content)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TestWrapperStatus) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestWrapperStatus) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestWrapperStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Count != 0 {
+		i = encodeVarintIndexing(dAtA, i, uint64(m.Count))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TestWrapper) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestWrapper) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestWrapperList) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestWrapperList) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestDraftSpec) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestDraftSpec) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestDraftSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Content) > 0 {
+		i -= len(m.Content)
+		copy(dAtA[i:], m.Content)
+		i = encodeVarintIndexing(dAtA, i, uint64(len(m.Content)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TestDraftStatus) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestDraftStatus) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestDraftStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Count != 0 {
+		i = encodeVarintIndexing(dAtA, i, uint64(m.Count))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TestDraft) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestDraft) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TestDraftList) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TestDraftList) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
 func encodeVarintIndexing(dAtA []byte, offset int, v uint64) int {
 	offset -= sovIndexing(v)
 	base := offset
@@ -1111,6 +1938,85 @@ func (m *TestIndexingStatus) Size() (n int) {
 	return n
 }
 
+func (m *TestBaseSpec) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovIndexing(uint64(l))
+	}
+	if m.Ref != nil {
+		l = m.Ref.Size()
+		n += 1 + l + sovIndexing(uint64(l))
+	}
+	return n
+}
+
+func (m *TestBaseStatus) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Count != 0 {
+		n += 1 + sovIndexing(uint64(m.Count))
+	}
+	return n
+}
+
+func (m *TestWrapperSpec) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Content)
+	if l > 0 {
+		n += 1 + l + sovIndexing(uint64(l))
+	}
+	return n
+}
+
+func (m *TestWrapperStatus) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Count != 0 {
+		n += 1 + sovIndexing(uint64(m.Count))
+	}
+	return n
+}
+
+func (m *TestDraftSpec) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Content)
+	if l > 0 {
+		n += 1 + l + sovIndexing(uint64(l))
+	}
+	return n
+}
+
+func (m *TestDraftStatus) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Count != 0 {
+		n += 1 + sovIndexing(uint64(m.Count))
+	}
+	return n
+}
+
 func sovIndexing(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
@@ -1206,6 +2112,67 @@ func (this *TestIndexingStatus) String() string {
 	s := strings.Join([]string{`&TestIndexingStatus{`,
 		`Count:` + fmt.Sprintf("%v", this.Count) + `,`,
 		`TimeMsg:` + strings.Replace(fmt.Sprintf("%v", this.TimeMsg), "Timestamp", "types.Timestamp", 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *TestBaseSpec) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestBaseSpec{`,
+		`Name:` + fmt.Sprintf("%v", this.Name) + `,`,
+		`Ref:` + strings.Replace(fmt.Sprintf("%v", this.Ref), "ResourceIdentifier", "api.ResourceIdentifier", 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *TestBaseStatus) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestBaseStatus{`,
+		`Count:` + fmt.Sprintf("%v", this.Count) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *TestWrapperSpec) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestWrapperSpec{`,
+		`Content:` + fmt.Sprintf("%v", this.Content) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *TestWrapperStatus) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestWrapperStatus{`,
+		`Count:` + fmt.Sprintf("%v", this.Count) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *TestDraftSpec) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestDraftSpec{`,
+		`Content:` + fmt.Sprintf("%v", this.Content) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *TestDraftStatus) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestDraftStatus{`,
+		`Count:` + fmt.Sprintf("%v", this.Count) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -1890,6 +2857,495 @@ func (m *TestIndexingStatus) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TestBaseSpec) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestBaseSpec: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestBaseSpec: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Ref", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Ref == nil {
+				m.Ref = &api.ResourceIdentifier{}
+			}
+			if err := m.Ref.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TestBaseStatus) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestBaseStatus: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestBaseStatus: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Count", wireType)
+			}
+			m.Count = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Count |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TestWrapperSpec) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestWrapperSpec: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestWrapperSpec: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Content = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TestWrapperStatus) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestWrapperStatus: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestWrapperStatus: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Count", wireType)
+			}
+			m.Count = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Count |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TestDraftSpec) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestDraftSpec: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestDraftSpec: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Content", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Content = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TestDraftStatus) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestDraftStatus: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestDraftStatus: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Count", wireType)
+			}
+			m.Count = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Count |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipIndexing(dAtA[iNdEx:])
@@ -2672,14 +4128,14 @@ func init() {
 kind: CustomResourceDefinition
 metadata:
   creationTimestamp: null
-  name: testindexings.michelangelo.api
+  name: testdrafts.michelangelo.api
 spec:
   group: michelangelo.api
   names:
-    kind: TestIndexing
-    listKind: TestIndexingList
-    plural: testindexings
-    singular: testindexing
+    kind: TestDraft
+    listKind: TestDraftList
+    plural: testdrafts
+    singular: testdraft
   scope: Namespaced
   versions:
   - name: v2
@@ -2688,113 +4144,14 @@ spec:
         properties:
           spec:
             properties:
-              indexedResourceId:
-                properties:
-                  name:
-                    type: string
-                  namespace:
-                    type: string
-                type: object
-              indexedUserInfo:
-                properties:
-                  name:
-                    type: string
-                  proxyUser:
-                    type: string
-                type: object
-              name:
+              content:
                 type: string
-              oneOfInt64:
-                format: int64
-                pattern: ^[-]?\d{1,19}$
-                type: string
-              oneOfSampleMsg:
-                properties:
-                  indexedBool:
-                    type: boolean
-                  indexedEnum:
-                    enum:
-                    - ENUM_TYPE_INVALID
-                    - ENUM_TYPE_DEV
-                    - ENUM_TYPE_STAGING
-                    - ENUM_TYPE_PROD
-                    type: string
-                  indexedInt32:
-                    format: int32
-                    type: integer
-                  indexedInt64:
-                    format: int64
-                    pattern: ^[-]?\d{1,19}$
-                    type: string
-                  indexedLongString:
-                    type: string
-                  indexedString:
-                    type: string
-                  oneOfInt64:
-                    format: int64
-                    pattern: ^[-]?\d{1,19}$
-                    type: string
-                  oneOfStr:
-                    type: string
-                  relation_4:
-                    properties:
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    type: object
-                  tmpString:
-                    type: string
-                type: object
-              oneOfStr:
-                type: string
-              sampleMsg:
-                properties:
-                  indexedBool:
-                    type: boolean
-                  indexedEnum:
-                    enum:
-                    - ENUM_TYPE_INVALID
-                    - ENUM_TYPE_DEV
-                    - ENUM_TYPE_STAGING
-                    - ENUM_TYPE_PROD
-                    type: string
-                  indexedInt32:
-                    format: int32
-                    type: integer
-                  indexedInt64:
-                    format: int64
-                    pattern: ^[-]?\d{1,19}$
-                    type: string
-                  indexedLongString:
-                    type: string
-                  indexedString:
-                    type: string
-                  oneOfInt64:
-                    format: int64
-                    pattern: ^[-]?\d{1,19}$
-                    type: string
-                  oneOfStr:
-                    type: string
-                  relation_4:
-                    properties:
-                      name:
-                        type: string
-                      namespace:
-                        type: string
-                    type: object
-                  tmpString:
-                    type: string
-                type: object
             type: object
           status:
             properties:
               count:
                 format: int32
                 type: integer
-              timeMsg:
-                format: date-time
-                type: string
             type: object
         type: object
     served: true
@@ -3096,4 +4453,2413 @@ func (in *TestIndexingList) DeepCopyInto(out *TestIndexingList) {
 
 func init() {
 	SchemeBuilder.Register(&TestIndexingList{})
+}
+
+type TestBase struct {
+	metav1.TypeMeta   `protobuf:"bytes,1,opt,name=type_meta,json=typeMeta,proto3,embedded=type_meta" json:",inline"`
+	metav1.ObjectMeta `protobuf:"bytes,2,opt,name=metadata,proto3,embedded=metadata" json:"metadata,omitempty"`
+	// Spec of the desired behavior of the TestBase.
+	Spec TestBaseSpec `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
+	// Most recently observed status of the TestBase.
+	Status TestBaseStatus `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+}
+
+func (m *TestBase) GetTypeMeta() *metav1.TypeMeta {
+	return &m.TypeMeta
+}
+
+func (m *TestBase) GetMetadata() *metav1.ObjectMeta {
+	return &m.ObjectMeta
+}
+
+func (m *TestBase) GetSpec() TestBaseSpec {
+	if m != nil {
+		return m.Spec
+	}
+	return TestBaseSpec{}
+}
+
+func (m *TestBase) GetStatus() TestBaseStatus {
+	if m != nil {
+		return m.Status
+	}
+	return TestBaseStatus{}
+}
+
+func (m *TestBase) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.Status.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	{
+		size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size, err := m.ObjectMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.TypeMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *TestBase) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.TypeMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.ObjectMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.Spec.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.Status.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	return n
+}
+
+func (this *TestBase) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestBase{`,
+		`TypeMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.TypeMeta), "TypeMeta", "metav1.TypeMeta", 1), `&`, ``, 1) + `,`,
+		`ObjectMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ObjectMeta), "ObjectMeta", "metav1.ObjectMeta", 1), `&`, ``, 1) + `,`,
+		`Spec:` + strings.Replace(strings.Replace(this.Spec.String(), "TestBaseSpec", "TestBaseSpec", 1), `&`, ``, 1) + `,`,
+		`Status:` + strings.Replace(strings.Replace(this.Status.String(), "TestBaseStatus", "TestBaseStatus", 1), `&`, ``, 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+
+func (m *TestBase) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestBase: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestBase: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TypeMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TypeMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ObjectMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ObjectMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Status.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+/* As gogo proto's jsonpb library does not support marshal and unmarshal for
+   inline field (TypeMeta), we work around this by implementing the
+   marshal and unmarshal functions for Spec and Status respectively. */
+func (m *TestBaseSpec) MarshalJSON() ([]byte,error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+	  EnumsAsInts: false,
+	  EmitDefaults: false,
+	  OrigName: false,
+	  AnyResolver: &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TestBaseSpec) UnmarshalJSON(b []byte) error {
+	err := (&jsonpb.Unmarshaler{
+	  AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+	  AnyResolver: &util.GenericResolver{},
+	}).Unmarshal(bytes.NewReader(b), m)
+	if err == nil {
+        return nil
+	}
+
+    if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+         strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+        return err
+    }
+
+	visited := make(map[reflect.Type]bool)
+    var paths []util.InlineFieldMapping
+	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+	if len(paths) > 0 {
+	    b, err = util.ApplyInlineFields(b, paths)
+	}
+    type Alias TestBaseSpec
+    aux := (*Alias)(m)
+
+    return json.Unmarshal(b, aux)
+}
+
+func (m *TestBaseStatus) MarshalJSON() ([]byte,error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+	  EnumsAsInts: false,
+	  EmitDefaults: false,
+	  OrigName: false,
+	  AnyResolver: &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TestBaseStatus) UnmarshalJSON(b []byte) error {
+    err := (&jsonpb.Unmarshaler{
+      AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+      AnyResolver: &util.GenericResolver{},
+    }).Unmarshal(bytes.NewReader(b), m)
+    if err == nil {
+        return nil
+    }
+    if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+         strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+        return err
+    }
+
+    visited := make(map[reflect.Type]bool)
+    var paths []util.InlineFieldMapping
+    util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+    if len(paths) > 0 {
+        b, err = util.ApplyInlineFields(b, paths)
+    }
+    type Alias TestBaseStatus
+    aux := (*Alias)(m)
+
+    return json.Unmarshal(b, aux)
+}
+
+func (in *TestBase) DeepCopy() *TestBase {
+	if in == nil {
+		return nil
+	}
+	out := new(TestBase)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TestBase) DeepCopyObject() k8sruntime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *TestBase) DeepCopyInto(out *TestBase) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	out.Spec = *proto.Clone(&in.Spec).(*TestBaseSpec)
+	out.Status = *proto.Clone(&in.Status).(*TestBaseStatus)
+}
+
+func init() {
+	SchemeBuilder.Register(&TestBase{})
+}
+
+func (m *TestBase) GetIndexedKeyValuePairs() ([]storage.IndexedField){
+	var indexedFields []storage.IndexedField
+	var indexedField storage.IndexedField
+
+	indexedField.Key = "test_name"
+	if m != nil {
+		indexedField.Value = m.Spec.Name
+	} else {
+		indexedField.Value = nil
+	}
+	indexedFields = append(indexedFields, indexedField)
+
+	{
+		indexedSubFields := make([]storage.IndexedField, 2)
+		indexedSubFields[0].Key = "test_ref_namespace"
+		indexedSubFields[1].Key = "test_ref_name"
+		if m != nil && m.Spec.Ref != nil {
+			indexedSubFields[0].Value = m.Spec.Ref.Namespace
+			indexedSubFields[1].Value = m.Spec.Ref.Name
+		}
+		indexedFields = append(indexedFields, indexedSubFields...)
+	}
+
+	return indexedFields
+}
+
+
+func init() {
+	gvk := schema.GroupVersionKind{
+		Group: "michelangelo.api",
+		Version: "v2",
+		Kind: "TestBase",
+	}
+	IndexesPathToKeyMap[gvk] = make(map[string]string)
+
+	// default index
+	IndexesPathToKeyMap[gvk]["metadata.namespace"] = "namespace"
+	IndexesPathToKeyMap[gvk]["metadata.name"] = "name"
+	IndexesPathToKeyMap[gvk]["spec.name"] = "test_name"
+	IndexesPathToKeyMap[gvk]["spec.ref.namespace"] = "test_ref_namespace"
+	IndexesPathToKeyMap[gvk]["spec.ref.name"] = "test_ref_name"
+}
+
+
+func (m *TestBase) GetContentIndexedKeyValuePairs() map[string][]storage.IndexedField {
+	result := make(map[string][]storage.IndexedField)
+	{
+	var indexedFields []storage.IndexedField
+	var indexedField storage.IndexedField
+
+	indexedField.Key = "test_name"
+	if m != nil {
+		indexedField.Value = m.Spec.Name
+	} else {
+		indexedField.Value = nil
+	}
+	indexedFields = append(indexedFields, indexedField)
+
+	{
+		indexedSubFields := make([]storage.IndexedField, 2)
+		indexedSubFields[0].Key = "test_ref_namespace"
+		indexedSubFields[1].Key = "test_ref_name"
+		if m != nil && m.Spec.Ref != nil {
+			indexedSubFields[0].Value = m.Spec.Ref.Namespace
+			indexedSubFields[1].Value = m.Spec.Ref.Name
+		}
+		indexedFields = append(indexedFields, indexedSubFields...)
+	}
+
+	result["test_wrapper"] = indexedFields
+	}
+
+	return result
+}
+
+
+func (m *TestBase) ContentIndexFieldSpecs() []storage.ContentIndexFieldSpec {
+	return []storage.ContentIndexFieldSpec{
+		{
+			WrapperGVK: schema.GroupVersionKind{Group: "michelangelo.api", Version: "v2", Kind: "TestWrapper"},
+			WrapperKind: "test_wrapper",
+			ContentPath: "spec.content",
+			BaseKind: "TestBase",
+			Table: "test_base_test_wrapper_unmarshalled",
+			UIDCol: "test_wrapper_uid",
+			Fields: []storage.ContentIndexField{
+				{Path: "spec.content.spec.name", Column: "test_name"},
+				{Path: "spec.content.spec.ref.namespace", Column: "test_ref_namespace"},
+				{Path: "spec.content.spec.ref.name", Column: "test_ref_name"},
+			},
+		},
+	}
+}
+
+func (m *TestBase) IsImmutableKind() bool {
+
+	return false
+}
+
+func init() {
+	CrdObjects["TestBase"] = &TestBase{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "michelangelo.api/v2",
+			Kind: "TestBase",
+		},
+	}
+}
+
+func (m *TestBase) HasBlobFields() bool {
+	return false
+}
+
+func (m *TestBase) ClearBlobFields() {
+}
+
+func (m *TestBase) FillBlobFields(object k8sruntime.Object) {
+	other := object.(*TestBase)
+	m.Spec = other.Spec
+	m.Status = other.Status
+}
+
+func init() {
+	YamlSchemas["TestBase"] = `apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: null
+  name: testdrafts.michelangelo.api
+spec:
+  group: michelangelo.api
+  names:
+    kind: TestDraft
+    listKind: TestDraftList
+    plural: testdrafts
+    singular: testdraft
+  scope: Namespaced
+  versions:
+  - name: v2
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              content:
+                type: string
+            type: object
+          status:
+            properties:
+              count:
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+`
+}
+
+type TestBaseList struct {
+	metav1.TypeMeta `protobuf:"bytes,1,opt,name=type_meta,json=typeMeta,proto3,embedded=type_meta" json:",inline"`
+	metav1.ListMeta `protobuf:"bytes,2,opt,name=metadata,proto3,embedded=metadata" json:"metadata,omitempty"`
+	// A list of TestBase
+	Items []TestBase `protobuf:"bytes,3,rep,name=items,proto3" json:"items"`
+}
+
+func (m *TestBaseList) GetTypeMeta() *metav1.TypeMeta {
+	return &m.TypeMeta
+}
+
+func (m *TestBaseList) GetMetadata() *metav1.ListMeta {
+	return &m.ListMeta
+}
+
+func (m *TestBaseList) GetItems() []TestBase {
+	if m != nil {
+		return m.Items
+	}
+	return nil
+}
+
+func (m *TestBaseList) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Items) > 0 {
+		for iNdEx := len(m.Items) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Items[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintIndexing(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	{
+		size, err := m.ListMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.TypeMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *TestBaseList) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.TypeMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.ListMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	if len(m.Items) > 0 {
+		for _, e := range m.Items {
+			l = e.Size()
+			n += 1 + l + sovIndexing(uint64(l))
+		}
+	}
+	return n
+}
+
+func (this *TestBaseList) String() string {
+	if this == nil {
+		return "nil"
+	}
+	repeatedStringForItems := "[]TestBase{"
+	for _, f := range this.Items {
+		repeatedStringForItems += strings.Replace(strings.Replace(f.String(), "TestBase", "TestBase", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForItems += "}"
+	s := strings.Join([]string{`&TestBaseList{`,
+		`TypeMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.TypeMeta), "TypeMeta", "metav1.TypeMeta", 1), `&`, ``, 1) + `,`,
+		`ListMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ListMeta), "ListMeta", "metav1.ListMeta", 1), `&`, ``, 1) + `,`,
+		`Items:` + repeatedStringForItems + `,`,
+		`}`,
+	}, "")
+	return s
+}
+
+func (m *TestBaseList) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestBaseList: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestBaseList: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TypeMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TypeMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ListMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ListMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Items", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Items = append(m.Items, TestBase{})
+			if err := m.Items[len(m.Items)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (in *TestBaseList) DeepCopy() *TestBaseList {
+	if in == nil {
+		return nil
+	}
+	out := new(TestBaseList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TestBaseList) DeepCopyObject() k8sruntime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *TestBaseList) DeepCopyInto(out *TestBaseList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]TestBase, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func init() {
+	SchemeBuilder.Register(&TestBaseList{})
+}
+
+type TestWrapper struct {
+	metav1.TypeMeta   `protobuf:"bytes,1,opt,name=type_meta,json=typeMeta,proto3,embedded=type_meta" json:",inline"`
+	metav1.ObjectMeta `protobuf:"bytes,2,opt,name=metadata,proto3,embedded=metadata" json:"metadata,omitempty"`
+	// Spec of the desired behavior of the TestWrapper.
+	Spec TestWrapperSpec `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
+	// Most recently observed status of the TestWrapper.
+	Status TestWrapperStatus `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+}
+
+func (m *TestWrapper) GetTypeMeta() *metav1.TypeMeta {
+	return &m.TypeMeta
+}
+
+func (m *TestWrapper) GetMetadata() *metav1.ObjectMeta {
+	return &m.ObjectMeta
+}
+
+func (m *TestWrapper) GetSpec() TestWrapperSpec {
+	if m != nil {
+		return m.Spec
+	}
+	return TestWrapperSpec{}
+}
+
+func (m *TestWrapper) GetStatus() TestWrapperStatus {
+	if m != nil {
+		return m.Status
+	}
+	return TestWrapperStatus{}
+}
+
+func (m *TestWrapper) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.Status.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	{
+		size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size, err := m.ObjectMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.TypeMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *TestWrapper) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.TypeMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.ObjectMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.Spec.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.Status.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	return n
+}
+
+func (this *TestWrapper) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestWrapper{`,
+		`TypeMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.TypeMeta), "TypeMeta", "metav1.TypeMeta", 1), `&`, ``, 1) + `,`,
+		`ObjectMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ObjectMeta), "ObjectMeta", "metav1.ObjectMeta", 1), `&`, ``, 1) + `,`,
+		`Spec:` + strings.Replace(strings.Replace(this.Spec.String(), "TestWrapperSpec", "TestWrapperSpec", 1), `&`, ``, 1) + `,`,
+		`Status:` + strings.Replace(strings.Replace(this.Status.String(), "TestWrapperStatus", "TestWrapperStatus", 1), `&`, ``, 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+
+func (m *TestWrapper) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestWrapper: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestWrapper: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TypeMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TypeMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ObjectMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ObjectMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Status.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+/* As gogo proto's jsonpb library does not support marshal and unmarshal for
+   inline field (TypeMeta), we work around this by implementing the
+   marshal and unmarshal functions for Spec and Status respectively. */
+func (m *TestWrapperSpec) MarshalJSON() ([]byte,error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+	  EnumsAsInts: false,
+	  EmitDefaults: false,
+	  OrigName: false,
+	  AnyResolver: &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TestWrapperSpec) UnmarshalJSON(b []byte) error {
+	err := (&jsonpb.Unmarshaler{
+	  AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+	  AnyResolver: &util.GenericResolver{},
+	}).Unmarshal(bytes.NewReader(b), m)
+	if err == nil {
+        return nil
+	}
+
+    if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+         strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+        return err
+    }
+
+	visited := make(map[reflect.Type]bool)
+    var paths []util.InlineFieldMapping
+	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+	if len(paths) > 0 {
+	    b, err = util.ApplyInlineFields(b, paths)
+	}
+    type Alias TestWrapperSpec
+    aux := (*Alias)(m)
+
+    return json.Unmarshal(b, aux)
+}
+
+func (m *TestWrapperStatus) MarshalJSON() ([]byte,error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+	  EnumsAsInts: false,
+	  EmitDefaults: false,
+	  OrigName: false,
+	  AnyResolver: &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TestWrapperStatus) UnmarshalJSON(b []byte) error {
+    err := (&jsonpb.Unmarshaler{
+      AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+      AnyResolver: &util.GenericResolver{},
+    }).Unmarshal(bytes.NewReader(b), m)
+    if err == nil {
+        return nil
+    }
+    if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+         strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+        return err
+    }
+
+    visited := make(map[reflect.Type]bool)
+    var paths []util.InlineFieldMapping
+    util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+    if len(paths) > 0 {
+        b, err = util.ApplyInlineFields(b, paths)
+    }
+    type Alias TestWrapperStatus
+    aux := (*Alias)(m)
+
+    return json.Unmarshal(b, aux)
+}
+
+func (in *TestWrapper) DeepCopy() *TestWrapper {
+	if in == nil {
+		return nil
+	}
+	out := new(TestWrapper)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TestWrapper) DeepCopyObject() k8sruntime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *TestWrapper) DeepCopyInto(out *TestWrapper) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	out.Spec = *proto.Clone(&in.Spec).(*TestWrapperSpec)
+	out.Status = *proto.Clone(&in.Status).(*TestWrapperStatus)
+}
+
+func init() {
+	SchemeBuilder.Register(&TestWrapper{})
+}
+
+func (m *TestWrapper) GetIndexedKeyValuePairs() ([]storage.IndexedField){
+	var indexedFields []storage.IndexedField
+	return indexedFields
+}
+
+
+func init() {
+	gvk := schema.GroupVersionKind{
+		Group: "michelangelo.api",
+		Version: "v2",
+		Kind: "TestWrapper",
+	}
+	IndexesPathToKeyMap[gvk] = make(map[string]string)
+
+	// default index
+	IndexesPathToKeyMap[gvk]["metadata.namespace"] = "namespace"
+	IndexesPathToKeyMap[gvk]["metadata.name"] = "name"
+}
+
+func (m *TestWrapper) IsImmutableKind() bool {
+
+	return false
+}
+
+func init() {
+	CrdObjects["TestWrapper"] = &TestWrapper{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "michelangelo.api/v2",
+			Kind: "TestWrapper",
+		},
+	}
+}
+
+func (m *TestWrapper) HasBlobFields() bool {
+	return false
+}
+
+func (m *TestWrapper) ClearBlobFields() {
+}
+
+func (m *TestWrapper) FillBlobFields(object k8sruntime.Object) {
+	other := object.(*TestWrapper)
+	m.Spec = other.Spec
+	m.Status = other.Status
+}
+
+func init() {
+	YamlSchemas["TestWrapper"] = `apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: null
+  name: testdrafts.michelangelo.api
+spec:
+  group: michelangelo.api
+  names:
+    kind: TestDraft
+    listKind: TestDraftList
+    plural: testdrafts
+    singular: testdraft
+  scope: Namespaced
+  versions:
+  - name: v2
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              content:
+                type: string
+            type: object
+          status:
+            properties:
+              count:
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+`
+}
+
+type TestWrapperList struct {
+	metav1.TypeMeta `protobuf:"bytes,1,opt,name=type_meta,json=typeMeta,proto3,embedded=type_meta" json:",inline"`
+	metav1.ListMeta `protobuf:"bytes,2,opt,name=metadata,proto3,embedded=metadata" json:"metadata,omitempty"`
+	// A list of TestWrapper
+	Items []TestWrapper `protobuf:"bytes,3,rep,name=items,proto3" json:"items"`
+}
+
+func (m *TestWrapperList) GetTypeMeta() *metav1.TypeMeta {
+	return &m.TypeMeta
+}
+
+func (m *TestWrapperList) GetMetadata() *metav1.ListMeta {
+	return &m.ListMeta
+}
+
+func (m *TestWrapperList) GetItems() []TestWrapper {
+	if m != nil {
+		return m.Items
+	}
+	return nil
+}
+
+func (m *TestWrapperList) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Items) > 0 {
+		for iNdEx := len(m.Items) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Items[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintIndexing(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	{
+		size, err := m.ListMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.TypeMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *TestWrapperList) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.TypeMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.ListMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	if len(m.Items) > 0 {
+		for _, e := range m.Items {
+			l = e.Size()
+			n += 1 + l + sovIndexing(uint64(l))
+		}
+	}
+	return n
+}
+
+func (this *TestWrapperList) String() string {
+	if this == nil {
+		return "nil"
+	}
+	repeatedStringForItems := "[]TestWrapper{"
+	for _, f := range this.Items {
+		repeatedStringForItems += strings.Replace(strings.Replace(f.String(), "TestWrapper", "TestWrapper", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForItems += "}"
+	s := strings.Join([]string{`&TestWrapperList{`,
+		`TypeMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.TypeMeta), "TypeMeta", "metav1.TypeMeta", 1), `&`, ``, 1) + `,`,
+		`ListMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ListMeta), "ListMeta", "metav1.ListMeta", 1), `&`, ``, 1) + `,`,
+		`Items:` + repeatedStringForItems + `,`,
+		`}`,
+	}, "")
+	return s
+}
+
+func (m *TestWrapperList) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestWrapperList: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestWrapperList: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TypeMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TypeMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ListMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ListMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Items", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Items = append(m.Items, TestWrapper{})
+			if err := m.Items[len(m.Items)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (in *TestWrapperList) DeepCopy() *TestWrapperList {
+	if in == nil {
+		return nil
+	}
+	out := new(TestWrapperList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TestWrapperList) DeepCopyObject() k8sruntime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *TestWrapperList) DeepCopyInto(out *TestWrapperList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]TestWrapper, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func init() {
+	SchemeBuilder.Register(&TestWrapperList{})
+}
+
+type TestDraft struct {
+	metav1.TypeMeta   `protobuf:"bytes,1,opt,name=type_meta,json=typeMeta,proto3,embedded=type_meta" json:",inline"`
+	metav1.ObjectMeta `protobuf:"bytes,2,opt,name=metadata,proto3,embedded=metadata" json:"metadata,omitempty"`
+	// Spec of the desired behavior of the TestDraft.
+	Spec TestDraftSpec `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
+	// Most recently observed status of the TestDraft.
+	Status TestDraftStatus `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+}
+
+func (m *TestDraft) GetTypeMeta() *metav1.TypeMeta {
+	return &m.TypeMeta
+}
+
+func (m *TestDraft) GetMetadata() *metav1.ObjectMeta {
+	return &m.ObjectMeta
+}
+
+func (m *TestDraft) GetSpec() TestDraftSpec {
+	if m != nil {
+		return m.Spec
+	}
+	return TestDraftSpec{}
+}
+
+func (m *TestDraft) GetStatus() TestDraftStatus {
+	if m != nil {
+		return m.Status
+	}
+	return TestDraftStatus{}
+}
+
+func (m *TestDraft) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.Status.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	{
+		size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size, err := m.ObjectMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.TypeMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *TestDraft) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.TypeMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.ObjectMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.Spec.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.Status.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	return n
+}
+
+func (this *TestDraft) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&TestDraft{`,
+		`TypeMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.TypeMeta), "TypeMeta", "metav1.TypeMeta", 1), `&`, ``, 1) + `,`,
+		`ObjectMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ObjectMeta), "ObjectMeta", "metav1.ObjectMeta", 1), `&`, ``, 1) + `,`,
+		`Spec:` + strings.Replace(strings.Replace(this.Spec.String(), "TestDraftSpec", "TestDraftSpec", 1), `&`, ``, 1) + `,`,
+		`Status:` + strings.Replace(strings.Replace(this.Status.String(), "TestDraftStatus", "TestDraftStatus", 1), `&`, ``, 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+
+func (m *TestDraft) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestDraft: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestDraft: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TypeMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TypeMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ObjectMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ObjectMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Status.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+/* As gogo proto's jsonpb library does not support marshal and unmarshal for
+   inline field (TypeMeta), we work around this by implementing the
+   marshal and unmarshal functions for Spec and Status respectively. */
+func (m *TestDraftSpec) MarshalJSON() ([]byte,error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+	  EnumsAsInts: false,
+	  EmitDefaults: false,
+	  OrigName: false,
+	  AnyResolver: &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TestDraftSpec) UnmarshalJSON(b []byte) error {
+	err := (&jsonpb.Unmarshaler{
+	  AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+	  AnyResolver: &util.GenericResolver{},
+	}).Unmarshal(bytes.NewReader(b), m)
+	if err == nil {
+        return nil
+	}
+
+    if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+         strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+        return err
+    }
+
+	visited := make(map[reflect.Type]bool)
+    var paths []util.InlineFieldMapping
+	util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+	if len(paths) > 0 {
+	    b, err = util.ApplyInlineFields(b, paths)
+	}
+    type Alias TestDraftSpec
+    aux := (*Alias)(m)
+
+    return json.Unmarshal(b, aux)
+}
+
+func (m *TestDraftStatus) MarshalJSON() ([]byte,error) {
+	var buf bytes.Buffer
+	err := (&jsonpb.Marshaler{
+	  EnumsAsInts: false,
+	  EmitDefaults: false,
+	  OrigName: false,
+	  AnyResolver: &util.GenericResolver{},
+	}).Marshal(&buf, m)
+	return buf.Bytes(), err
+}
+
+func (m *TestDraftStatus) UnmarshalJSON(b []byte) error {
+    err := (&jsonpb.Unmarshaler{
+      AllowUnknownFields: getAllowUnknownFieldsEnvVar(),
+      AnyResolver: &util.GenericResolver{},
+    }).Unmarshal(bytes.NewReader(b), m)
+    if err == nil {
+        return nil
+    }
+    if !(strings.Contains(err.Error(), "cannot unmarshal string into Go value of type map[string]json.RawMessage") ||
+         strings.Contains(err.Error(), "cannot unmarshal number into Go value of type map[string]json.RawMessage")) {
+        return err
+    }
+
+    visited := make(map[reflect.Type]bool)
+    var paths []util.InlineFieldMapping
+    util.RemoveInlineFields(reflect.TypeOf(m), "", visited, &paths)
+    if len(paths) > 0 {
+        b, err = util.ApplyInlineFields(b, paths)
+    }
+    type Alias TestDraftStatus
+    aux := (*Alias)(m)
+
+    return json.Unmarshal(b, aux)
+}
+
+func (in *TestDraft) DeepCopy() *TestDraft {
+	if in == nil {
+		return nil
+	}
+	out := new(TestDraft)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TestDraft) DeepCopyObject() k8sruntime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *TestDraft) DeepCopyInto(out *TestDraft) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	out.Spec = *proto.Clone(&in.Spec).(*TestDraftSpec)
+	out.Status = *proto.Clone(&in.Status).(*TestDraftStatus)
+}
+
+func init() {
+	SchemeBuilder.Register(&TestDraft{})
+}
+
+func (m *TestDraft) GetIndexedKeyValuePairs() ([]storage.IndexedField){
+	var indexedFields []storage.IndexedField
+	return indexedFields
+}
+
+
+func init() {
+	gvk := schema.GroupVersionKind{
+		Group: "michelangelo.api",
+		Version: "v2",
+		Kind: "TestDraft",
+	}
+	IndexesPathToKeyMap[gvk] = make(map[string]string)
+
+	// default index
+	IndexesPathToKeyMap[gvk]["metadata.namespace"] = "namespace"
+	IndexesPathToKeyMap[gvk]["metadata.name"] = "name"
+}
+
+func (m *TestDraft) IsImmutableKind() bool {
+
+	return false
+}
+
+func init() {
+	CrdObjects["TestDraft"] = &TestDraft{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "michelangelo.api/v2",
+			Kind: "TestDraft",
+		},
+	}
+}
+
+func (m *TestDraft) HasBlobFields() bool {
+	return false
+}
+
+func (m *TestDraft) ClearBlobFields() {
+}
+
+func (m *TestDraft) FillBlobFields(object k8sruntime.Object) {
+	other := object.(*TestDraft)
+	m.Spec = other.Spec
+	m.Status = other.Status
+}
+
+func init() {
+	YamlSchemas["TestDraft"] = `apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: null
+  name: testdrafts.michelangelo.api
+spec:
+  group: michelangelo.api
+  names:
+    kind: TestDraft
+    listKind: TestDraftList
+    plural: testdrafts
+    singular: testdraft
+  scope: Namespaced
+  versions:
+  - name: v2
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              content:
+                type: string
+            type: object
+          status:
+            properties:
+              count:
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+`
+}
+
+type TestDraftList struct {
+	metav1.TypeMeta `protobuf:"bytes,1,opt,name=type_meta,json=typeMeta,proto3,embedded=type_meta" json:",inline"`
+	metav1.ListMeta `protobuf:"bytes,2,opt,name=metadata,proto3,embedded=metadata" json:"metadata,omitempty"`
+	// A list of TestDraft
+	Items []TestDraft `protobuf:"bytes,3,rep,name=items,proto3" json:"items"`
+}
+
+func (m *TestDraftList) GetTypeMeta() *metav1.TypeMeta {
+	return &m.TypeMeta
+}
+
+func (m *TestDraftList) GetMetadata() *metav1.ListMeta {
+	return &m.ListMeta
+}
+
+func (m *TestDraftList) GetItems() []TestDraft {
+	if m != nil {
+		return m.Items
+	}
+	return nil
+}
+
+func (m *TestDraftList) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Items) > 0 {
+		for iNdEx := len(m.Items) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Items[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintIndexing(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	{
+		size, err := m.ListMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	{
+		size, err := m.TypeMeta.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintIndexing(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *TestDraftList) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.TypeMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	l = m.ListMeta.Size()
+	n += 1 + l + sovIndexing(uint64(l))
+	if len(m.Items) > 0 {
+		for _, e := range m.Items {
+			l = e.Size()
+			n += 1 + l + sovIndexing(uint64(l))
+		}
+	}
+	return n
+}
+
+func (this *TestDraftList) String() string {
+	if this == nil {
+		return "nil"
+	}
+	repeatedStringForItems := "[]TestDraft{"
+	for _, f := range this.Items {
+		repeatedStringForItems += strings.Replace(strings.Replace(f.String(), "TestDraft", "TestDraft", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForItems += "}"
+	s := strings.Join([]string{`&TestDraftList{`,
+		`TypeMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.TypeMeta), "TypeMeta", "metav1.TypeMeta", 1), `&`, ``, 1) + `,`,
+		`ListMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ListMeta), "ListMeta", "metav1.ListMeta", 1), `&`, ``, 1) + `,`,
+		`Items:` + repeatedStringForItems + `,`,
+		`}`,
+	}, "")
+	return s
+}
+
+func (m *TestDraftList) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowIndexing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TestDraftList: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TestDraftList: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TypeMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.TypeMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ListMeta", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ListMeta.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Items", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowIndexing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Items = append(m.Items, TestDraft{})
+			if err := m.Items[len(m.Items)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipIndexing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthIndexing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (in *TestDraftList) DeepCopy() *TestDraftList {
+	if in == nil {
+		return nil
+	}
+	out := new(TestDraftList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TestDraftList) DeepCopyObject() k8sruntime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+func (in *TestDraftList) DeepCopyInto(out *TestDraftList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]TestDraft, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+func init() {
+	SchemeBuilder.Register(&TestDraftList{})
 }
