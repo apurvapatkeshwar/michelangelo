@@ -42,7 +42,6 @@ go_test(
         "cascade_test.go",
         "controller_test.go",
         "cron_trigger_test.go",
-        "signal_storm_repro_test.go",
         "util_test.go",
     ],
     embed = [":go_default_library"],
