@@ -50,8 +50,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -554,8 +556,13 @@ func (r *Reconciler) Register(mgr ctrl.Manager) error {
 	r.log = mgr.GetLogger().
 		WithName("triggerRun")
 
+	// GenerationChangedPredicate drops reconciles triggered by status-only writes
+	// (e.g. Status.ErrorMessage from a failed workflow-engine call), so a
+	// permanently failing sync doesn't self-trigger an unbounded-rate retry loop
+	// via the watch; the state machine still gets a bounded 60s RequeueAfter.
+	// Same pattern as components/deployment/controller.go.
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v2pb.TriggerRun{}).
+		For(&v2pb.TriggerRun{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maximumConcurrentReconciles}).
 		Complete(r)
 }

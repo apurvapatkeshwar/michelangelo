@@ -19,6 +19,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // MockRunner is a testify mock implementation for Runner interface.
@@ -483,6 +485,32 @@ func TestGetRunner(t *testing.T) {
 
 		})
 	}
+}
+
+// TestWatchPredicateIgnoresStatusOnlyUpdates locks in the fix for the
+// notification-drift retry storm: a status-only write (e.g. Status.ErrorMessage
+// from a failed workflow-engine sync, with no Spec/Generation change) must not
+// re-trigger an immediate reconcile via the controller's watch, since that
+// self-triggered loop is what turned a permanently-failing Temporal call into
+// an unbounded-rate retry storm. Spec changes (Generation bump) must still be
+// observed immediately.
+func TestWatchPredicateIgnoresStatusOnlyUpdates(t *testing.T) {
+	base := _triggerRun.DeepCopy()
+	base.ObjectMeta.Generation = 5
+	base.Status = v2pb.TriggerRunStatus{State: v2pb.TRIGGER_RUN_STATE_RUNNING}
+
+	statusOnlyChange := base.DeepCopy()
+	statusOnlyChange.Status.ErrorMessage = "exceeded workflow execution limit for signal events"
+
+	specChange := base.DeepCopy()
+	specChange.ObjectMeta.Generation = 6
+
+	pred := predicate.GenerationChangedPredicate{}
+
+	assert.False(t, pred.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: statusOnlyChange}),
+		"status-only update must not trigger an immediate reconcile")
+	assert.True(t, pred.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: specChange}),
+		"a generation-bumping spec update must still trigger an immediate reconcile")
 }
 
 func setUpReconciler(t *testing.T, initialObjects []runtime.Object, params Params) Reconciler {
