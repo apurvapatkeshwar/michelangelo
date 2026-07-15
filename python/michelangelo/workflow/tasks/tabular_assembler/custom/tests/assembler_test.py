@@ -313,14 +313,31 @@ class CustomAssemblerTest(unittest.TestCase):
                     prefixes,
                 )
 
-    @patch(f"{_ASSEMBLER_MODULE}.download_file_tree")
     @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_model_package")
     @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_raw_model_package")
-    def test_native_transform_combined_layout(
-        self, mock_create_raw, mock_create_model, mock_download_file_tree
-    ):
-        """Native-transform models fuse their schema/sample_data into one package."""
-        mock_create_model.side_effect = _fake_create_package("deployable")
+    def test_native_transform_combined_layout(self, mock_create_raw, mock_create_model):
+        """Native-transform models fuse their schema/sample_data into one package.
+
+        The predictor and native-transform sources are downloaded through the
+        injected ``storage_backend`` (not bypassed via a raw fsspec helper),
+        so both are uploaded through a real ``LocalStorageBackend`` here and
+        their on-disk presence under ``combined_model/`` is observed from
+        inside the packager side effect, before the assembler's temporary
+        directory is cleaned up.
+        """
+        observed: dict[str, object] = {}
+
+        def _observe_and_package(model_path, *, dest_model_path=None, **kwargs):
+            observed["predictor_file"] = os.path.exists(
+                os.path.join(model_path, "predictor", "predictor.bin")
+            )
+            observed["native_transform_file"] = os.path.exists(
+                os.path.join(model_path, "native_transform", "tx.bin")
+            )
+            os.makedirs(dest_model_path, exist_ok=True)
+            return dest_model_path
+
+        mock_create_model.side_effect = _observe_and_package
         mock_create_raw.side_effect = _fake_create_package("raw")
 
         tx_schema = ModelSchema(
@@ -340,16 +357,26 @@ class CustomAssemblerTest(unittest.TestCase):
                 ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1])
             ],
         )
+        tx_src_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        with open(os.path.join(tx_src_dir, "tx.bin"), "wb") as f:
+            f.write(b"tx-weights")
         native_tx = ModelArtifact(
-            path="mem://tx/path",
+            path=self.storage_backend.upload(
+                tx_src_dir, f"sources/{os.path.basename(tx_src_dir)}"
+            ),
             metadata=ModelMetadata(
                 schema=tx_schema,
                 sample_data=[{"a": np.array([0.0], dtype=np.float32)}],
             ),
         )
+        pred_src_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        with open(os.path.join(pred_src_dir, "predictor.bin"), "wb") as f:
+            f.write(b"predictor-weights")
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
-            path="mem://pred/path",
+            path=self.storage_backend.upload(
+                pred_src_dir, f"sources/{os.path.basename(pred_src_dir)}"
+            ),
             metadata=ModelMetadata(
                 model_class=CUSTOM_MODEL_CLASS_PATH,
                 schema=pred_schema,
@@ -364,7 +391,8 @@ class CustomAssemblerTest(unittest.TestCase):
             storage_backend=self.storage_backend,
         )
 
-        self.assertEqual(mock_download_file_tree.call_count, 2)
+        self.assertTrue(observed["predictor_file"])
+        self.assertTrue(observed["native_transform_file"])
         pkg_kw = mock_create_model.call_args.kwargs
         raw_kw = mock_create_raw.call_args.kwargs
         model_path = mock_create_model.call_args.args[0]

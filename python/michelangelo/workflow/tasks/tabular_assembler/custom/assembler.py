@@ -18,9 +18,6 @@ from michelangelo.lib.model_manager.packager.custom_triton import CustomTritonPa
 from michelangelo.workflow.tasks.tabular_assembler._private.data.fuse import (
     fuse_sample_data,
 )
-from michelangelo.workflow.tasks.tabular_assembler._private.file.download import (
-    download_file_tree,
-)
 from michelangelo.workflow.tasks.tabular_assembler._private.model_class.resolve import (
     resolve_model_class,
 )
@@ -112,8 +109,8 @@ def custom_assembler(
             native_transform_dir = os.path.join(combined_model_root, "native_transform")
             os.makedirs(predictor_dir, exist_ok=True)
             os.makedirs(native_transform_dir, exist_ok=True)
-            download_file_tree(native_transform_model.path, native_transform_dir)
-            download_file_tree(raw_model.path, predictor_dir)
+            storage_backend.download(native_transform_model.path, native_transform_dir)
+            storage_backend.download(raw_model.path, predictor_dir)
             package_model_path = combined_model_root
             model_schema = fuse_model_schema(
                 native_transform_model.metadata.schema,
