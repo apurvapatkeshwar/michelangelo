@@ -137,15 +137,15 @@ class TestTabularAssemblerConfig(TestCase):
         )
 
     def test_subclassability(self):
-        """Internal consumers can subclass to add provider-specific fields."""
+        """Consumers can subclass to add provider-specific fields."""
 
         @dataclass
-        class _InternalTabularAssemblerConfig(TabularAssemblerConfig):
-            use_hdfs: bool = False
+        class _CustomTabularAssemblerConfig(TabularAssemblerConfig):
+            extra_flag: bool = False
 
-        cfg = _InternalTabularAssemblerConfig(
-            model_class="mypkg.models.MyModel", use_hdfs=True
+        cfg = _CustomTabularAssemblerConfig(
+            model_class="mypkg.models.MyModel", extra_flag=True
         )
         self.assertEqual(cfg.model_class, "mypkg.models.MyModel")
-        self.assertTrue(cfg.use_hdfs)
+        self.assertTrue(cfg.extra_flag)
         self.assertIsInstance(cfg, TabularAssemblerConfig)
