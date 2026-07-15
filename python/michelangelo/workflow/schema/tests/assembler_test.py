@@ -141,11 +141,11 @@ class TestTabularAssemblerConfig(TestCase):
 
         @dataclass
         class _CustomTabularAssemblerConfig(TabularAssemblerConfig):
-            extra_flag: bool = False
+            use_remote_storage: bool = False
 
         cfg = _CustomTabularAssemblerConfig(
-            model_class="mypkg.models.MyModel", extra_flag=True
+            model_class="mypkg.models.MyModel", use_remote_storage=True
         )
         self.assertEqual(cfg.model_class, "mypkg.models.MyModel")
-        self.assertTrue(cfg.extra_flag)
+        self.assertTrue(cfg.use_remote_storage)
         self.assertIsInstance(cfg, TabularAssemblerConfig)
