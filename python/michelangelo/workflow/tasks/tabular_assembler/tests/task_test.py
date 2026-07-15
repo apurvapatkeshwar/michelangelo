@@ -153,21 +153,15 @@ class TabularAssemblerDispatchTest(unittest.TestCase):
             config, raw_model, native_tx, storage_backend=self.storage_backend
         )
 
-    def test_unsupported_framework_returns_empty_placeholder_pair(self):
-        """An unrecognized framework yields an empty (not ``None``) artifact pair."""
+    def test_unsupported_framework_raises_value_error(self):
+        """An unrecognized, non-empty framework raises instead of silently no-op'ing."""
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
             path="p", metadata=ModelMetadata(training_framework="unsupported_framework")
         )
 
-        result = tabular_assembler(
-            config, raw_model, storage_backend=self.storage_backend
-        )
-
-        self.assertIsNotNone(result.raw_model)
-        self.assertIsNotNone(result.deployable_model)
-        self.assertEqual(result.raw_model.path, "")
-        self.assertEqual(result.deployable_model.path, "")
+        with self.assertRaisesRegex(ValueError, "unsupported_framework"):
+            tabular_assembler(config, raw_model, storage_backend=self.storage_backend)
 
     def test_no_framework_recorded_and_no_config_model_class_returns_empty_pair(self):
         """No recorded framework and no config model class yields the empty pair."""
