@@ -316,17 +316,17 @@ def _build_fused_model_and_sample(
 def _build_tx_hydra_spec(tx_hyperparameters: dict[str, Any]) -> dict[str, Any]:
     """Build a Hydra reconstruction spec for a fused native-transform layer stack.
 
-    Not yet implemented in OSS michelangelo: reconstructing a
-    ``TorchTransformModule``/layer stack from a stored ``TransformSpec`` dict
-    requires the native-transform package, which has not been migrated. This
-    blocks only the Python-backend *raw* package for a native-transform-fused
-    model (:func:`fuse_models_to_python`); the plain (no native-transform)
-    path and the TorchScript/ONNX fused deployable paths do not call this
-    function.
+    Not yet implemented in OSS michelangelo: reconstructing a native-transform
+    module/layer stack from a stored transform specification dict requires
+    the native-transform package, which has not been migrated. This blocks
+    only the Python-backend *raw* package for a native-transform-fused model
+    (:func:`fuse_models_to_python`); the plain (no native-transform) path and
+    the TorchScript/ONNX fused deployable paths do not call this function.
 
     Args:
-        tx_hyperparameters: ``TransformSpec.to_dict()`` output for the
-            transform model.
+        tx_hyperparameters: The transform model's serialized hyperparameters
+            dict (the shape a future native-transform package's own
+            ``to_dict()`` would produce).
 
     Raises:
         NotImplementedError: Always, until native-transform support lands.
