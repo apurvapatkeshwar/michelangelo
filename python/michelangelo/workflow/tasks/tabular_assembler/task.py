@@ -10,6 +10,9 @@ from michelangelo.workflow.tasks.tabular_assembler._private.model_class.resolve 
 from michelangelo.workflow.tasks.tabular_assembler.custom.assembler import (
     custom_assembler,
 )
+from michelangelo.workflow.tasks.tabular_assembler.torch.assembler import (
+    torch_assembler,
+)
 from michelangelo.workflow.variables.metadata import (
     TRAINING_FRAMEWORK_CUSTOM,
     TRAINING_FRAMEWORK_LIGHTNING,
@@ -59,10 +62,6 @@ def tabular_assembler(
         ``deployable_model`` are empty placeholder artifacts (``path=""``)
         rather than ``None``, matching this task's "always return a pair"
         contract.
-
-    Raises:
-        NotImplementedError: If dispatch resolves to the PyTorch/Lightning
-            path, which is not yet implemented in this package.
     """
     if (
         raw_model.metadata.training_framework == TRAINING_FRAMEWORK_CUSTOM
@@ -72,47 +71,13 @@ def tabular_assembler(
             config, raw_model, native_transform_model, storage_backend=storage_backend
         )
     if raw_model.metadata.training_framework == TRAINING_FRAMEWORK_PYTORCH:
-        return _torch_assembler(config, raw_model, storage_backend=storage_backend)
+        return torch_assembler(config, raw_model, storage_backend=storage_backend)
     if raw_model.metadata.training_framework == TRAINING_FRAMEWORK_LIGHTNING:
-        return _torch_assembler(
+        return torch_assembler(
             config, raw_model, native_transform_model, storage_backend=storage_backend
         )
 
     return AssembledModel(
         raw_model=ModelArtifact(path=""),
         deployable_model=ModelArtifact(path=""),
-    )
-
-
-def _torch_assembler(
-    config: TabularAssemblerConfig,
-    raw_model: ModelArtifact,
-    native_transform_model: ModelArtifact | None = None,
-    *,
-    storage_backend: StorageBackend,
-) -> AssembledModel:
-    """Import and delegate to the real ``torch_assembler``, once it exists.
-
-    The PyTorch/Lightning assembler path (``torch_assembler``) is implemented
-    in a follow-up bucket that adds
-    ``michelangelo.workflow.tasks.tabular_assembler.torch.assembler``. This
-    indirection lets that module land without any further change to this
-    dispatch function — once it exists, the import below resolves and this
-    branch becomes live automatically.
-
-    Raises:
-        NotImplementedError: Always, until the ``torch`` subpackage lands.
-    """
-    try:
-        from michelangelo.workflow.tasks.tabular_assembler.torch.assembler import (
-            torch_assembler,
-        )
-    except ImportError as exc:
-        raise NotImplementedError(
-            "The PyTorch/Lightning assembler path is not yet implemented — "
-            "michelangelo.workflow.tasks.tabular_assembler.torch.assembler "
-            "lands in a follow-up change."
-        ) from exc
-    return torch_assembler(
-        config, raw_model, native_transform_model, storage_backend=storage_backend
     )

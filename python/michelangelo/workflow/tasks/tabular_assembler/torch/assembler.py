@@ -4,8 +4,7 @@ Packages a raw trained PyTorch or Lightning model into deployable and raw
 Triton packages using ``TorchTritonPackager``. When preceded by a
 native-transform stage, the predictor and transform models are fused into a
 single servable artifact via the ``model_fuser`` package
-(``torch.model_fuser.fuse``, which lands in a follow-up change — see
-``_model_fuser_functions``).
+(``torch.model_fuser.fuse``).
 """
 
 from __future__ import annotations
@@ -21,12 +20,13 @@ from michelangelo.lib.model_manager.schema import ModelSchema
 from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
     fuse_model_schema,
 )
+from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser import (
+    fuse as _fuse,
+)
 from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from michelangelo.lib.artifact_manager.storage_backend import StorageBackend
     from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
 
@@ -71,50 +71,6 @@ def _reorder_output_schema(
     return ModelSchema(input_schema=list(schema.input_schema), output_schema=reordered)
 
 
-def _model_fuser_functions() -> tuple[
-    Callable[..., str],
-    Callable[..., tuple[str, str, dict]],
-    Callable[..., str],
-    Callable[..., list[str] | None],
-    Callable[..., list[dict]],
-]:
-    """Lazily import the model-fuser functions used for native-transform fusion.
-
-    This indirection lets ``torch.model_fuser.fuse`` land in a follow-up
-    change without any further edit to this module — once it exists, the
-    import below resolves and native-transform fusion becomes live
-    automatically. Until then, only the plain (no ``native_transform_model``)
-    path of :func:`torch_assembler` is usable.
-
-    Returns:
-        A tuple ``(fuse_models_to_onnx, fuse_models_to_python,
-        fuse_models_to_torchscript, get_predictor_output_field_order,
-        build_fused_sample_data)``.
-
-    Raises:
-        NotImplementedError: If ``torch.model_fuser.fuse`` does not exist yet.
-    """
-    try:
-        from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser import (
-            fuse as _fuse,
-        )
-    except ImportError as exc:
-        raise NotImplementedError(
-            "Fusing a native-transform model with a PyTorch/Lightning "
-            "predictor requires the model fuser, which is not yet "
-            "implemented — "
-            "michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser"
-            ".fuse lands in a follow-up change."
-        ) from exc
-    return (
-        _fuse.fuse_models_to_onnx,
-        _fuse.fuse_models_to_python,
-        _fuse.fuse_models_to_torchscript,
-        _fuse.get_predictor_output_field_order,
-        _fuse.build_fused_sample_data,
-    )
-
-
 def torch_assembler(
     config: TabularAssemblerConfig,
     raw_model: ModelArtifact,
@@ -152,10 +108,6 @@ def torch_assembler(
     Returns:
         An ``AssembledModel`` with the deployable and raw packaged
         artifacts. Both share the same (possibly fused) schema.
-
-    Raises:
-        NotImplementedError: If ``native_transform_model`` is supplied but
-            the model fuser (``torch.model_fuser.fuse``) has not landed yet.
     """
     packager = TorchTritonPackager()
     backend = config.torch.backend if config and config.torch else None
@@ -167,13 +119,11 @@ def torch_assembler(
         storage_backend.download(raw_model.path, torch_local_path)
 
         if native_transform_model is not None:
-            (
-                fuse_models_to_onnx,
-                fuse_models_to_python,
-                fuse_models_to_torchscript,
-                get_predictor_output_field_order,
-                build_fused_sample_data,
-            ) = _model_fuser_functions()
+            fuse_models_to_onnx = _fuse.fuse_models_to_onnx
+            fuse_models_to_python = _fuse.fuse_models_to_python
+            fuse_models_to_torchscript = _fuse.fuse_models_to_torchscript
+            get_predictor_output_field_order = _fuse.get_predictor_output_field_order
+            build_fused_sample_data = _fuse.build_fused_sample_data
 
             tx_model_class = native_transform_model.metadata.model_class
             tx_hyperparameters = native_transform_model.metadata.hyperparameters or {}
