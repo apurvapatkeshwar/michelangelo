@@ -10,6 +10,5 @@ fully authored in this repository — so it is a regular package (with this
 ``__init__.py``) rather than an implicit namespace package. Regular
 subpackages resolve reliably under ``bazel``-generated wheel installs, where
 implicit namespace subpackages were found not to be picked up correctly by
-the runfiles tree built from ``requirement("michelangelo-ai")`` (see
-``kripatel/tabular-assembler-import-back-sim`` harness log, 2026-07-02).
+the runfiles tree built from ``requirement("michelangelo-ai")``.
 """

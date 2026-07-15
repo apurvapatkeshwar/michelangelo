@@ -295,11 +295,11 @@ def _native_tx_schema() -> ModelSchema:
 class NativeTransformFusionTest(_LocalBackendTestCase):
     """Tests for ``torch_assembler``'s native-transform fusion branch.
 
-    ``_model_fuser_functions`` is patched directly (rather than relying on
-    ``torch.model_fuser.fuse``, which lands in a follow-up change) so this
-    branch's control flow — backend selection, output reordering, fused
-    schema/sample-data construction, and transform metadata propagation —
-    is exercised now.
+    The individual ``torch.model_fuser.fuse`` functions are patched (via
+    ``assembler._fuse``) so this branch's control flow — backend selection,
+    output reordering, fused schema/sample-data construction, and transform
+    metadata propagation — can be exercised without depending on real
+    fusion/export behavior.
     """
 
     def _make_artifacts(self):
@@ -355,16 +355,20 @@ class NativeTransformFusionTest(_LocalBackendTestCase):
         mock_fuse_torchscript = MagicMock()
         mock_field_order = MagicMock(return_value=field_order)
         mock_sample_data = MagicMock(return_value=[{"tx_in": np.array([1.0])}])
-        return patch(
-            f"{_ASSEMBLER_MODULE}._model_fuser_functions",
-            return_value=(
-                mock_fuse_onnx,
-                mock_fuse_python,
-                mock_fuse_torchscript,
-                mock_field_order,
-                mock_sample_data,
-            ),
-        ), (mock_fuse_onnx, mock_fuse_python, mock_fuse_torchscript, mock_field_order)
+        patcher = patch.multiple(
+            f"{_ASSEMBLER_MODULE}._fuse",
+            fuse_models_to_onnx=mock_fuse_onnx,
+            fuse_models_to_python=mock_fuse_python,
+            fuse_models_to_torchscript=mock_fuse_torchscript,
+            get_predictor_output_field_order=mock_field_order,
+            build_fused_sample_data=mock_sample_data,
+        )
+        return patcher, (
+            mock_fuse_onnx,
+            mock_fuse_python,
+            mock_fuse_torchscript,
+            mock_field_order,
+        )
 
     @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_model_package")
     @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_raw_model_package")
