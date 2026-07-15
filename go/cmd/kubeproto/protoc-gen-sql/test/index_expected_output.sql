@@ -124,16 +124,16 @@ CREATE TABLE `test_base_annotations`
     PRIMARY KEY (`id`),
     KEY    `test_base_annotations_uid` (`obj_uid`)
 );
-CREATE TABLE `test_base_test_wrapper_unmarshalled`
+CREATE TABLE `test_base_test_wrapper_unmarshaled`
 (
     `test_wrapper_uid` VARCHAR(255) NOT NULL,
     `test_name`    VARCHAR(255),
     `test_ref_namespace`    VARCHAR(255),
     `test_ref_name`    VARCHAR(255),
     PRIMARY KEY (`test_wrapper_uid`),
-    KEY    `test_base_test_wrapper_unmarshalled_test_name` (`test_name`),
-    KEY    `test_base_test_wrapper_unmarshalled_test_ref_namespace` (`test_ref_namespace`),
-    KEY    `test_base_test_wrapper_unmarshalled_test_ref_name` (`test_ref_name`)
+    KEY    `test_base_test_wrapper_unmarshaled_test_name` (`test_name`),
+    KEY    `test_base_test_wrapper_unmarshaled_test_ref_namespace` (`test_ref_namespace`),
+    KEY    `test_base_test_wrapper_unmarshaled_test_ref_name` (`test_ref_name`)
 );
 CREATE TABLE `test_wrapper`
 (

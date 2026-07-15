@@ -4938,7 +4938,7 @@ func (m *TestBase) ContentIndexFieldSpecs() []storage.ContentIndexFieldSpec {
 			WrapperKind: "test_wrapper",
 			ContentPath: "spec.content",
 			BaseKind: "TestBase",
-			Table: "test_base_test_wrapper_unmarshalled",
+			Table: "test_base_test_wrapper_unmarshaled",
 			UIDCol: "test_wrapper_uid",
 			Fields: []storage.ContentIndexField{
 				{Path: "spec.content.spec.name", Column: "test_name"},
