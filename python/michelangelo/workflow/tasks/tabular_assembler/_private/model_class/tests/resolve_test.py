@@ -44,6 +44,31 @@ CUSTOM_MODEL_CLASS_PATH = (
 )
 
 
+class _StructuralModelFixture:
+    """Implements the ``save``/``load``/``predict`` shape without inheriting ``Model``.
+
+    Used to prove ``resolve_training_framework`` accepts structurally-
+    conformant classes via ``ModelProtocol``, not just literal ``Model``
+    subclasses.
+    """
+
+    def save(self, path: str) -> None:
+        pass
+
+    @classmethod
+    def load(cls, path: str) -> _StructuralModelFixture:
+        return cls()
+
+    def predict(self, inputs: dict[str, ndarray]) -> dict[str, ndarray]:
+        return inputs
+
+
+_STRUCTURAL_MODEL_CLASS_PATH = (
+    "michelangelo.workflow.tasks.tabular_assembler._private.model_class.tests."
+    "resolve_test._StructuralModelFixture"
+)
+
+
 class _MinimalTorch(nn.Module):
     def forward(self, x):  # type: ignore[override]
         return x
@@ -91,6 +116,20 @@ class ResolveTest(unittest.TestCase):
         """A ``Model`` subclass resolves to the custom framework."""
         self.assertEqual(
             resolve_training_framework(CUSTOM_MODEL_CLASS_PATH),
+            TRAINING_FRAMEWORK_CUSTOM,
+        )
+
+    def test_resolve_training_framework_structurally_conformant_model(self):
+        """A structurally-conformant, non-inheriting class also resolves to custom.
+
+        ``resolve_training_framework`` checks ``ModelProtocol`` (structural),
+        not literal ``Model`` inheritance, so a class implementing
+        save/load/predict without subclassing ``Model`` still gets routed to
+        the custom packager -- matching the packager's own structural
+        validation (``validate_model_class``).
+        """
+        self.assertEqual(
+            resolve_training_framework(_STRUCTURAL_MODEL_CLASS_PATH),
             TRAINING_FRAMEWORK_CUSTOM,
         )
 
