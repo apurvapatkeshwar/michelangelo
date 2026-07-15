@@ -23,7 +23,10 @@ from michelangelo.workflow.tasks.tabular_assembler.torch.assembler import (
     _reorder_output_schema,
     torch_assembler,
 )
-from michelangelo.workflow.variables.metadata import ModelMetadata
+from michelangelo.workflow.variables.metadata import (
+    TRAINING_FRAMEWORK_PYTORCH,
+    ModelMetadata,
+)
 from michelangelo.workflow.variables.types import ModelArtifact
 
 _ASSEMBLER_MODULE = "michelangelo.workflow.tasks.tabular_assembler.torch.assembler"
@@ -122,6 +125,7 @@ class TorchAssemblerTest(_LocalBackendTestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class="test.SimpleTorchModel",
+                training_framework=TRAINING_FRAMEWORK_PYTORCH,
                 hyperparameters={"input_dim": 2, "output_dim": 1},
                 schema=_make_schema(),
                 sample_data=sample_data,
@@ -139,10 +143,23 @@ class TorchAssemblerTest(_LocalBackendTestCase):
         self.assertEqual(
             assembled.deployable_model.metadata.schema, raw_model.metadata.schema
         )
+        self.assertEqual(
+            assembled.deployable_model.metadata.sample_data,
+            raw_model.metadata.sample_data,
+        )
 
         self.assertEqual(assembled.raw_model.metadata.deployable, False)
         self.assertEqual(assembled.raw_model.metadata.assembled, True)
         self.assertEqual(assembled.raw_model.metadata.schema, raw_model.metadata.schema)
+        self.assertEqual(
+            assembled.raw_model.metadata.sample_data, raw_model.metadata.sample_data
+        )
+        self.assertEqual(
+            assembled.raw_model.metadata.training_framework, TRAINING_FRAMEWORK_PYTORCH
+        )
+        self.assertEqual(
+            assembled.raw_model.metadata.model_class, "test.SimpleTorchModel"
+        )
         self.assertEqual(assembled.raw_model.metadata.is_incremental_training, True)
         self.assertEqual(
             assembled.raw_model.metadata.baseline_model_identifier, "baseline-model-v1"

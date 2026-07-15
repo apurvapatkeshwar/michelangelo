@@ -252,11 +252,15 @@ def torch_assembler(
         deployable=True,
         assembled=True,
         schema=model_schema_for_package,
+        sample_data=packaged_sample_data,
     )
     raw_metadata = ModelMetadata(
         deployable=False,
         assembled=True,
         schema=model_schema_for_package,
+        sample_data=packaged_sample_data,
+        training_framework=raw_model.metadata.training_framework,
+        model_class=packaged_model_class,
         is_incremental_training=raw_model.metadata.is_incremental_training,
         baseline_model_identifier=raw_model.metadata.baseline_model_identifier,
     )

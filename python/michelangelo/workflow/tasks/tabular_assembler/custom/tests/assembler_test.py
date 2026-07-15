@@ -136,10 +136,17 @@ class CustomAssemblerTest(unittest.TestCase):
         self.assertEqual(
             assembled.deployable_model.metadata.schema, raw_model.metadata.schema
         )
+        self.assertEqual(
+            assembled.deployable_model.metadata.sample_data,
+            raw_model.metadata.sample_data,
+        )
 
         self.assertEqual(assembled.raw_model.metadata.deployable, False)
         self.assertEqual(assembled.raw_model.metadata.assembled, True)
         self.assertEqual(assembled.raw_model.metadata.schema, raw_model.metadata.schema)
+        self.assertEqual(
+            assembled.raw_model.metadata.sample_data, raw_model.metadata.sample_data
+        )
         self.assertEqual(assembled.raw_model.metadata.is_incremental_training, True)
         self.assertEqual(
             assembled.raw_model.metadata.baseline_model_identifier, "baseline-model-v1"
