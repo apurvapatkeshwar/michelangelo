@@ -76,7 +76,10 @@ class TestTorchAssemblerConfig(TestCase):
     def test_asdict_round_trip(self):
         """The config is serialisable via dataclasses.asdict."""
         cfg = TorchAssemblerConfig(backend="pytorch")
-        self.assertEqual(asdict(cfg), {"backend": "pytorch"})
+        self.assertEqual(
+            asdict(cfg),
+            {"backend": "pytorch", "include_import_prefixes": None},
+        )
 
 
 class TestTabularAssemblerConfig(TestCase):
