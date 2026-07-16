@@ -67,6 +67,15 @@ class TorchAssemblerConfig:
             ``None`` selects the packager default (TorchScript/PyTorch).
             Validation of supported values is performed by the packager, not
             here, to keep a single source of truth.
+        include_import_prefixes: Module prefixes the packager's static import
+            analysis is restricted to when deciding which of the model
+            class's imported modules to bundle. When ``None`` (the default),
+            every reachable imported module is considered, which is
+            unbounded and can be extremely slow (or reach unrelated,
+            side-effecting modules) in environments with a very large
+            importable module graph — set this to scope the walk to the
+            module prefixes that actually matter for the model. Mirrors
+            ``CustomAssemblerConfig.include_import_prefixes``.
 
     Example:
         >>> TorchAssemblerConfig(backend="onnxruntime")
@@ -74,6 +83,7 @@ class TorchAssemblerConfig:
     """
 
     backend: str | None = None
+    include_import_prefixes: list[str] | None = None
 
 
 @dataclass

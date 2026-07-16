@@ -12,11 +12,14 @@ from __future__ import annotations
 import os
 import tempfile
 import uuid
-from typing import TYPE_CHECKING
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from michelangelo.lib.model_manager.constants import StorageType
 from michelangelo.lib.model_manager.packager.torch_triton import TorchTritonPackager
-from michelangelo.lib.model_manager.schema import ModelSchema
+from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
 from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
     fuse_model_schema,
 )
@@ -41,6 +44,65 @@ __all__ = ["torch_assembler"]
 # documents the accepted string values).
 _BACKEND_PYTHON = "python"
 _BACKEND_ONNX = "onnxruntime"
+
+
+def _normalize_scalar_shapes(
+    schema: ModelSchema, sample_data: list[dict[str, Any]] | None
+) -> tuple[ModelSchema, list[dict[str, Any]] | None]:
+    """Return copies of ``schema``/``sample_data`` with scalar shapes set to ``[1]``.
+
+    ``ColumnConfig``'s documented usage for a scalar column omits ``shape``,
+    defaulting it to ``[]`` (see ``workflow.schema.tabular_trainer
+    .ColumnConfig``), and ``tabular_trainer`` keeps the matching sample-data
+    value at its natural rank-0 shape to match. Triton's schema validation
+    (``validate_model_schema_item``) requires a non-empty shape, and its
+    sample-data validation requires the sample's rank to equal the schema
+    shape's length -- so ``schema`` and ``sample_data`` must be renormalized
+    together, not independently, or the two fall out of sync.
+
+    Args:
+        schema: Schema to normalize.
+        sample_data: Sample inference inputs to normalize alongside
+            ``schema``, or ``None``.
+
+    Returns:
+        ``(normalized_schema, normalized_sample_data)``. Any schema item with
+        an empty ``shape`` is replaced by a copy with ``shape=[1]``; any
+        ``sample_data`` value for a field renamed this way is reshaped from
+        scalar to a 1-element array to match.
+    """
+    scalar_fields = {
+        item.name
+        for item in (
+            *schema.input_schema,
+            *schema.feature_store_features_schema,
+            *schema.output_schema,
+        )
+        if not item.shape
+    }
+
+    def _normalized_item(item: ModelSchemaItem) -> ModelSchemaItem:
+        return item if item.shape else replace(item, shape=[1])
+
+    normalized_schema = ModelSchema(
+        input_schema=[_normalized_item(i) for i in schema.input_schema],
+        feature_store_features_schema=[
+            _normalized_item(i) for i in schema.feature_store_features_schema
+        ],
+        output_schema=[_normalized_item(i) for i in schema.output_schema],
+    )
+
+    if not sample_data or not scalar_fields:
+        return normalized_schema, sample_data
+
+    normalized_sample_data = [
+        {
+            name: (np.reshape(value, (1,)) if name in scalar_fields else value)
+            for name, value in record.items()
+        }
+        for record in sample_data
+    ]
+    return normalized_schema, normalized_sample_data
 
 
 def _reorder_output_schema(
@@ -92,7 +154,9 @@ def torch_assembler(
         config: The assembler configuration. ``config.torch.backend``
             selects the Triton backend for the deployable package (one of
             ``"pytorch"``, ``"tensorrt"``, ``"python"``, ``"onnxruntime"``,
-            or ``None`` for the packager default).
+            or ``None`` for the packager default). ``config.torch
+            .include_import_prefixes`` scopes the packager's dependency-file
+            walk (see ``TorchAssemblerConfig.include_import_prefixes``).
         raw_model: The trained predictor model to package.
             ``raw_model.metadata.model_class``, ``.hyperparameters``,
             ``.schema``, and ``.sample_data`` describe how to load and
@@ -111,6 +175,9 @@ def torch_assembler(
     """
     packager = TorchTritonPackager()
     backend = config.torch.backend if config and config.torch else None
+    include_import_prefixes = (
+        config.torch.include_import_prefixes if config and config.torch else None
+    )
     model_class = raw_model.metadata.model_class
     hyperparameters = raw_model.metadata.hyperparameters or {}
 
@@ -209,6 +276,10 @@ def torch_assembler(
             packaged_hyperparameters = hyperparameters
             packaged_sample_data = raw_model.metadata.sample_data
 
+        model_schema_for_package, packaged_sample_data = _normalize_scalar_shapes(
+            model_schema_for_package, packaged_sample_data
+        )
+
         model_package_dest = os.path.join(temp_dir, "model_package")
         raw_model_package_dest = os.path.join(temp_dir, "raw_model_package")
 
@@ -221,6 +292,7 @@ def torch_assembler(
             hyperparameters=packaged_hyperparameters,
             backend=backend,
             sample_data=packaged_sample_data,
+            include_import_prefixes=include_import_prefixes,
         )
         raw_model_package_path = packager.create_raw_model_package(
             raw_model_path,
@@ -230,6 +302,7 @@ def torch_assembler(
             dest_model_path=raw_model_package_dest,
             model_path_source_type=StorageType.LOCAL,
             hyperparameters=packaged_hyperparameters,
+            include_import_prefixes=include_import_prefixes,
             transform_spec=(
                 native_transform_model.metadata.transform_spec
                 if native_transform_model is not None
