@@ -52,7 +52,17 @@ jobs:
       - name: Validate CI is green on release branch
         run: |
           SHA=$(git rev-parse HEAD)
-          STATES=$(gh api --paginate "repos/${{ github.repository }}/commits/$SHA/check-runs" --jq '.check_runs[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")) | .name')
+          RUN_COUNT=$(gh api --paginate "repos/${{ github.repository }}/commits/$SHA/check-runs" --jq '.check_runs | length')
+          if [ "$RUN_COUNT" -eq 0 ]; then
+            echo "ERROR: no check-runs found at all for ${{ steps.vars.outputs.branch }}@$SHA."
+            echo "This usually means CI never ran on this commit (e.g. it was pushed by"
+            echo "GITHUB_TOKEN, which does not trigger push-based workflows, and no PR"
+            echo "was open against this branch to trigger pull_request-based checks)."
+            echo "Refusing to promote an unvalidated release. Open a PR against this"
+            echo "branch (or otherwise trigger CI) and re-run once checks are green."
+            exit 1
+          fi
+          STATES=$(gh api --paginate "repos/${{ github.repository }}/commits/$SHA/check-runs" --jq '.check_runs[] | select(.name != "promote" and .name != "publish-npm" and .name != "notify-on-failure") | select(.status != "completed" or (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")) | .name')
           if [ -n "$STATES" ]; then
             echo "ERROR: the following checks are not green on ${{ steps.vars.outputs.branch }}@$SHA:"
             echo "$STATES"
