@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -103,7 +104,7 @@ func StartWebhookServer(lc fx.Lifecycle, params Params) {
 		},
 		OnStop: func(ctx context.Context) error {
 			if cancel != nil {
-				logger.Info("stopping webhook server...")
+				logger.Info("webhook OnStop: calling cancel(), returning immediately without waiting for drain")
 				cancel()
 			}
 			return nil
@@ -121,7 +122,12 @@ func startWebhookServer(params Params) (error, context.CancelFunc) {
 
 	conversionWebhook := conversion.NewWebhookHandler(params.Scheme)
 
-	server.Register("/convert", conversionWebhook)
+	slowHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		params.Logger.Info("conversion request received, sleeping 10s to widen shutdown race window")
+		time.Sleep(10 * time.Second)
+		conversionWebhook.ServeHTTP(w, r)
+	})
+	server.Register("/convert", slowHandler)
 
 	cancelCtx, cancelFunc := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
