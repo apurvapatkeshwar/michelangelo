@@ -5,11 +5,17 @@ on:
   pull_request:
     paths:
       - 'helm/**'
+      - '.github/scripts/validate-llm-gateway-chart.sh'
+      - '.github/workflows/helm-lint.yaml'
+      - '.github/workflows/llm-gateway-chart-release.yml'
   push:
     branches:
       - main
     paths:
       - 'helm/**'
+      - '.github/scripts/validate-llm-gateway-chart.sh'
+      - '.github/workflows/helm-lint.yaml'
+      - '.github/workflows/llm-gateway-chart-release.yml'
 
 jobs:
   lint:
@@ -41,6 +47,9 @@ jobs:
 
       - name: Lint
         run: helm lint helm/michelangelo
+
+      - name: Validate LLM gateway chart
+        run: bash .github/scripts/validate-llm-gateway-chart.sh
 
       - name: Template — k3d profile (Cadence, all Ingress disabled)
         run: |

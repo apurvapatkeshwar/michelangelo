@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        helm-version: ['3.13.0', '3.14.0', '3.15.0']
+        helm-version: ['3.12.0', '3.13.0', '3.14.0', '3.15.0', '3.16.0', '3.17.0', '4.1.0']
 
     steps:
       - name: Checkout repository
@@ -94,6 +94,9 @@ jobs:
             --debug \
             > /dev/null
 
+      - name: Validate LLM gateway chart
+        run: bash .github/scripts/validate-llm-gateway-chart.sh
+
   summary:
     name: Compatibility Summary
     runs-on: ubuntu-latest
@@ -114,7 +117,7 @@ jobs:
             echo "|-----------|----------|--------|"
             echo "| Python | 3.9, 3.10, 3.11, 3.12 | ${PYTHON_RESULT} |"
             echo "| Node.js | 18, 20 | ${NODE_RESULT} |"
-            echo "| Helm | 3.13.0, 3.14.0, 3.15.0 | ${HELM_RESULT} |"
+            echo "| Helm | 3.12.0–3.17.0, 4.1.0 | ${HELM_RESULT} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------

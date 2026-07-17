@@ -2,8 +2,14 @@ image:
   tag: v1.85.1
 
 serviceAccount:
+  name: litellm
   annotations:
     iam.gke.io/gcp-service-account: litellm@REPLACE_WITH_GCP_PROJECT.iam.gserviceaccount.com
+
+service:
+  type: LoadBalancer
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
 
 masterKey:
   existingSecret: litellm-secrets
@@ -17,10 +23,15 @@ database:
   existingSecret: litellm-secrets
   key: database-url
 
-environmentSecrets:
-  - litellm-provider-secrets
-environmentConfigMaps:
-  - litellm-runtime-config
+environmentSecrets: []
+environmentConfigMaps: []
+
+extraEnv:
+  - name: OPENAI_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: litellm-secrets
+        key: openai-api-key
 
 config:
   data:
@@ -32,8 +43,8 @@ config:
       - model_name: vertex-default
         litellm_params:
           model: vertex_ai/REPLACE_WITH_APPROVED_VERTEX_MODEL
-          vertex_project: os.environ/VERTEXAI_PROJECT
-          vertex_location: os.environ/VERTEXAI_LOCATION
+          vertex_project: REPLACE_WITH_GCP_PROJECT
+          vertex_location: REPLACE_WITH_VERTEX_LOCATION
     general_settings:
       master_key: os.environ/PROXY_MASTER_KEY
       disable_prisma_schema_update: true

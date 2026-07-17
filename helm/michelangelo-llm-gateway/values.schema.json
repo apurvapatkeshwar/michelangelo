@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "image",
     "service",
@@ -28,6 +29,146 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/resourceQuantity"
+      }
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "dnsSubdomain": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)*$"
+    },
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$"
+    },
+    "optionalDnsLabel": {
+      "oneOf": [
+        {"const": ""},
+        {"$ref": "#/definitions/dnsLabel"}
+      ]
+    },
+    "optionalDnsSubdomain": {
+      "oneOf": [
+        {"const": ""},
+        {"$ref": "#/definitions/dnsSubdomain"}
+      ]
+    },
+    "dataKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "anyOf": [
+          {"const": "."},
+          {"pattern": "^\\.\\."}
+        ]
+      }
+    },
+    "localObjectReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"$ref": "#/definitions/dnsSubdomain"}
+      }
+    },
+    "intOrPercent": {
+      "oneOf": [
+        {"type": "integer", "minimum": 0},
+        {"type": "string", "pattern": "^(100|[0-9]{1,2})%$"}
+      ]
+    },
+    "secretKeySelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": {"$ref": "#/definitions/dnsSubdomain"},
+        "key": {"$ref": "#/definitions/dataKey"},
+        "optional": {"type": "boolean"}
+      }
+    },
+    "configMapKeySelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": {"$ref": "#/definitions/dnsSubdomain"},
+        "key": {"$ref": "#/definitions/dataKey"},
+        "optional": {"type": "boolean"}
+      }
+    },
+    "envVarSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "secretKeyRef": {"$ref": "#/definitions/secretKeySelector"},
+        "configMapKeyRef": {"$ref": "#/definitions/configMapKeySelector"},
+        "fieldRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fieldPath"],
+          "properties": {
+            "apiVersion": {"type": "string"},
+            "fieldPath": {"type": "string", "minLength": 1}
+          }
+        },
+        "resourceFieldRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resource"],
+          "properties": {
+            "containerName": {"type": "string"},
+            "resource": {"type": "string", "minLength": 1},
+            "divisor": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "envVar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[-._A-Za-z][-._A-Za-z0-9]*$",
+          "not": {
+            "anyOf": [
+              {"const": "."},
+              {"pattern": "^\\.\\."}
+            ]
+          }
+        },
+        "value": {"type": "string"},
+        "valueFrom": {"$ref": "#/definitions/envVarSource"}
+      },
+      "not": {"required": ["value", "valueFrom"]}
+    },
+    "namedKubernetesObject": {
+      "type": "object",
+      "$comment": "The remaining fields are passed through to the Kubernetes API.",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "volumeMount": {
+      "type": "object",
+      "$comment": "The remaining fields are passed through to the Kubernetes API.",
+      "required": ["name", "mountPath"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "mountPath": {"type": "string", "minLength": 1}
       }
     },
     "probe": {
@@ -86,8 +227,11 @@
       "type": "integer",
       "minimum": 1
     },
+    "nameOverride": {"$ref": "#/definitions/optionalDnsLabel"},
+    "fullnameOverride": {"$ref": "#/definitions/optionalDnsLabel"},
     "image": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["repository", "tag", "pullPolicy"],
       "properties": {
         "repository": {"type": "string", "minLength": 1},
@@ -101,6 +245,87 @@
           "enum": ["Always", "IfNotPresent", "Never"]
         }
       }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/localObjectReference"}
+    },
+    "podAnnotations": {"$ref": "#/definitions/stringMap"},
+    "podLabels": {"$ref": "#/definitions/stringMap"},
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "create",
+        "name",
+        "annotations",
+        "automountServiceAccountToken"
+      ],
+      "properties": {
+        "create": {"type": "boolean"},
+        "name": {"$ref": "#/definitions/optionalDnsSubdomain"},
+        "annotations": {"$ref": "#/definitions/stringMap"},
+        "automountServiceAccountToken": {"type": "boolean"}
+      }
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "$comment": "Kubernetes PodSecurityContext pass-through."
+    },
+    "securityContext": {
+      "type": "object",
+      "$comment": "Kubernetes container SecurityContext pass-through."
+    },
+    "logLevel": {"type": "string"},
+    "extraEnv": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/envVar"}
+    },
+    "command": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "args": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "lifecycle": {
+      "type": "object",
+      "$comment": "Kubernetes container Lifecycle pass-through."
+    },
+    "nodeSelector": {"$ref": "#/definitions/stringMap"},
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "$comment": "Kubernetes Toleration pass-through."
+      }
+    },
+    "affinity": {
+      "type": "object",
+      "$comment": "Kubernetes Affinity pass-through."
+    },
+    "priorityClassName": {"$ref": "#/definitions/optionalDnsSubdomain"},
+    "extraInitContainers": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/namedKubernetesObject"}
+    },
+    "extraContainers": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/namedKubernetesObject"}
+    },
+    "extraVolumes": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/namedKubernetesObject"}
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/volumeMount"}
     },
     "resources": {
       "type": "object",
@@ -179,36 +404,56 @@
     },
     "deployment": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["minReadySeconds", "revisionHistoryLimit", "strategy"],
       "properties": {
         "minReadySeconds": {"type": "integer", "minimum": 0},
         "revisionHistoryLimit": {"type": "integer", "minimum": 0},
         "strategy": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["type"],
           "properties": {
             "type": {
               "type": "string",
               "enum": ["RollingUpdate", "Recreate"]
             },
-            "rollingUpdate": {"type": ["object", "null"]}
+            "rollingUpdate": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "maxUnavailable": {
+                      "$ref": "#/definitions/intOrPercent"
+                    },
+                    "maxSurge": {"$ref": "#/definitions/intOrPercent"}
+                  }
+                }
+              ]
+            }
           }
         }
       }
     },
     "config": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["create", "existingConfigMap", "key", "data"],
       "properties": {
         "create": {"type": "boolean"},
-        "existingConfigMap": {"type": "string"},
+        "existingConfigMap": {"$ref": "#/definitions/optionalDnsSubdomain"},
         "key": {
           "type": "string",
           "minLength": 1,
           "maxLength": 253,
           "pattern": "^[A-Za-z0-9._-]+$",
           "not": {
-            "enum": [".", ".."]
+            "anyOf": [
+              {"const": "."},
+              {"pattern": "^\\.\\."}
+            ]
           }
         },
         "data": {"type": "object"}
@@ -216,38 +461,42 @@
     },
     "masterKey": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["existingSecret", "key"],
       "properties": {
-        "existingSecret": {"type": "string", "minLength": 1},
-        "key": {"type": "string", "minLength": 1}
+        "existingSecret": {"$ref": "#/definitions/dnsSubdomain"},
+        "key": {"$ref": "#/definitions/dataKey"}
       }
     },
     "saltKey": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["existingSecret", "key"],
       "properties": {
-        "existingSecret": {"type": "string", "minLength": 1},
-        "key": {"type": "string", "minLength": 1}
+        "existingSecret": {"$ref": "#/definitions/dnsSubdomain"},
+        "key": {"$ref": "#/definitions/dataKey"}
       }
     },
     "database": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["existingSecret", "key"],
       "properties": {
-        "existingSecret": {"type": "string", "minLength": 1},
-        "key": {"type": "string", "minLength": 1}
+        "existingSecret": {"$ref": "#/definitions/dnsSubdomain"},
+        "key": {"$ref": "#/definitions/dataKey"}
       }
     },
     "environmentSecrets": {
       "type": "array",
-      "items": {"type": "string", "minLength": 1}
+      "items": {"$ref": "#/definitions/dnsSubdomain"}
     },
     "environmentConfigMaps": {
       "type": "array",
-      "items": {"type": "string", "minLength": 1}
+      "items": {"$ref": "#/definitions/dnsSubdomain"}
     },
     "rollout": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["runtimeRevision", "configRevision"],
       "properties": {
         "runtimeRevision": {"type": "string"},
@@ -256,13 +505,23 @@
     },
     "ingress": {
       "type": "object",
-      "required": ["enabled", "hosts"],
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "className",
+        "annotations",
+        "hosts",
+        "tls"
+      ],
       "properties": {
         "enabled": {"type": "boolean"},
+        "className": {"$ref": "#/definitions/optionalDnsSubdomain"},
+        "annotations": {"$ref": "#/definitions/stringMap"},
         "hosts": {
           "type": "array",
           "items": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["host", "paths"],
             "properties": {
               "host": {"type": "string", "minLength": 1},
@@ -271,9 +530,10 @@
                 "minItems": 1,
                 "items": {
                   "type": "object",
+                  "additionalProperties": false,
                   "required": ["path", "pathType"],
                   "properties": {
-                    "path": {"type": "string", "minLength": 1},
+                    "path": {"type": "string", "pattern": "^/"},
                     "pathType": {
                       "type": "string",
                       "enum": ["Exact", "Prefix", "ImplementationSpecific"]
@@ -281,6 +541,20 @@
                   }
                 }
               }
+            }
+          }
+        },
+        "tls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "hosts": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1}
+              },
+              "secretName": {"$ref": "#/definitions/dnsSubdomain"}
             }
           }
         }
@@ -329,6 +603,7 @@
     },
     "autoscaling": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["enabled", "minReplicas", "maxReplicas"],
       "properties": {
         "enabled": {"type": "boolean"},
@@ -343,6 +618,10 @@
           "type": ["integer", "null"],
           "minimum": 1,
           "maximum": 100
+        },
+        "behavior": {
+          "type": "object",
+          "$comment": "Kubernetes HorizontalPodAutoscalerBehavior pass-through."
         }
       }
     },
@@ -365,7 +644,7 @@
         "enabled": {"type": "boolean"},
         "managedExternally": {"type": "boolean"},
         "useV2Resolver": {"type": "boolean"},
-        "serviceAccountName": {"type": "string", "minLength": 1},
+        "serviceAccountName": {"$ref": "#/definitions/dnsSubdomain"},
         "activeDeadlineSeconds": {"type": "integer", "minimum": 1},
         "backoffLimit": {
           "type": "integer",
@@ -421,29 +700,53 @@
     },
     "networkPolicy": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["enabled", "migration", "allowDNS", "dns", "ingress", "egress"],
       "properties": {
         "enabled": {"type": "boolean"},
         "migration": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["managedExternally"],
           "properties": {
             "managedExternally": {"type": "boolean"}
           }
         },
         "allowDNS": {"type": "boolean"},
-        "dns": {"type": "object"},
-        "ingress": {"type": "array"},
-        "egress": {"type": "array"}
+        "dns": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespaceSelector", "podSelector"],
+          "properties": {
+            "namespaceSelector": {"$ref": "#/definitions/stringMap"},
+            "podSelector": {"$ref": "#/definitions/stringMap"}
+          }
+        },
+        "ingress": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$comment": "Kubernetes NetworkPolicyIngressRule pass-through."
+          }
+        },
+        "egress": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$comment": "Kubernetes NetworkPolicyEgressRule pass-through."
+          }
+        }
       }
     },
     "tests": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["enabled", "image"],
       "properties": {
         "enabled": {"type": "boolean"},
         "image": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["repository", "tag", "digest", "pullPolicy"],
           "properties": {
             "repository": {"type": "string", "minLength": 1},
@@ -462,35 +765,54 @@
     },
     "serviceMonitor": {
       "type": "object",
-      "required": ["enabled", "authorization"],
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "labels",
+        "annotations",
+        "interval",
+        "scrapeTimeout",
+        "path",
+        "namespaceSelector",
+        "authorization"
+      ],
       "properties": {
         "enabled": {"type": "boolean"},
+        "labels": {"$ref": "#/definitions/stringMap"},
+        "annotations": {"$ref": "#/definitions/stringMap"},
+        "interval": {"type": "string", "minLength": 1},
+        "scrapeTimeout": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "pattern": "^/"},
+        "namespaceSelector": {
+          "type": "object",
+          "$comment": "Prometheus Operator NamespaceSelector pass-through."
+        },
         "authorization": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["secretName", "secretKey"],
           "properties": {
-            "secretName": {"type": "string"},
-            "secretKey": {"type": "string", "minLength": 1}
+            "secretName": {"$ref": "#/definitions/optionalDnsSubdomain"},
+            "secretKey": {"$ref": "#/definitions/dataKey"}
           }
         }
       }
     },
     "podDisruptionBudget": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["enabled"],
       "properties": {
         "enabled": {"type": "boolean"},
         "minAvailable": {
           "oneOf": [
-            {"type": "integer", "minimum": 0},
-            {"type": "string", "pattern": "^(100|[0-9]{1,2})%$"},
+            {"$ref": "#/definitions/intOrPercent"},
             {"type": "null"}
           ]
         },
         "maxUnavailable": {
           "oneOf": [
-            {"type": "integer", "minimum": 0},
-            {"type": "string", "pattern": "^(100|[0-9]{1,2})%$"},
+            {"$ref": "#/definitions/intOrPercent"},
             {"type": "null"}
           ]
         }

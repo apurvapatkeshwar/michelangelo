@@ -214,5 +214,5 @@ tests:
   image:
     repository: curlimages/curl
     tag: 8.12.1
-    digest: ""
+    digest: sha256:94e9e444bcba979c2ea12e27ae39bee4cd10bc7041a472c4727a558e213744e6
     pullPolicy: IfNotPresent

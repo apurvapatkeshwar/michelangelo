@@ -243,10 +243,19 @@ jobs:
 
       - name: Diff top-level Helm values keys
         id: helm-diff
+        shell: bash
         run: |
-          base_keys=$(yq 'keys | .[]' base/helm/michelangelo/values.yaml 2>/dev/null | sort || true)
-          head_keys=$(yq 'keys | .[]' head/helm/michelangelo/values.yaml 2>/dev/null | sort || true)
-          removed=$(comm -23 <(echo "$base_keys") <(echo "$head_keys") || true)
+          removed=""
+          for values_file in \
+            helm/michelangelo/values.yaml \
+            helm/michelangelo-llm-gateway/values.yaml; do
+            base_keys=$(yq 'keys | .[]' "base/$values_file" 2>/dev/null | sort || true)
+            head_keys=$(yq 'keys | .[]' "head/$values_file" 2>/dev/null | sort || true)
+            file_removed=$(comm -23 <(echo "$base_keys") <(echo "$head_keys") || true)
+            if [ -n "$file_removed" ]; then
+              removed+="$values_file:"$'\n'"$file_removed"$'\n'
+            fi
+          done
           echo "HAS_REMOVED=$([ -n "$removed" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           {
             echo "REMOVED_KEYS<<HELM_EOF"
@@ -281,7 +290,7 @@ jobs:
             const body = [
               '### Helm Values Key Diff (advisory)',
               '',
-              'The following top-level keys were removed or renamed in `helm/michelangelo/values.yaml`:',
+              'The following top-level Helm values keys were removed or renamed:',
               '',
               '```',
               removed,
