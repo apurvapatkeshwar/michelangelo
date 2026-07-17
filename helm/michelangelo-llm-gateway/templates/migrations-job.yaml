@@ -1,0 +1,90 @@
+{{- if .Values.migrationJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "michelangelo-llm-gateway.fullname" . }}-migrations{{ if and (not .Values.migrationJob.hooks.helm.enabled) (not .Values.migrationJob.hooks.argocd.enabled) }}-{{ .Release.Revision }}{{ end }}
+  labels:
+    {{- include "michelangelo-llm-gateway.labels" . | nindent 4 }}
+  {{- if or .Values.migrationJob.hooks.helm.enabled .Values.migrationJob.hooks.argocd.enabled .Values.migrationJob.annotations }}
+  annotations:
+    {{- if .Values.migrationJob.hooks.helm.enabled }}
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-weight: {{ .Values.migrationJob.hooks.helm.weight | quote }}
+    {{- end }}
+    {{- if .Values.migrationJob.hooks.argocd.enabled }}
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    {{- end }}
+    {{- with .Values.migrationJob.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migrationJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "michelangelo-llm-gateway.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      serviceAccountName: {{ .Values.migrationJob.serviceAccountName | quote }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: prisma-migrations
+          image: {{ include "michelangelo-llm-gateway.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - litellm
+          args:
+            - --skip_server_startup
+            {{- if .Values.migrationJob.useV2Resolver }}
+            - --use_v2_migration_resolver
+            {{- end }}
+            - --enforce_prisma_migration_check
+          workingDir: /app
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: {{ .Values.database.key | quote }}
+            - name: DISABLE_SCHEMA_UPDATE
+              value: "false"
+          resources:
+            {{- toYaml .Values.migrationJob.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 500Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+{{- end }}

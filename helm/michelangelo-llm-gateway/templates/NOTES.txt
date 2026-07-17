@@ -1,0 +1,24 @@
+LiteLLM is available inside the cluster at:
+
+  http://{{ include "michelangelo-llm-gateway.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+
+{{- if .Values.tests.enabled }}
+
+Run the chart test with:
+
+  helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+{{- end }}
+
+{{- $secretNames := list .Values.masterKey.existingSecret .Values.saltKey.existingSecret .Values.database.existingSecret }}
+{{- range .Values.environmentSecrets }}
+{{- $secretNames = append $secretNames . }}
+{{- end }}
+
+The chart expects these existing resources:
+
+{{- range ($secretNames | uniq) }}
+  Secret/{{ . }}
+{{- end }}
+{{- range (.Values.environmentConfigMaps | uniq) }}
+  ConfigMap/{{ . }}
+{{- end }}
