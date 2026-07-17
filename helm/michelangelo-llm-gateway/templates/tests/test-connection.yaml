@@ -18,6 +18,10 @@ spec:
     runAsGroup: 101
     seccompProfile:
       type: RuntimeDefault
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   containers:
     - name: curl
       {{- if .Values.tests.image.digest }}

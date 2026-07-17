@@ -1,6 +1,5 @@
 image:
   tag: v1.85.1
-  digest: ""
 
 serviceAccount:
   annotations:
