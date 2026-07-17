@@ -63,5 +63,5 @@ See each example's README for specific prerequisites and run instructions.
 ## What's Next?
 
 - **New to Michelangelo?** Start with [California Housing (XGBoost)](https://github.com/michelangelo-ai/michelangelo/tree/main/python/examples/pipelines/california_housing_xgb) — it covers the full pipeline end-to-end
-- **Want to understand the framework?** Read [Getting Started with Pipelines](./getting-started/getting-started.md) for a guided walkthrough
-- **Ready to deploy?** See [Deploy a Model](./train-and-deploy-models/deploy-a-model.md) after training
+- **Want to understand the framework?** Read [Getting Started with Pipelines](../getting-started/getting-started.md) for a guided walkthrough
+- **Ready to deploy?** See [Deploy a Model](../train-and-deploy-models/deploy-a-model.md) after training
