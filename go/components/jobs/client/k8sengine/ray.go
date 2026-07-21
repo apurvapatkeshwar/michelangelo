@@ -61,7 +61,7 @@ func (m Mapper) mapRay(rayJob *v2pb.RayJob, jobClusterObject runtime.Object, clu
 				"rayClusterNamespace": RayLocalNamespace,
 			},
 			Entrypoint:               rayJob.Spec.Entrypoint,
-			TTLSecondsAfterFinished:  int32(300),
+			TTLSecondsAfterFinished:  m.getRayJobTTL(),
 			ShutdownAfterJobFinishes: true,
 			// kuberay 1.0 only support SubmitterPodTemplate for configuration submitter pod
 			// We need to allow user to configure the submitter pod template via ray task configuration
@@ -100,6 +100,13 @@ func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, erro
 		},
 	}
 	return rayV1Cluster, nil
+}
+
+func (m Mapper) getRayJobTTL() int32 {
+	if m.RayJobTTLSeconds > 0 {
+		return m.RayJobTTLSeconds
+	}
+	return 1800
 }
 
 func getHeadGroupSpec(head *v2pb.RayHeadSpec) rayv1.HeadGroupSpec {
