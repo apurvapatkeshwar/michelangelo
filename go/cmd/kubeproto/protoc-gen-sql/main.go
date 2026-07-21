@@ -88,14 +88,16 @@ func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Optio
 	// opts into. The wrapper kind resolves to a wrapper CRD by convention
 	// (e.g. "revision" -> keyed on revision_uid; the wrapped resource lives at
 	// spec.content).
-	for _, wrapper := range util.ParseContentIndexedFields(crdRootMsg, crdOptions) {
-		emitUnmarshaledTable(&buf, crdTableName, wrapper.Fields, wrapper.Kind)
+	if revisioned := util.ParseRevisionedIndex(crdRootMsg, crdOptions); revisioned != nil {
+		for _, kind := range revisioned.Kinds {
+			emitUnmarshaledTable(&buf, crdTableName, revisioned.Fields, kind)
+		}
 	}
 	return buf.Bytes()
 }
 
-// emitUnmarshaledTable writes one content sidecar table for a (base, wrapper)
-// pair, with a column per content_index field:
+// emitUnmarshaledTable writes one revisioned-index sidecar table for a (base, wrapper)
+// pair, with a column per mirrored base index field:
 //
 //	CREATE TABLE `<base>_<wrapper>_unmarshaled` (
 //	    `<wrapper>_uid`  VARCHAR(255) NOT NULL,
@@ -126,6 +128,21 @@ func emitUnmarshaledTable(buf *bytes.Buffer, baseTableName string, fields []util
 	for _, field := range fields {
 		if field.Flag&util.IndexFlagPrimitive != 0 {
 			buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, field.Key) + "` (`" + field.Key + "`)"))
+		} else if field.Flag&util.IndexFlagCompositeKey != 0 {
+			// Composite message field (e.g. ResourceIdentifier): emit one
+			// composite KEY over all subfields, matching the base table so a
+			// mirrored composite index has the same semantics in the sidecar.
+			buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, field.Key) + "` ("))
+			firstSubField := true
+			for _, subField := range field.SubFields {
+				if firstSubField {
+					firstSubField = false
+				} else {
+					buf.Write([]byte(", "))
+				}
+				buf.Write([]byte("`" + subField.Key + "`"))
+			}
+			buf.Write([]byte(")"))
 		} else {
 			for _, subField := range field.SubFields {
 				buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, subField.Key) + "` (`" + subField.Key + "`)"))

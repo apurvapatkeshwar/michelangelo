@@ -306,7 +306,7 @@ func updateGoFile(gofile *plugingo.CodeGeneratorResponse_File, protofile *protog
 						genCRD(&crdFunctionsBuf, fileName, typeName, &protoMsg.Comments, options)
 						if options.Bool("has_resource") {
 							genCRDIndexedFields(typeName, protoMsg, &crdFunctionsBuf, options, gInfo)
-							genCRDContentIndexedFields(typeName, protoMsg, &crdFunctionsBuf, options, gInfo, allProtoMsgs, extTypes)
+							genCRDRevisionedIndex(typeName, protoMsg, &crdFunctionsBuf, options, gInfo, allProtoMsgs, extTypes)
 							genImmutability(typeName, &crdFunctionsBuf, options)
 							genCRDObject(typeName, gInfo, &crdFunctionsBuf)
 							genCRDBlobFields(typeName, protoMsg, &crdFunctionsBuf, extTypes)
@@ -402,8 +402,8 @@ func genCRDIndexedFields(crdName string, crdRootMsg *protogen.Message, crdBuf *b
 
 // emitIndexedFieldExtraction writes the per-field extraction statements that
 // populate a local `indexedFields []storage.IndexedField` slice from `m`. It is
-// shared by GetIndexedKeyValuePairs (base table) and GetContentIndexedKeyValuePairs
-// (content sidecars) so enum/composite/nil-check conventions live in one place.
+// shared by GetIndexedKeyValuePairs (base table) and GetRevisionedIndexKeyValuePairs
+// (revisioned-index sidecars) so enum/composite/nil-check conventions live in one place.
 func emitIndexedFieldExtraction(crdBuf *bytes.Buffer, indexedFields []util.IndexedField) {
 	declareVar := false
 	for _, field := range indexedFields {
@@ -472,57 +472,57 @@ func emitIndexedFieldExtraction(crdBuf *bytes.Buffer, indexedFields []util.Index
 // stores its wrapped base resource as a google.protobuf.Any.
 const wrapperContentPath = "spec.content"
 
-// genCRDContentIndexedFields generates two methods for a revisioned base type
+// genCRDRevisionedIndex generates two methods for a revisioned base type
 // (one declaring resource.revisioned_in):
 //
-//   - GetContentIndexedKeyValuePairs: per wrapper kind, the extracted column
+//   - GetRevisionedIndexKeyValuePairs: per wrapper kind, the extracted column
 //     values for this object.
-//   - ContentIndexFieldSpecs: per wrapper kind, the wrapper GVK, sidecar table,
+//   - RevisionedIndexSpecs: per wrapper kind, the wrapper GVK, sidecar table,
 //     uid column, and path->column map, with the wrapper kind resolved and
 //     validated against allProtoMsgs.
 //
-// Generated only when the type declares content_index entries, so only those
-// types implement storage.ContentIndexable / storage.ContentIndexDescribable.
-func genCRDContentIndexedFields(crdName string, crdRootMsg *protogen.Message, crdBuf *bytes.Buffer,
+// Generated only when the type declares resource.revisioned_in, so only those
+// types implement storage.RevisionedIndexable / storage.RevisionedIndexDescribable.
+func genCRDRevisionedIndex(crdName string, crdRootMsg *protogen.Message, crdBuf *bytes.Buffer,
 	crdOptions *pboptions.Options, gInfo *groupinfo.GroupInfo, allProtoMsgs map[string]*protogen.Message,
 	extTypes *protoregistry.Types) {
-	wrappers := util.ParseContentIndexedFields(crdRootMsg, crdOptions)
-	if len(wrappers) == 0 {
+	revisioned := util.ParseRevisionedIndex(crdRootMsg, crdOptions)
+	if revisioned == nil {
 		return
 	}
 
 	typeInfo := struct {
 		Name string
 	}{crdName}
-	templates.CRDGetContentIndexedFieldsHeader.Execute(crdBuf, typeInfo)
+	templates.CRDGetRevisionedIndexHeader.Execute(crdBuf, typeInfo)
 
-	for _, wrapper := range wrappers {
+	for _, kind := range revisioned.Kinds {
 		crdBuf.Write([]byte("\t{\n"))
 		crdBuf.Write([]byte("\tvar indexedFields []storage.IndexedField\n"))
-		emitIndexedFieldExtraction(crdBuf, wrapper.Fields)
-		crdBuf.Write([]byte("\tresult[\"" + wrapper.Kind + "\"] = indexedFields\n"))
+		emitIndexedFieldExtraction(crdBuf, revisioned.Fields)
+		crdBuf.Write([]byte("\tresult[\"" + kind + "\"] = indexedFields\n"))
 		crdBuf.Write([]byte("\t}\n\n"))
 	}
 
 	crdBuf.Write([]byte("\treturn result\n}\n\n"))
 
 	tableBaseName := utils.ToSnakeCase(crdName)
-	templates.CRDContentIndexFieldSpecsHeader.Execute(crdBuf, typeInfo)
-	for _, wrapper := range wrappers {
-		wrapperKindKind := resolveWrapperKind(crdName, wrapper.Kind, allProtoMsgs, extTypes)
-		table := tableBaseName + "_" + wrapper.Kind + "_unmarshaled"
-		uidCol := wrapper.Kind + "_uid"
+	templates.CRDRevisionedIndexSpecsHeader.Execute(crdBuf, typeInfo)
+	for _, kind := range revisioned.Kinds {
+		wrapperKindKind := resolveWrapperKind(crdName, kind, allProtoMsgs, extTypes)
+		table := tableBaseName + "_" + kind + "_unmarshaled"
+		uidCol := kind + "_uid"
 
 		crdBuf.Write([]byte("\t\t{\n"))
 		crdBuf.Write([]byte("\t\t\tWrapperGVK: schema.GroupVersionKind{Group: \"" + gInfo.Name + "\", Version: \"" +
 			gInfo.Version + "\", Kind: \"" + wrapperKindKind + "\"},\n"))
-		crdBuf.Write([]byte("\t\t\tWrapperKind: \"" + wrapper.Kind + "\",\n"))
+		crdBuf.Write([]byte("\t\t\tWrapperKind: \"" + kind + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tContentPath: \"" + wrapperContentPath + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tBaseKind: \"" + crdName + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tTable: \"" + table + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tUIDCol: \"" + uidCol + "\",\n"))
-		crdBuf.Write([]byte("\t\t\tFields: []storage.ContentIndexField{\n"))
-		for _, field := range wrapper.Fields {
+		crdBuf.Write([]byte("\t\t\tFields: []storage.RevisionedIndexField{\n"))
+		for _, field := range revisioned.Fields {
 			if field.Flag&util.IndexFlagPrimitive != 0 {
 				crdBuf.Write([]byte("\t\t\t\t{Path: \"" + wrapperContentPath + "." + field.ProtoPath + "\", Column: \"" +
 					field.Key + "\"},\n"))

@@ -105,65 +105,54 @@ func ParseIndexedFields(crdRootMsg *protogen.Message, crdOptions *pboptions.Opti
 	return indexedFields
 }
 
-// WrapperContentIndex holds the content sidecar columns for one wrapper kind,
-// parsed from a base CRD's resource.revisioned_in[].content_index annotations.
-type WrapperContentIndex struct {
-	// Kind is the wrapper CRD kind this sidecar belongs to, e.g. "revision".
-	Kind string
-	// Fields are the content columns, resolved against the base CRD message.
-	// Keys/paths are independent of the base index set.
+// RevisionedIndex describes a revisioned base CRD's index set and the wrapper
+// kinds it is mirrored into. A base CRD that lists resource.revisioned_in has
+// its full michelangelo.api.index set materialized into a
+// "<base>_<kind>_unmarshaled" sidecar table for each listed kind, so
+// List<Wrapper> can filter on the wrapped base resource's fields server-side.
+// Every listed kind mirrors the same base index set, so Fields is shared across
+// all Kinds rather than duplicated per kind.
+type RevisionedIndex struct {
+	// Kinds are the wrapper CRD kinds that mirror this index set, e.g.
+	// "revision", "draft". Each resolves to a wrapper CRD by convention
+	// (e.g. "revision" -> Revision, keyed on revision_uid).
+	Kinds []string
+	// Fields is the base CRD's full index set, resolved against the base
+	// message — which is exactly what each wrapper stores at spec.content.
 	Fields []IndexedField
 }
 
-// ParseContentIndexedFields parses a revisioned base CRD's
-// resource.revisioned_in[].content_index[] annotations into per-wrapper
-// IndexedField lists. Each content_index.path is resolved against the base CRD
-// message itself (which is what the wrapper stores at spec.content). Each wrapper
-// may declare a different subset of columns.
-func ParseContentIndexedFields(crdRootMsg *protogen.Message, crdOptions *pboptions.Options) []WrapperContentIndex {
-	wrapperCount := int(crdOptions.Int64("resource.len(revisioned_in)"))
-	if wrapperCount == 0 {
+// ParseRevisionedIndex returns the base CRD's michelangelo.api.index set
+// together with the wrapper kinds listed in resource.revisioned_in that mirror
+// it into "<base>_<kind>_unmarshaled" sidecar tables. Each index path resolves
+// against the base CRD message itself, which is what each wrapper stores at
+// spec.content, so every kind mirrors the same base index set.
+//
+// Returns nil when the CRD is not revisioned (resource.revisioned_in is empty).
+// Panics if revisioned_in is set but names an empty kind, or is set on a CRD
+// that declares no michelangelo.api.index fields to mirror.
+func ParseRevisionedIndex(crdRootMsg *protogen.Message, crdOptions *pboptions.Options) *RevisionedIndex {
+	kindCount := int(crdOptions.Int64("resource.len(revisioned_in)"))
+	if kindCount == 0 {
 		return nil
 	}
-	wrappers := make([]WrapperContentIndex, 0, wrapperCount)
-	for wrapperIdx := 0; wrapperIdx < wrapperCount; wrapperIdx++ {
-		wrapperPrefix := "resource.revisioned_in[" + strconv.Itoa(wrapperIdx) + "]"
-		kind := crdOptions.String(wrapperPrefix + ".kind")
+
+	kinds := make([]string, 0, kindCount)
+	for i := 0; i < kindCount; i++ {
+		kind := crdOptions.String("resource.revisioned_in[" + strconv.Itoa(i) + "]")
 		if kind == "" {
-			logger.Panicf("Invalid revisioned_in annotation. kind is not specified at index %d", wrapperIdx)
+			logger.Panicf("Invalid revisioned_in annotation. kind is not specified at index %d", i)
 		}
-
-		fieldCount := int(crdOptions.Int64(wrapperPrefix + ".len(content_index)"))
-		fields := make([]IndexedField, 0, fieldCount)
-		// Keys must be unique within a single wrapper's sidecar table.
-		seenKeys := make(map[string]bool)
-		for fieldIdx := 0; fieldIdx < fieldCount; fieldIdx++ {
-			contentIndexPrefix := wrapperPrefix + ".content_index[" + strconv.Itoa(fieldIdx) + "]"
-			key := crdOptions.String(contentIndexPrefix + ".key")
-			path := crdOptions.String(contentIndexPrefix + ".path")
-
-			if key == "" || path == "" {
-				logger.Panicf("Invalid content_index annotation. Either key or path is not specified. "+
-					"kind: %v, key: %v, path: %v", kind, key, path)
-			}
-			if seenKeys[key] {
-				logger.Panicf("Invalid content_index annotation. Duplicated key. kind: %v, key: %v", kind, key)
-			}
-			seenKeys[key] = true
-
-			field := buildIndexedField(key, path, "", crdRootMsg)
-			for _, subField := range field.SubFields {
-				if seenKeys[subField.Key] {
-					logger.Panicf("Invalid content_index annotation. Duplicated key. kind: %v, key: %v, subKey: %v",
-						kind, key, subField.Key)
-				}
-				seenKeys[subField.Key] = true
-			}
-			fields = append(fields, field)
-		}
-		wrappers = append(wrappers, WrapperContentIndex{Kind: kind, Fields: fields})
+		kinds = append(kinds, kind)
 	}
-	return wrappers
+
+	fields := ParseIndexedFields(crdRootMsg, crdOptions)
+	if len(fields) == 0 {
+		logger.Panicf("Invalid revisioned_in annotation. CRD declares revisioned_in %v "+
+			"but has no michelangelo.api.index fields to mirror", kinds)
+	}
+
+	return &RevisionedIndex{Kinds: kinds, Fields: fields}
 }
 
 // buildIndexedField resolves a single (key, path) against rootMsg and returns the

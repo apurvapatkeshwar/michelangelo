@@ -77,22 +77,22 @@ func (m *{{.Name}}) GetIndexedKeyValuePairs() ([]storage.IndexedField){
 	var indexedFields []storage.IndexedField
 `))
 
-// CRDGetContentIndexedFieldsHeader is a template for the
-// GetContentIndexedKeyValuePairs() function signature. It is generated only for
+// CRDGetRevisionedIndexHeader is a template for the
+// GetRevisionedIndexKeyValuePairs() function signature. It is generated only for
 // revisioned base types (those with resource.revisioned_in entries) and returns
-// the per-wrapper-kind content index columns.
-var CRDGetContentIndexedFieldsHeader = template.Must(template.New("crdGetContentIndexedFieldsHeader").Parse(`
-func (m *{{.Name}}) GetContentIndexedKeyValuePairs() map[string][]storage.IndexedField {
+// the per-wrapper-kind revisioned-index columns.
+var CRDGetRevisionedIndexHeader = template.Must(template.New("crdGetRevisionedIndexHeader").Parse(`
+func (m *{{.Name}}) GetRevisionedIndexKeyValuePairs() map[string][]storage.IndexedField {
 	result := make(map[string][]storage.IndexedField)
 `))
 
-// CRDContentIndexFieldSpecsHeader is a template for the ContentIndexFieldSpecs()
+// CRDRevisionedIndexSpecsHeader is a template for the RevisionedIndexSpecs()
 // function signature. Generated for revisioned base types; the function returns
-// one content sidecar descriptor (wrapper GVK, table, uid column, path->column
+// one revisioned-index sidecar descriptor (wrapper GVK, table, uid column, path->column
 // map) per wrapper kind.
-var CRDContentIndexFieldSpecsHeader = template.Must(template.New("crdContentIndexFieldSpecsHeader").Parse(`
-func (m *{{.Name}}) ContentIndexFieldSpecs() []storage.ContentIndexFieldSpec {
-	return []storage.ContentIndexFieldSpec{
+var CRDRevisionedIndexSpecsHeader = template.Must(template.New("crdRevisionedIndexSpecsHeader").Parse(`
+func (m *{{.Name}}) RevisionedIndexSpecs() []storage.RevisionedIndexSpec {
+	return []storage.RevisionedIndexSpec{
 `))
 
 // CRDIndexesPathToKeyMapHeader is a template for generating CRDIndexesPathToKeyMap for a CRD.
@@ -172,8 +172,8 @@ var CRDMySQLLabelAnnotationTable = template.Must(template.New("MySQLLabelAnnotat
 //go:embed mysql_unmarshaled_table.tmpl
 var mysqlUnmarshaledTable string
 
-// CRDMySQLUnmarshaledTable is the header of a content_index sidecar
+// CRDMySQLUnmarshaledTable is the header of a revisioned-index sidecar
 // ("*_unmarshaled") table: the table name and the foreign-key column back to
 // the wrapper CRD's uid. The indexed columns, primary key, and per-column
-// indexes are appended by protoc-gen-sql from the parsed content_index fields.
+// indexes are appended by protoc-gen-sql from the mirrored base index fields.
 var CRDMySQLUnmarshaledTable = template.Must(template.New("MySQLUnmarshaledTable").Parse(mysqlUnmarshaledTable))
