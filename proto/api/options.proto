@@ -96,37 +96,13 @@ message ResourceDescriptor {
   // revisioned_in lists the content-wrapper kinds this CRD is snapshotted into
   // (e.g. "revision", "draft"). A non-empty list marks this CRD as a revisioned
   // base type. For each listed wrapper kind, protoc-gen-sql generates a sidecar
-  // "<base>_<wrapper>_unmarshaled" table whose columns are declared, per wrapper,
-  // by that entry's content_index list (separate from this message's
-  // michelangelo.api.index annotations). The wrapper kind resolves to a wrapper
-  // CRD by convention (e.g. "revision" -> Revision, keyed on revision_uid), and
-  // the wrapped base resource lives at spec.content. Each wrapper may declare a
-  // different content_index subset.
-  repeated RevisionedIn revisioned_in = 103;
-}
-
-// RevisionedIn declares, for one content-wrapper kind, the set of content fields
-// projected into that wrapper's "<base>_<kind>_unmarshaled" sidecar table.
-message RevisionedIn {
-  // kind is the wrapper CRD kind this entry configures, e.g. "revision", "draft".
-  string kind = 1;
-
-  // content_index lists the fields, located within the wrapped base resource
-  // (the decoded spec.content message), to materialize as sidecar columns so
-  // List<Wrapper> can filter on them server-side.
-  repeated ContentIndex content_index = 2;
-}
-
-// ContentIndex describes one column of a content sidecar table. It mirrors
-// IndexDescriptor, but its path is resolved against the wrapped base resource
-// (the decoded content), not the wrapper CRD's own fields.
-message ContentIndex {
-  // "path" locates the field within the wrapped base resource, e.g.
-  // "spec.owner.name" or "metadata.name".
-  string path = 1;
-
-  // "key" is the sidecar column name for this field.
-  string key = 2;
+  // "<base>_<wrapper>_unmarshaled" table that mirrors all of this message's
+  // michelangelo.api.index annotations as columns so List<Wrapper> can filter on 
+  // the wrapped base resource's fields server-side. The wrapper kind resolves to a
+  // wrapper CRD by convention (e.g. "revision" -> Revision, keyed on revision_uid)
+  //  and the wrapped base resource lives at spec.content — which is exactly where
+  // each index path resolves. Every listed wrapper mirrors the full base index set (1:1).
+  repeated string revisioned_in = 103;
 }
 
 // An annotation for CRD list message
