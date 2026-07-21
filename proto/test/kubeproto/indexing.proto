@@ -199,16 +199,15 @@ message TestBaseStatus {
 }
 
 // TestBase is a revisioned base type. It opts into the "test_wrapper" wrapper
-// kind only (not "test_draft"), so a sidecar table is generated for test_wrapper.
-// The sidecar columns are declared by that entry's content_index list, resolved
-// against this base message and separate from TestBase's own index annotations.
+// kind only (not "test_draft") via revisioned_in, so the sidecar table
+// "test_base_test_wrapper_unmarshaled" is generated for test_wrapper. Under
+// mirror-all, that sidecar materializes TestBase's FULL michelangelo.api.index
+// set: a primitive (spec.name), a composite ResourceIdentifier (spec.ref), and a
+// status field (status.count) — the last proving every base index is mirrored,
+// not a hand-picked subset.
 message TestBase {
   option (michelangelo.api.resource) = {
-    revisioned_in: {
-      kind: "test_wrapper"
-      content_index: { path: "spec.name", key: "test_name" }
-      content_index: { path: "spec.ref",  key: "test_ref" }
-    }
+    revisioned_in: ["test_wrapper"]
   };
   option (michelangelo.api.index) = {
     path: "spec.name",
@@ -217,6 +216,10 @@ message TestBase {
   option (michelangelo.api.index) = {
     path: "spec.ref",
     key:  "test_ref",
+  };
+  option (michelangelo.api.index) = {
+    path: "status.count",
+    key:  "test_count",
   };
 
   k8s.io.apimachinery.pkg.apis.meta.v1.TypeMeta type_meta = 1;

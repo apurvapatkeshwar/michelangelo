@@ -261,22 +261,27 @@ func TestParseIndexedFieldsErrors(t *testing.T) {
 	assert.Equal(t, len(tests), tested)
 }
 
-// TestGeneratedContentIndexedKeyValuePairs exercises the generated content
-// extractor (GetContentIndexedKeyValuePairs) on the real generated TestBase type.
-// TestBase opts into "test_wrapper" only and its content_index declares a
-// primitive (spec.name -> test_name) and a composite (spec.ref -> the
-// ResourceIdentifier's namespace+name subfields), so this asserts: per-wrapper
-// keying, primitive extraction, composite subfield expansion, and that a wrapper
-// the base did NOT opt into yields no entry.
-func TestGeneratedContentIndexedKeyValuePairs(t *testing.T) {
+// TestGeneratedRevisionedIndexKeyValuePairs exercises the generated revisioned-index
+// extractor (GetRevisionedIndexKeyValuePairs) on the real generated TestBase type.
+// TestBase opts into "test_wrapper" only, and under mirror-all its sidecar
+// materializes the FULL base index set: a primitive (spec.name -> test_name), a
+// composite ResourceIdentifier (spec.ref -> namespace+name subfields), and a
+// status field (status.count -> test_count). The last one is the mirror-all proof:
+// it is a base index that no curated subset would have listed, yet it is mirrored.
+// This asserts per-wrapper keying, primitive/composite extraction, mirror-all
+// coverage, and that a wrapper the base did NOT opt into yields no entry.
+func TestGeneratedRevisionedIndexKeyValuePairs(t *testing.T) {
 	mb := &testpb.TestBase{
 		Spec: testpb.TestBaseSpec{
 			Name: "m1",
 			Ref:  &api.ResourceIdentifier{Namespace: "ns", Name: "r1"},
 		},
+		Status: testpb.TestBaseStatus{
+			Count: 7,
+		},
 	}
 
-	result := mb.GetContentIndexedKeyValuePairs()
+	result := mb.GetRevisionedIndexKeyValuePairs()
 
 	// Only the opted-in wrapper kind appears.
 	_, hasDraft := result["test_draft"]
@@ -291,6 +296,12 @@ func TestGeneratedContentIndexedKeyValuePairs(t *testing.T) {
 	assert.Equal(t, "m1", cols["test_name"])          // primitive
 	assert.Equal(t, "ns", cols["test_ref_namespace"]) // composite subfield
 	assert.Equal(t, "r1", cols["test_ref_name"])      // composite subfield
+	// Mirror-all: status.count is a base index that no curated content subset
+	// declared, yet it is materialized into the sidecar.
+	assert.Equal(t, int32(7), cols["test_count"])
+	// The sidecar mirrors exactly the full base index set and nothing else:
+	// test_name, test_ref_{namespace,name}, test_count.
+	assert.Len(t, cols, 4)
 }
 
 func assertPanic(t *testing.T, expected interface{}, f func()) {
