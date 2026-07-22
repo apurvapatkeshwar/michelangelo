@@ -8,14 +8,16 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from io import BytesIO
 
+    from michelangelo.lib.model_manager.schema import ModelSchema
 
-TRAINING_FRAMEWORK_CUSTOM = "custom"
+
+TRAINING_FRAMEWORK_CUSTOM: str = "custom"
 """Training framework identifier for user-defined ``CustomModel`` subclasses."""
 
-TRAINING_FRAMEWORK_PYTORCH = "pytorch"
+TRAINING_FRAMEWORK_PYTORCH: str = "pytorch"
 """Training framework identifier for plain ``torch.nn.Module`` models."""
 
-TRAINING_FRAMEWORK_LIGHTNING = "lightning"
+TRAINING_FRAMEWORK_LIGHTNING: str = "lightning"
 """Training framework identifier for ``pytorch_lightning.LightningModule`` models."""
 
 
@@ -64,6 +66,22 @@ class ModelMetadata:
             ``None`` for non-incremental models, and for the first run of a new
             incremental chain (the BASELINE run itself). Set on continuation
             runs to the identifier of the original baseline.
+        schema: Typed input/output schema for the model, set by assembler
+            tasks that package a model for serving. Distinct from the
+            ``_schema`` binary payload below — this is the live
+            ``ModelSchema`` object consumed directly by packagers, not a
+            serialised form. ``None`` when not recorded.
+        sample_data: Sample inference inputs used to validate a packaged
+            model, as a list of dicts mapping feature names to array-like
+            values. Set by assembler tasks alongside ``schema``. ``None``
+            when not recorded.
+        transform_spec: Opaque feature-transform specification propagated
+            from a native-transform model through assembly, used to
+            reconstruct the transform at serve time. ``None`` when the model
+            has no associated transform.
+        feature_stats: Opaque feature statistics propagated from a
+            native-transform model through assembly (e.g. normalization
+            parameters). ``None`` when not recorded.
         _schema: Serialised input/output schema (e.g. protobuf or JSON bytes).
             Not included in ``repr`` to avoid flooding logs.
         _sample_data: Serialised sample inference payload used for smoke-testing
@@ -90,6 +108,10 @@ class ModelMetadata:
     deployable: bool = False
     is_incremental_training: bool = False
     baseline_model_identifier: str | None = None
+    schema: ModelSchema | None = None
+    sample_data: list[dict[str, Any]] | None = None
+    transform_spec: dict[str, Any] | None = None
+    feature_stats: dict[str, Any] | None = None
     _schema: BytesIO | None = field(default=None, repr=False)
     _sample_data: BytesIO | None = field(default=None, repr=False)
     _hyperparameters: BytesIO | None = field(default=None, repr=False)
