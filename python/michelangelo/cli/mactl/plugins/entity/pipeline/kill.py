@@ -1,7 +1,7 @@
 """Pipeline kill command implementation.
 
-This module provides functionality to kill running pipeline runs by setting
-the kill flag on a PipelineRun resource.
+Sets the kill flag on a PipelineRun resource. Rejects kills on runs that
+are not in PENDING or RUNNING state, mirroring the Go mactl behavior.
 """
 
 from argparse import ArgumentParser
@@ -16,16 +16,25 @@ from grpc import Channel
 
 from michelangelo.cli.mactl.crd import (
     CRD,
-    METADATA_STUB,
+    CrdMethodInfo,
     bind_signature,
+    crd_method_call,
     get_single_arg,
     inject_func_signature,
 )
 
 # Import TypedStruct to register it in the descriptor pool
 from michelangelo.gen.api import typed_struct_pb2  # noqa: F401
+from michelangelo.gen.api.v2 import pipeline_run_pb2
 
 _LOG = getLogger(__name__)
+
+_KILLABLE_STATES = frozenset(
+    {
+        pipeline_run_pb2.PIPELINE_RUN_STATE_PENDING,
+        pipeline_run_pb2.PIPELINE_RUN_STATE_RUNNING,
+    }
+)
 
 
 def add_function_signature(crd: CRD) -> None:
@@ -83,17 +92,17 @@ def add_function_signature(crd: CRD) -> None:
 def generate_kill(crd: CRD, channel: Channel, parser: Optional[ArgumentParser] = None):
     """Generate kill function for pipeline CRD.
 
-    This function creates a kill command that sets the kill flag on a PipelineRun
-    resource by calling the UpdatePipelineRun API.
+    Creates a kill command that sets the kill flag on a PipelineRun after
+    verifying its state is PENDING or RUNNING.
     """
     _LOG.info("Generating `pipeline kill` for: %s", crd)
 
-    # Generate get method to reuse it
     crd.generate_get(channel)
 
-    # Extract Update method info
-    method_name, input_class, output_class = crd._extract_method_info(
-        channel, crd.full_name, "Update"
+    update_method_info = CrdMethodInfo(
+        channel,
+        crd.full_name,
+        *crd._extract_method_info(channel, crd.full_name, "Update"),
     )
 
     crd.configure_parser("kill", parser)
@@ -114,11 +123,20 @@ def generate_kill(crd: CRD, channel: Channel, parser: Optional[ArgumentParser] =
                 print("Kill operation cancelled.")
                 return None
 
-        # Get the current PipelineRun resource using the generated get method
         current_resource = _self.get(_namespace, _name)
         _LOG.info("Retrieved PipelineRun resource for kill: %r", current_resource)
 
-        # Convert to dict and set kill flag
+        # State pre-check: mirror Go isPipelineRunKillable and error string.
+        inner = getattr(current_resource, _self.name)
+        state = inner.status.state
+        if state not in _KILLABLE_STATES:
+            state_name = pipeline_run_pb2.PipelineRunState.Name(state)
+            raise ValueError(
+                f"the pipelinerun cannot be killed because it's in {state_name} "
+                "state. a pipelinerun can be killed if its state is either "
+                "PENDING or RUNNING"
+            )
+
         current_dict = MessageToDict(current_resource, preserving_proto_field_name=True)
 
         resource_name = _self.name
@@ -128,8 +146,7 @@ def generate_kill(crd: CRD, channel: Channel, parser: Optional[ArgumentParser] =
             _LOG.error("Missing required spec field in the resource structure")
             raise ValueError(f"Cannot set kill flag on {resource_name}")
 
-        # Create update request
-        request_input = input_class()
+        request_input = update_method_info.input_class()
         ParseDict(current_dict, request_input, ignore_unknown_fields=True)
 
         _LOG.info(
@@ -138,25 +155,9 @@ def generate_kill(crd: CRD, channel: Channel, parser: Optional[ArgumentParser] =
             request_input,
         )
 
-        # Call Update method
-        method_fullname = f"/{_self.full_name}/{method_name}"
-        _LOG.info("Method fullname for gRPC call: %s", method_fullname)
+        response = crd_method_call(update_method_info, request_input)
 
-        stub_method = channel.unary_unary(
-            method_fullname,
-            request_serializer=input_class.SerializeToString,
-            response_deserializer=output_class.FromString,
-        )
-
-        response = stub_method(
-            request_input,
-            metadata=METADATA_STUB,
-            timeout=30,
-        )
-
-        # Verify the kill flag was set
         response_dict = MessageToDict(response, preserving_proto_field_name=True)
-        resource_name = _self.name
         if (
             resource_name in response_dict
             and "spec" in response_dict[resource_name]
