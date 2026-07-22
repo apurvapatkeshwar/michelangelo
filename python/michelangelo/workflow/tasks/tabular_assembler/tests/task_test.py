@@ -39,7 +39,7 @@ class _CustomModelFixture(Model):
         return inputs
 
 
-_CUSTOM_MODEL_CLASS = (
+CUSTOM_MODEL_CLASS_PATH = (
     "michelangelo.workflow.tasks.tabular_assembler.tests.task_test._CustomModelFixture"
 )
 
@@ -88,7 +88,7 @@ class TabularAssemblerDispatchTest(unittest.TestCase):
         This holds even when the recorded training framework is ``lightning``.
         """
         mock_custom.return_value = self._sentinel_result()
-        config = TabularAssemblerConfig(model_class=_CUSTOM_MODEL_CLASS)
+        config = TabularAssemblerConfig(model_class=CUSTOM_MODEL_CLASS_PATH)
         raw_model = ModelArtifact(
             path="p",
             metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_LIGHTNING),
@@ -103,43 +103,65 @@ class TabularAssemblerDispatchTest(unittest.TestCase):
             config, raw_model, native_tx, storage_backend=self.storage_backend
         )
 
-    def test_torch_framework_raises_not_implemented(self):
-        """The pytorch path is not yet implemented in this package."""
+    def test_torch_dispatch_resolves_now_that_torch_assembler_exists(self):
+        """``torch.assembler`` now exists and is imported directly by ``task``."""
+        from michelangelo.workflow.tasks.tabular_assembler.task import (
+            torch_assembler,
+        )
+
+        self.assertTrue(callable(torch_assembler))
+
+    @patch("michelangelo.workflow.tasks.tabular_assembler.task.torch_assembler")
+    def test_dispatches_to_torch_assembler_for_pytorch_and_lightning(self, mock_torch):
+        """``pytorch``/``lightning`` frameworks route to the real torch assembler.
+
+        The ``pytorch`` framework does not forward ``native_transform_model``
+        to ``torch_assembler`` (pre-existing dispatch behavior); ``lightning``
+        does.
+        """
+        mock_torch.reset_mock()
+        mock_torch.return_value = self._sentinel_result()
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
             path="p",
             metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_PYTORCH),
         )
 
-        with self.assertRaises(NotImplementedError):
-            tabular_assembler(config, raw_model, storage_backend=self.storage_backend)
+        result = tabular_assembler(
+            config, raw_model, storage_backend=self.storage_backend
+        )
 
-    def test_lightning_framework_raises_not_implemented(self):
-        """The lightning path is not yet implemented in this package."""
-        config = TabularAssemblerConfig()
+        self.assertIs(result, mock_torch.return_value)
+        mock_torch.assert_called_once_with(
+            config, raw_model, storage_backend=self.storage_backend
+        )
+
+        mock_torch.reset_mock()
+        mock_torch.return_value = self._sentinel_result()
+        native_tx = ModelArtifact(path="tx")
         raw_model = ModelArtifact(
             path="p",
             metadata=ModelMetadata(training_framework=TRAINING_FRAMEWORK_LIGHTNING),
         )
 
-        with self.assertRaises(NotImplementedError):
-            tabular_assembler(config, raw_model, storage_backend=self.storage_backend)
+        result = tabular_assembler(
+            config, raw_model, native_tx, storage_backend=self.storage_backend
+        )
 
-    def test_unsupported_framework_returns_empty_placeholder_pair(self):
-        """An unrecognized framework yields an empty (not ``None``) artifact pair."""
+        self.assertIs(result, mock_torch.return_value)
+        mock_torch.assert_called_once_with(
+            config, raw_model, native_tx, storage_backend=self.storage_backend
+        )
+
+    def test_unsupported_framework_raises_value_error(self):
+        """An unrecognized, non-empty framework raises instead of silently no-op'ing."""
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
             path="p", metadata=ModelMetadata(training_framework="unsupported_framework")
         )
 
-        result = tabular_assembler(
-            config, raw_model, storage_backend=self.storage_backend
-        )
-
-        self.assertIsNotNone(result.raw_model)
-        self.assertIsNotNone(result.deployable_model)
-        self.assertEqual(result.raw_model.path, "")
-        self.assertEqual(result.deployable_model.path, "")
+        with self.assertRaisesRegex(ValueError, "unsupported_framework"):
+            tabular_assembler(config, raw_model, storage_backend=self.storage_backend)
 
     def test_no_framework_recorded_and_no_config_model_class_returns_empty_pair(self):
         """No recorded framework and no config model class yields the empty pair."""
