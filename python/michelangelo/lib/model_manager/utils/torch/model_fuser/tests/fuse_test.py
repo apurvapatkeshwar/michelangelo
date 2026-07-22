@@ -30,13 +30,13 @@ import torch
 import torch.nn as nn
 
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
-from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser import (
+from michelangelo.lib.model_manager.utils.torch.model_fuser import (
     fuse as fuse_module,
 )
-from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser import (
+from michelangelo.lib.model_manager.utils.torch.model_fuser import (
     fused_model,
 )
-from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser.fuse import (
+from michelangelo.lib.model_manager.utils.torch.model_fuser.fuse import (
     _build_fused_sample_input,
     _disable_transformer_encoder_fused_fastpath_for_onnx,
     _FusedOnnxDynamoTupleWrapper,
@@ -59,7 +59,7 @@ from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser.fuse import
 
 FusedModel = fused_model.FusedModel
 
-_FUSE_MODULE = "michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser.fuse"
+_FUSE_MODULE = "michelangelo.lib.model_manager.utils.torch.model_fuser.fuse"
 
 
 # ---------------------------------------------------------------------------

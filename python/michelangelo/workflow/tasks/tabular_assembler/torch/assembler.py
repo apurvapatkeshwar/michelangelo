@@ -4,12 +4,14 @@ Packages a raw trained PyTorch or Lightning model into deployable and raw
 Triton packages using ``TorchTritonPackager``. When preceded by a
 native-transform stage, the predictor and transform models are fused into a
 single servable artifact via the ``model_fuser`` package
-(``torch.model_fuser.fuse``).
+(``lib.model_manager.utils.torch.model_fuser.fuse``).
 """
 
 from __future__ import annotations
 
+import io
 import os
+import pickle
 import tempfile
 import uuid
 from dataclasses import replace
@@ -20,11 +22,9 @@ import numpy as np
 from michelangelo.lib.model_manager.constants import StorageType
 from michelangelo.lib.model_manager.packager.torch_triton import TorchTritonPackager
 from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
+from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse as _fuse
 from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
     fuse_model_schema,
-)
-from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser import (
-    fuse as _fuse,
 )
 from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
@@ -147,8 +147,9 @@ def torch_assembler(
     ``native_transform_model.path``) are downloaded via ``storage_backend``
     to a local temporary directory before packaging. When
     ``native_transform_model`` is supplied, the predictor and transform are
-    fused (see ``torch.model_fuser``) into a single servable artifact with a
-    combined schema; otherwise the predictor is packaged as-is.
+    fused (see ``lib.model_manager.utils.torch.model_fuser``) into a single
+    servable artifact with a combined schema; otherwise the predictor is
+    packaged as-is.
 
     Args:
         config: The assembler configuration. ``config.torch.backend``
@@ -326,12 +327,16 @@ def torch_assembler(
         assembled=True,
         schema=model_schema_for_package,
         sample_data=packaged_sample_data,
+        _schema=io.BytesIO(pickle.dumps(model_schema_for_package)),
+        _sample_data=io.BytesIO(pickle.dumps(packaged_sample_data)),
     )
     raw_metadata = ModelMetadata(
         deployable=False,
         assembled=True,
         schema=model_schema_for_package,
         sample_data=packaged_sample_data,
+        _schema=io.BytesIO(pickle.dumps(model_schema_for_package)),
+        _sample_data=io.BytesIO(pickle.dumps(packaged_sample_data)),
         training_framework=raw_model.metadata.training_framework,
         model_class=packaged_model_class,
         is_incremental_training=raw_model.metadata.is_incremental_training,

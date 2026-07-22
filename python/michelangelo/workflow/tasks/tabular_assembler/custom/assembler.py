@@ -8,7 +8,9 @@ into a deployable Triton package and a self-contained raw package, using
 
 from __future__ import annotations
 
+import io
 import os
+import pickle
 import tempfile
 import uuid
 from typing import TYPE_CHECKING
@@ -160,12 +162,16 @@ def custom_assembler(
         assembled=True,
         schema=model_schema,
         sample_data=sample_data,
+        _schema=io.BytesIO(pickle.dumps(model_schema)),
+        _sample_data=io.BytesIO(pickle.dumps(sample_data)),
     )
     raw_metadata = ModelMetadata(
         deployable=False,
         assembled=True,
         schema=model_schema,
         sample_data=sample_data,
+        _schema=io.BytesIO(pickle.dumps(model_schema)),
+        _sample_data=io.BytesIO(pickle.dumps(sample_data)),
         training_framework=TRAINING_FRAMEWORK_CUSTOM,
         model_class=model_class,
         is_incremental_training=raw_model.metadata.is_incremental_training,

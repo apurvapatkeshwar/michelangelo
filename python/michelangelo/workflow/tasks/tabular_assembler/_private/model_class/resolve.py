@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytorch_lightning as pl
 import torch.nn as nn
 
-from michelangelo.lib.model_manager.interface.custom_model import ModelProtocol
+from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.uniflow.core.utils import import_attribute
 from michelangelo.workflow.variables.metadata import (
     TRAINING_FRAMEWORK_CUSTOM,
@@ -38,15 +38,9 @@ def try_load_class(model_class_path: str | None) -> type | None:
 def resolve_training_framework(model_class_path: str | None) -> str | None:
     """Infer the training framework identifier for a dotted class path.
 
-    Checks, in order: structural match against the custom ``Model`` /
-    ``ModelProtocol`` shape (``save``/``load``/``predict``), ``LightningModule``
-    subclass, plain ``nn.Module`` subclass. Lightning is checked before plain
+    Checks, in order: ``Model`` subclass, ``LightningModule`` subclass, plain
+    ``nn.Module`` subclass. Lightning is checked before plain
     ``torch.nn.Module`` since ``LightningModule`` is itself an ``nn.Module``.
-    The custom check uses ``ModelProtocol`` (structural, ``runtime_checkable``)
-    rather than nominal ``Model`` inheritance, so a class that implements the
-    right shape without literally subclassing ``Model`` still resolves to
-    ``TRAINING_FRAMEWORK_CUSTOM`` and gets routed to the custom packager,
-    which validates the same way.
 
     Args:
         model_class_path: Fully-qualified dotted path to a model class, or
@@ -60,7 +54,7 @@ def resolve_training_framework(model_class_path: str | None) -> str | None:
     model_class = try_load_class(model_class_path)
     if model_class is None:
         return None
-    if issubclass(model_class, ModelProtocol):
+    if issubclass(model_class, Model):
         return TRAINING_FRAMEWORK_CUSTOM
     if issubclass(model_class, pl.LightningModule):
         return TRAINING_FRAMEWORK_LIGHTNING

@@ -1,9 +1,10 @@
 """A model that structurally implements the Model interface without
 inheriting from ``michelangelo.lib.model_manager.interface.custom_model.Model``.
 
-Simulates an independently-defined interface (e.g. an internal SDK's own
-``Model`` ABC) with an identical method surface, used to verify that packager
-validation accepts structurally-conformant models.
+Simulates an independently-defined interface (e.g. a model class already
+extending some other, unrelated base class) with an identical method
+surface, used to verify that packager validation rejects it anyway --
+``Model`` conformance is checked nominally, not structurally.
 """
 
 from __future__ import annotations

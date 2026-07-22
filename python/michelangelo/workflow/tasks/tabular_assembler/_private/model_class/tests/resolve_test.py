@@ -47,9 +47,9 @@ CUSTOM_MODEL_CLASS_PATH = (
 class _StructuralModelFixture:
     """Implements the ``save``/``load``/``predict`` shape without inheriting ``Model``.
 
-    Used to prove ``resolve_training_framework`` accepts structurally-
-    conformant classes via ``ModelProtocol``, not just literal ``Model``
-    subclasses.
+    Used to prove ``resolve_training_framework`` requires literal ``Model``
+    subclassing (nominal, matching the internal interface's own behavior) --
+    shape alone is not enough.
     """
 
     def save(self, path: str) -> None:
@@ -120,18 +120,14 @@ class ResolveTest(unittest.TestCase):
         )
 
     def test_resolve_training_framework_structurally_conformant_model(self):
-        """A structurally-conformant, non-inheriting class also resolves to custom.
+        """A structurally-conformant, non-inheriting class does not resolve to custom.
 
-        ``resolve_training_framework`` checks ``ModelProtocol`` (structural),
-        not literal ``Model`` inheritance, so a class implementing
-        save/load/predict without subclassing ``Model`` still gets routed to
-        the custom packager -- matching the packager's own structural
-        validation (``validate_model_class``).
+        ``resolve_training_framework`` requires literal ``Model`` inheritance
+        (nominal) -- a class that only implements the save/load/predict
+        shape without subclassing ``Model`` is not routed to the custom
+        packager.
         """
-        self.assertEqual(
-            resolve_training_framework(_STRUCTURAL_MODEL_CLASS_PATH),
-            TRAINING_FRAMEWORK_CUSTOM,
-        )
+        self.assertIsNone(resolve_training_framework(_STRUCTURAL_MODEL_CLASS_PATH))
 
     def test_resolve_training_framework_lightning_before_torch(self):
         """A ``LightningModule`` subclass resolves to lightning, not plain torch."""

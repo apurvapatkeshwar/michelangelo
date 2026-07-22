@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import tempfile
 import unittest
 import uuid
@@ -147,12 +148,32 @@ class TorchAssemblerTest(_LocalBackendTestCase):
             assembled.deployable_model.metadata.sample_data,
             raw_model.metadata.sample_data,
         )
+        self.assertEqual(
+            pickle.loads(assembled.deployable_model.metadata._schema.getvalue()),
+            raw_model.metadata.schema,
+        )
+        unpickled_sample_data = pickle.loads(
+            assembled.deployable_model.metadata._sample_data.getvalue()
+        )
+        np.testing.assert_array_equal(
+            unpickled_sample_data[0]["input"], sample_data[0]["input"]
+        )
 
         self.assertEqual(assembled.raw_model.metadata.deployable, False)
         self.assertEqual(assembled.raw_model.metadata.assembled, True)
         self.assertEqual(assembled.raw_model.metadata.schema, raw_model.metadata.schema)
         self.assertEqual(
             assembled.raw_model.metadata.sample_data, raw_model.metadata.sample_data
+        )
+        self.assertEqual(
+            pickle.loads(assembled.raw_model.metadata._schema.getvalue()),
+            raw_model.metadata.schema,
+        )
+        unpickled_raw_sample_data = pickle.loads(
+            assembled.raw_model.metadata._sample_data.getvalue()
+        )
+        np.testing.assert_array_equal(
+            unpickled_raw_sample_data[0]["input"], sample_data[0]["input"]
         )
         self.assertEqual(
             assembled.raw_model.metadata.training_framework, TRAINING_FRAMEWORK_PYTORCH

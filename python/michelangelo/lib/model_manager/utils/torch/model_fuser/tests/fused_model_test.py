@@ -11,7 +11,7 @@ import unittest
 import torch
 import torch.nn as nn
 
-from michelangelo.workflow.tasks.tabular_assembler.torch.model_fuser import FusedModel
+from michelangelo.lib.model_manager.utils.torch.model_fuser import FusedModel
 
 
 class _DictTransform(nn.Module):

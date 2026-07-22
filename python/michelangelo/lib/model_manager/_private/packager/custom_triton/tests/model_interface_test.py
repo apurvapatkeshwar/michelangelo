@@ -64,15 +64,17 @@ class ModelInterfaceTest(TestCase):
         self.assertFalse(valid)
         self.assertIsInstance(error, TypeError)
 
-    def test_validate_model_class_duck_typed(self):
-        """It accepts a model that structurally implements the interface.
+    def test_validate_model_class_duck_typed_rejected(self):
+        """It rejects a model that only structurally implements the interface.
 
-        The model implements save/load/predict without subclassing Model.
+        The model implements save/load/predict without subclassing Model;
+        ``Model`` conformance is checked nominally, not structurally, so this
+        must be rejected.
         """
         model_class_name = (
             "michelangelo.lib.model_manager._private.packager.custom_triton."
             "tests.fixtures.duck_typed_model.DuckTypedModel"
         )
         valid, error = validate_model_class(model_class_name)
-        self.assertTrue(valid)
-        self.assertIsNone(error)
+        self.assertFalse(valid)
+        self.assertIsInstance(error, TypeError)
