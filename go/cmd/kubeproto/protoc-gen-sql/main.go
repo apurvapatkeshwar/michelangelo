@@ -106,8 +106,8 @@ func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Optio
 //	    KEY `..._<key>` (`<key>`), ...
 //	);
 func emitUnmarshaledTable(buf *bytes.Buffer, baseTableName string, fields []util.IndexedField, wrapperKind string) {
-	tableName := baseTableName + "_" + wrapperKind + "_unmarshaled"
-	uidColumn := wrapperKind + "_uid"
+	tableName := util.SidecarTable(baseTableName, wrapperKind)
+	uidColumn := util.SidecarUIDColumn(wrapperKind)
 
 	templates.CRDMySQLUnmarshaledTable.Execute(buf, struct {
 		TableName string

@@ -141,18 +141,36 @@ func ParseRevisionedIndex(crdRootMsg *protogen.Message, crdOptions *pboptions.Op
 	for i := 0; i < kindCount; i++ {
 		kind := crdOptions.String("resource.revisioned_in[" + strconv.Itoa(i) + "]")
 		if kind == "" {
-			logger.Panicf("Invalid revisioned_in annotation. kind is not specified at index %d", i)
+			logger.Panicf("Invalid revisioned_in annotation on %v. kind is not specified at index %d",
+				crdRootMsg.GoIdent.GoName, i)
 		}
 		kinds = append(kinds, kind)
 	}
 
 	fields := ParseIndexedFields(crdRootMsg, crdOptions)
 	if len(fields) == 0 {
-		logger.Panicf("Invalid revisioned_in annotation. CRD declares revisioned_in %v "+
-			"but has no michelangelo.api.index fields to mirror", kinds)
+		logger.Panicf("Invalid revisioned_in annotation on %v. CRD declares revisioned_in %v "+
+			"but has no michelangelo.api.index fields to mirror", crdRootMsg.GoIdent.GoName, kinds)
 	}
 
 	return &RevisionedIndex{Kinds: kinds, Fields: fields}
+}
+
+// SidecarTable returns the sidecar table name for a (base table, wrapper kind)
+// pair. protoc-gen-sql emits the CREATE TABLE under this name and
+// protoc-gen-kubeproto bakes it into the generated RevisionedIndexSpecs, so both
+// generators MUST derive it from here — the runtime queries whatever the spec
+// says, and a divergence between the two would only surface as a missing table
+// in production.
+func SidecarTable(baseTableName, kind string) string {
+	return baseTableName + "_" + kind + "_unmarshaled"
+}
+
+// SidecarUIDColumn returns the primary-key column of a wrapper kind's sidecar
+// table (e.g. "revision" -> "revision_uid"). Shared by both generators for the
+// same reason as SidecarTable.
+func SidecarUIDColumn(kind string) string {
+	return kind + "_uid"
 }
 
 // buildIndexedField resolves a single (key, path) against rootMsg and returns the

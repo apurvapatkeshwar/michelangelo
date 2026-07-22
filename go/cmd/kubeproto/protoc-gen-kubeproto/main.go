@@ -496,22 +496,23 @@ func genCRDRevisionedIndex(crdName string, crdRootMsg *protogen.Message, crdBuf 
 	}{crdName}
 	templates.CRDGetRevisionedIndexHeader.Execute(crdBuf, typeInfo)
 
+	// Under mirror-all every wrapper kind carries the same field set, so extract
+	// the values once and assign the slice to each kind's map entry (consumers
+	// only read it).
+	crdBuf.Write([]byte("\tvar indexedFields []storage.IndexedField\n"))
+	emitIndexedFieldExtraction(crdBuf, revisioned.Fields)
 	for _, kind := range revisioned.Kinds {
-		crdBuf.Write([]byte("\t{\n"))
-		crdBuf.Write([]byte("\tvar indexedFields []storage.IndexedField\n"))
-		emitIndexedFieldExtraction(crdBuf, revisioned.Fields)
 		crdBuf.Write([]byte("\tresult[\"" + kind + "\"] = indexedFields\n"))
-		crdBuf.Write([]byte("\t}\n\n"))
 	}
 
-	crdBuf.Write([]byte("\treturn result\n}\n\n"))
+	crdBuf.Write([]byte("\n\treturn result\n}\n\n"))
 
 	tableBaseName := utils.ToSnakeCase(crdName)
 	templates.CRDRevisionedIndexSpecsHeader.Execute(crdBuf, typeInfo)
 	for _, kind := range revisioned.Kinds {
 		wrapperKindKind := resolveWrapperKind(crdName, kind, allProtoMsgs, extTypes)
-		table := tableBaseName + "_" + kind + "_unmarshaled"
-		uidCol := kind + "_uid"
+		table := util.SidecarTable(tableBaseName, kind)
+		uidCol := util.SidecarUIDColumn(kind)
 
 		crdBuf.Write([]byte("\t\t{\n"))
 		crdBuf.Write([]byte("\t\t\tWrapperGVK: schema.GroupVersionKind{Group: \"" + gInfo.Name + "\", Version: \"" +
