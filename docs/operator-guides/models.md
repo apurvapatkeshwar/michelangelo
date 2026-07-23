@@ -10,7 +10,7 @@ Michelangelo AI provides three gRPC services for managing ML models, model famil
 
 `ModelService` manages Model resources — registered ML artifacts that can be deployed to an InferenceServer or referenced by pipeline tasks.
 
-**Proto:** [`proto/api/v2/model_svc.proto`](../../../proto/api/v2/model_svc.proto)
+**Proto:** `proto/api/v2/model_svc.proto`
 
 **Operations:** Create, Get, List, Update, Delete
 
@@ -29,7 +29,7 @@ ModelService
 
 `ModelFamilyService` manages ModelFamily resources — named groupings that logically relate a set of model versions.
 
-**Proto:** [`proto/api/v2/model_family_svc.proto`](../../../proto/api/v2/model_family_svc.proto)
+**Proto:** `proto/api/v2/model_family_svc.proto`
 
 **Operations:** Create, Get, List, Update, Delete
 
@@ -48,7 +48,7 @@ ModelFamilyService
 
 `CachedOutputService` manages CachedOutput resources — pre-computed inference results stored for reuse.
 
-**Proto:** [`proto/api/v2/cached_output_svc.proto`](../../../proto/api/v2/cached_output_svc.proto)
+**Proto:** `proto/api/v2/cached_output_svc.proto`
 
 **Operations:** Create, Get
 
@@ -64,4 +64,4 @@ CachedOutputService
 
 - [Serving Overview](./serving/index.md) — deploying models to InferenceServers
 - [Model Registry Guide](../user-guides/train-and-deploy-models/model-registry-guide.md) — registering and versioning models via the Python SDK
-- [`proto/api/v2/`](../../proto/api/v2/) — full proto definitions for all services
+- `proto/api/v2/` — full proto definitions for all services
