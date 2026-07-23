@@ -6,6 +6,7 @@ import os
 import pickle
 import tempfile
 import unittest
+from io import BytesIO
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -15,12 +16,10 @@ from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBacken
 from michelangelo.lib.model_manager.constants import StorageType
 from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
+from michelangelo.lib.model_manager.schema.fuse import fuse_model_schema
 from michelangelo.workflow.schema.assembler import (
     CustomAssemblerConfig,
     TabularAssemblerConfig,
-)
-from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
-    fuse_model_schema,
 )
 from michelangelo.workflow.tasks.tabular_assembler.custom.assembler import (
     custom_assembler,
@@ -116,13 +115,17 @@ class CustomAssemblerTest(unittest.TestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class=CUSTOM_MODEL_CLASS_PATH,
-                schema=_make_schema(),
-                sample_data=[
-                    {
-                        "input": np.array([[1.0, 2.0], [3.0, 4.0]]),
-                        "label": np.array([b"a"]),
-                    }
-                ],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(
+                    pickle.dumps(
+                        [
+                            {
+                                "input": np.array([[1.0, 2.0], [3.0, 4.0]]),
+                                "label": np.array([b"a"]),
+                            }
+                        ]
+                    )
+                ),
                 is_incremental_training=True,
                 baseline_model_identifier="baseline-model-v1",
             ),
@@ -136,10 +139,6 @@ class CustomAssemblerTest(unittest.TestCase):
         self.assertEqual(assembled.deployable_model.metadata.assembled, True)
         self.assertEqual(
             assembled.deployable_model.metadata.schema, raw_model.metadata.schema
-        )
-        self.assertEqual(
-            assembled.deployable_model.metadata.sample_data,
-            raw_model.metadata.sample_data,
         )
         self.assertEqual(
             pickle.loads(assembled.deployable_model.metadata._schema.getvalue()),
@@ -156,9 +155,6 @@ class CustomAssemblerTest(unittest.TestCase):
         self.assertEqual(assembled.raw_model.metadata.deployable, False)
         self.assertEqual(assembled.raw_model.metadata.assembled, True)
         self.assertEqual(assembled.raw_model.metadata.schema, raw_model.metadata.schema)
-        self.assertEqual(
-            assembled.raw_model.metadata.sample_data, raw_model.metadata.sample_data
-        )
         self.assertEqual(
             pickle.loads(assembled.raw_model.metadata._schema.getvalue()),
             raw_model.metadata.schema,
@@ -231,8 +227,8 @@ class CustomAssemblerTest(unittest.TestCase):
             path=self._upload_raw_model_source(contents=b"weights-xyz"),
             metadata=ModelMetadata(
                 model_class=CUSTOM_MODEL_CLASS_PATH,
-                schema=_make_schema(),
-                sample_data=[{}],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([{}])),
             ),
         )
 
@@ -258,8 +254,8 @@ class CustomAssemblerTest(unittest.TestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class=CUSTOM_MODEL_CLASS_PATH,
-                schema=_make_schema(),
-                sample_data=[{}],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([{}])),
             ),
         )
 
@@ -291,8 +287,8 @@ class CustomAssemblerTest(unittest.TestCase):
                     path=self._upload_raw_model_source(),
                     metadata=ModelMetadata(
                         model_class=CUSTOM_MODEL_CLASS_PATH,
-                        schema=_make_schema(),
-                        sample_data=[{}],
+                        _schema=BytesIO(pickle.dumps(_make_schema())),
+                        _sample_data=BytesIO(pickle.dumps([{}])),
                     ),
                 )
 
@@ -325,8 +321,8 @@ class CustomAssemblerTest(unittest.TestCase):
                     path=self._upload_raw_model_source(),
                     metadata=ModelMetadata(
                         model_class=CUSTOM_MODEL_CLASS_PATH,
-                        schema=_make_schema(),
-                        sample_data=[{}],
+                        _schema=BytesIO(pickle.dumps(_make_schema())),
+                        _sample_data=BytesIO(pickle.dumps([{}])),
                     ),
                 )
 
@@ -395,8 +391,10 @@ class CustomAssemblerTest(unittest.TestCase):
                 tx_src_dir, f"sources/{os.path.basename(tx_src_dir)}"
             ),
             metadata=ModelMetadata(
-                schema=tx_schema,
-                sample_data=[{"a": np.array([0.0], dtype=np.float32)}],
+                _schema=BytesIO(pickle.dumps(tx_schema)),
+                _sample_data=BytesIO(
+                    pickle.dumps([{"a": np.array([0.0], dtype=np.float32)}])
+                ),
             ),
         )
         pred_src_dir = tempfile.mkdtemp(dir=self._tmp.name)
@@ -409,8 +407,8 @@ class CustomAssemblerTest(unittest.TestCase):
             ),
             metadata=ModelMetadata(
                 model_class=CUSTOM_MODEL_CLASS_PATH,
-                schema=pred_schema,
-                sample_data=[{}],
+                _schema=BytesIO(pickle.dumps(pred_schema)),
+                _sample_data=BytesIO(pickle.dumps([{}])),
             ),
         )
 
@@ -449,8 +447,8 @@ class CustomAssemblerTest(unittest.TestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class="metadata.should.NotBeUsed",
-                schema=_make_schema(),
-                sample_data=[{}],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([{}])),
             ),
         )
 
@@ -474,8 +472,8 @@ class CustomAssemblerTest(unittest.TestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class=CUSTOM_MODEL_CLASS_PATH,
-                schema=_make_schema(),
-                sample_data=[{}],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([{}])),
             ),
         )
 

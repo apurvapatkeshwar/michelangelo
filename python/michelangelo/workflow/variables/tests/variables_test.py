@@ -75,16 +75,16 @@ class TestModelMetadata(TestCase):
         """A subclass can add provider-specific fields."""
 
         @dataclass
-        class UberModelMetadata(ModelMetadata):
+        class ExtendedModelMetadata(ModelMetadata):
             training_job_id: str | None = None
 
-        uber_meta = UberModelMetadata(
+        extended_meta = ExtendedModelMetadata(
             training_framework="pytorch",
             training_job_id="job-1",
         )
-        self.assertEqual(uber_meta.training_framework, "pytorch")
-        self.assertEqual(uber_meta.training_job_id, "job-1")
-        self.assertIsInstance(uber_meta, ModelMetadata)
+        self.assertEqual(extended_meta.training_framework, "pytorch")
+        self.assertEqual(extended_meta.training_job_id, "job-1")
+        self.assertIsInstance(extended_meta, ModelMetadata)
 
 
 class TestModelArtifact(TestCase):
@@ -119,14 +119,14 @@ class TestModelArtifact(TestCase):
         """It stores a ModelMetadata subclass without modification."""
 
         @dataclass
-        class UberModelMetadata(ModelMetadata):
+        class ExtendedModelMetadata(ModelMetadata):
             training_job_id: str | None = None
 
-        uber_meta = UberModelMetadata(
+        extended_meta = ExtendedModelMetadata(
             training_framework="huggingface",
             training_job_id="j-42",
         )
-        artifact = ModelArtifact(path="/tmp/m", metadata=uber_meta)
+        artifact = ModelArtifact(path="/tmp/m", metadata=extended_meta)
         self.assertIsInstance(artifact.metadata, ModelMetadata)
         # type: ignore[attr-defined]
         self.assertEqual(artifact.metadata.training_job_id, "j-42")  # type: ignore[attr-defined]

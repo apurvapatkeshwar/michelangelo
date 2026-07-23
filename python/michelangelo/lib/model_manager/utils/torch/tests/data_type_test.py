@@ -42,10 +42,6 @@ class DataTypeToTorchDtypeTest(TestCase):
         """It maps DataType.BOOLEAN to torch.bool."""
         self.assertEqual(data_type_to_torch_dtype(DataType.BOOLEAN), torch.bool)
 
-    def test_numeric_maps_to_float64(self):
-        """It maps DataType.NUMERIC to torch.float64."""
-        self.assertEqual(data_type_to_torch_dtype(DataType.NUMERIC), torch.float64)
-
     def test_unsupported_data_type_raises_value_error(self):
         """It raises ValueError for a DataType with no torch.dtype mapping."""
         with self.assertRaises(ValueError) as ctx:

@@ -17,6 +17,11 @@ from michelangelo.workflow.variables.metadata import (
 def try_load_class(model_class_path: str | None) -> type | None:
     """Return the class for a dotted import path, or ``None`` on failure.
 
+    ``model_class_path`` is expected to come from a trusted pipeline
+    definition (assembler config or a previously-recorded model's own
+    metadata), not from unauthenticated end-user input: resolving it imports
+    the target module, which executes that module's top-level code.
+
     Args:
         model_class_path: Fully-qualified dotted path to a class (e.g.
             ``"mypkg.models.MyModel"``), or ``None``/empty.
@@ -30,7 +35,7 @@ def try_load_class(model_class_path: str | None) -> type | None:
         return None
     try:
         attr = import_attribute(model_class_path)
-    except Exception:
+    except (ModuleNotFoundError, ImportError, AttributeError, ValueError):
         return None
     return attr if isinstance(attr, type) else None
 

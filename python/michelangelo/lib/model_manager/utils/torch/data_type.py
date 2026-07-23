@@ -12,9 +12,6 @@ _DATA_TYPE_TO_TORCH_DTYPE: dict[DataType, torch.dtype] = {
     DataType.BYTE: torch.int8,
     DataType.LONG: torch.int64,
     DataType.BOOLEAN: torch.bool,
-    # NUMERIC is a generic, unspecified-precision numeric type used by fused
-    # schemas; widen to float64 so no precision is lost.
-    DataType.NUMERIC: torch.float64,
 }
 
 _TORCH_DTYPE_TO_DATA_TYPE: dict[torch.dtype, DataType] = {

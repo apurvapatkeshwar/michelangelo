@@ -18,14 +18,11 @@ class DataTypeTest(TestCase):
 
         Only the Triton-relevant/OSS-public subset is defined here (see
         ``proto/api/v2/schema.proto``); the numeric values below intentionally
-        skip the gaps reserved by that proto's own DataType enum. ``NUMERIC``
-        is the one exception -- it has no proto/wire representation (see its
-        docstring) and is used purely for internal fused-schema bookkeeping.
+        skip the gaps reserved by that proto's own DataType enum.
         """
         expected_values = {
             "INVALID": 0,
             "UNKNOWN": 1,
-            "NUMERIC": 2,
             "BOOLEAN": 4,
             "STRING": 7,
             "BYTE": 15,

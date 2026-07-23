@@ -1,13 +1,19 @@
 """Schema fusion for native-transform + predictor models.
 
-Shared by the custom and PyTorch/Lightning tabular assembler paths: when a
-model is preceded by a native-transform stage, the servable package exposes a
-single fused input/output schema rather than two independent ones.
+Shared by the custom and PyTorch/Lightning tabular assembler paths, and by
+the torch model fuser, when a model is preceded by a native-transform stage:
+the servable package exposes a single fused input/output schema rather than
+two independent ones.
 """
 
 from __future__ import annotations
 
-from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
+from typing import TYPE_CHECKING
+
+from michelangelo.lib.model_manager.schema.model_schema import ModelSchema
+
+if TYPE_CHECKING:
+    from michelangelo.lib.model_manager.schema.model_schema_item import ModelSchemaItem
 
 
 def fuse_input_schema(

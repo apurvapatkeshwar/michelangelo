@@ -34,13 +34,11 @@ import onnx
 import torch
 
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema
+from michelangelo.lib.model_manager.schema.fuse import fuse_input_schema
 from michelangelo.lib.model_manager.utils.torch.data_type import (
     data_type_to_torch_dtype,
 )
 from michelangelo.uniflow.core.utils import import_attribute
-from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
-    fuse_input_schema,
-)
 
 from .fused_model import FusedModel
 

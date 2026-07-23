@@ -1,4 +1,4 @@
-"""Unit tests for ``...tabular_assembler._private.data.fuse``."""
+"""Unit tests for ``...model_manager.schema.sample_data_fuse``."""
 
 from __future__ import annotations
 
@@ -6,9 +6,7 @@ import unittest
 
 import numpy as np
 
-from michelangelo.workflow.tasks.tabular_assembler._private.data.fuse import (
-    fuse_sample_data,
-)
+from michelangelo.lib.model_manager.schema.sample_data_fuse import fuse_sample_data
 
 
 class FuseSampleDataTest(unittest.TestCase):

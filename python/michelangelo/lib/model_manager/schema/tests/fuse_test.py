@@ -1,11 +1,11 @@
-"""Unit tests for ``...tabular_assembler._private.schema.fuse``."""
+"""Unit tests for ``model_manager.schema.fuse``."""
 
 from __future__ import annotations
 
 import unittest
 
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
-from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
+from michelangelo.lib.model_manager.schema.fuse import (
     fuse_input_schema,
     fuse_model_schema,
 )
@@ -15,10 +15,12 @@ class FuseInputSchemaTest(unittest.TestCase):
     """Tests for ``fuse_input_schema``."""
 
     def test_empty_schemas(self) -> None:
+        """``None`` and empty schemas both fuse to an empty input list."""
         self.assertEqual(fuse_input_schema(None, None), [])
         self.assertEqual(fuse_input_schema(ModelSchema(), ModelSchema()), [])
 
     def test_union_preserves_order_tx_then_pred(self) -> None:
+        """Fused inputs are ordered transform-first, then predictor."""
         tx = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="a", data_type=DataType.FLOAT, shape=[2, 3])
@@ -35,6 +37,7 @@ class FuseInputSchemaTest(unittest.TestCase):
         self.assertEqual(out[1].data_type, DataType.INT)
 
     def test_tx_wins_on_duplicate_key(self) -> None:
+        """When both stages define an input with the same name, tx wins."""
         tx = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="x", data_type=DataType.FLOAT, shape=[1])
@@ -49,6 +52,7 @@ class FuseInputSchemaTest(unittest.TestCase):
         self.assertEqual(out[0].shape, [1])
 
     def test_excludes_predictor_inputs_that_are_tx_outputs(self) -> None:
+        """Predictor inputs produced by the transform are not user-facing."""
         tx = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
@@ -67,6 +71,7 @@ class FuseInputSchemaTest(unittest.TestCase):
         self.assertEqual([item.name for item in out], ["in"])
 
     def test_item_missing_field_passed_through(self) -> None:
+        """Items with a ``None`` shape or dtype are passed through as-is."""
         for field in ("shape", "data_type"):
             with self.subTest(field=field):
                 kwargs = {"name": "a", "data_type": DataType.FLOAT, "shape": [2]}
@@ -81,6 +86,7 @@ class FuseModelSchemaTest(unittest.TestCase):
     """Tests for ``fuse_model_schema``."""
 
     def test_input_matches_fuse_input_schema_same_item_references(self) -> None:
+        """The fused input schema reuses ``fuse_input_schema``'s items."""
         tx_schema = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="u", data_type=DataType.FLOAT, shape=[1])
@@ -102,6 +108,7 @@ class FuseModelSchemaTest(unittest.TestCase):
             self.assertIs(fused_item, expected)
 
     def test_output_schema_from_predictor(self) -> None:
+        """The fused output schema is the predictor's, unchanged."""
         tx_schema = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="tx_in_a", data_type=DataType.FLOAT, shape=[1]),
@@ -129,6 +136,7 @@ class FuseModelSchemaTest(unittest.TestCase):
         self.assertEqual([item.name for item in fused.output_schema], ["output"])
 
     def test_empty_predictor_returns_empty_outputs(self) -> None:
+        """With no predictor, the fused schema has an empty output schema."""
         tx_schema = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="x", data_type=DataType.FLOAT, shape=[1])
@@ -142,11 +150,13 @@ class FuseModelSchemaTest(unittest.TestCase):
         self.assertEqual(len(fused.output_schema), 0)
 
     def test_both_schemas_none(self) -> None:
+        """With no schemas at all, the fused schema is empty on both sides."""
         fused = fuse_model_schema(None, None)
         self.assertEqual(fused.input_schema, [])
         self.assertEqual(fused.output_schema, [])
 
     def test_output_items_are_shallow_copy_of_predictor_list(self) -> None:
+        """The output list is a new list, but items are shared references."""
         out_item = ModelSchemaItem(name="logit", data_type=DataType.FLOAT, shape=[32])
         predictor_schema = ModelSchema(
             input_schema=[

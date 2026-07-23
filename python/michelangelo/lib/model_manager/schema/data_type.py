@@ -19,10 +19,6 @@ class DataType(Enum):
             schemas.
         UNKNOWN: Unknown data type. May be used as a placeholder during schema
             inference.
-        NUMERIC: Generic numeric value of unspecified precision. Used by
-            fused/derived schemas (e.g. tabular feature fusion) where the
-            concrete numeric width is decided downstream. Maps to float64 in
-            NumPy/PyTorch; not a Triton wire type on its own.
         BOOLEAN: Boolean values (True/False). Maps to bool in Python and
             BOOL in Triton.
         STRING: String/text data. Maps to str in Python and BYTES in Triton.
@@ -41,7 +37,6 @@ class DataType(Enum):
 
     INVALID = 0
     UNKNOWN = 1
-    NUMERIC = 2
     BOOLEAN = 4
     STRING = 7
     BYTE = 15

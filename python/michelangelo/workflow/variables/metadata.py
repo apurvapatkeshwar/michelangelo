@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -66,15 +67,6 @@ class ModelMetadata:
             ``None`` for non-incremental models, and for the first run of a new
             incremental chain (the BASELINE run itself). Set on continuation
             runs to the identifier of the original baseline.
-        schema: Typed input/output schema for the model, set by assembler
-            tasks that package a model for serving. Distinct from the
-            ``_schema`` binary payload below — this is the live
-            ``ModelSchema`` object consumed directly by packagers, not a
-            serialised form. ``None`` when not recorded.
-        sample_data: Sample inference inputs used to validate a packaged
-            model, as a list of dicts mapping feature names to array-like
-            values. Set by assembler tasks alongside ``schema``. ``None``
-            when not recorded.
         transform_spec: Opaque feature-transform specification propagated
             from a native-transform model through assembly, used to
             reconstruct the transform at serve time. ``None`` when the model
@@ -82,10 +74,16 @@ class ModelMetadata:
         feature_stats: Opaque feature statistics propagated from a
             native-transform model through assembly (e.g. normalization
             parameters). ``None`` when not recorded.
-        _schema: Serialised input/output schema (e.g. protobuf or JSON bytes).
-            Not included in ``repr`` to avoid flooding logs.
-        _sample_data: Serialised sample inference payload used for smoke-testing
-            the deployed model. Not included in ``repr``.
+        _schema: Serialised (pickled) input/output schema. This, not a live
+            ``schema`` field, is what actually crosses a workflow task
+            boundary: a live ``ModelSchema`` object passed by value through
+            uniflow/cadence can be large enough to exceed shell/cadence
+            argument-size limits when inlined. Use the ``schema`` property to
+            read it back as a live object. Not included in ``repr``.
+        _sample_data: Serialised sample inference payload used for
+            smoke-testing the deployed model, for the same reason ``_schema``
+            is serialised rather than carried live. Use the ``sample_data``
+            property to read it back. Not included in ``repr``.
         _hyperparameters: Serialised training hyperparameters for
             reproducibility. Not included in ``repr``.
         hyperparameters: Live training hyperparameters as a Python dict.
@@ -108,14 +106,44 @@ class ModelMetadata:
     deployable: bool = False
     is_incremental_training: bool = False
     baseline_model_identifier: str | None = None
-    schema: ModelSchema | None = None
-    sample_data: list[dict[str, Any]] | None = None
     transform_spec: dict[str, Any] | None = None
     feature_stats: dict[str, Any] | None = None
     _schema: BytesIO | None = field(default=None, repr=False)
     _sample_data: BytesIO | None = field(default=None, repr=False)
     _hyperparameters: BytesIO | None = field(default=None, repr=False)
     hyperparameters: dict[str, Any] | None = None
+
+    @property
+    def schema(self) -> ModelSchema | None:
+        """Typed input/output schema, lazily unpickled from ``_schema``.
+
+        Set via ``_schema`` (e.g. ``_schema=io.BytesIO(pickle.dumps(schema))``)
+        rather than as a constructor keyword — this stays a read-only view so
+        the only thing carried across a workflow task boundary is the
+        serialised payload, never a live object passed by value.
+
+        Returns:
+            The unpickled ``ModelSchema``, or ``None`` if ``_schema`` is unset.
+        """
+        if self._schema is None:
+            return None
+        self._schema.seek(0)
+        return pickle.loads(self._schema.read())  # noqa: S301
+
+    @property
+    def sample_data(self) -> list[dict[str, Any]] | None:
+        """Sample inference inputs, lazily unpickled from ``_sample_data``.
+
+        Set via ``_sample_data`` for the same reason ``schema`` is backed by
+        ``_schema`` — see that property's docstring.
+
+        Returns:
+            The unpickled sample data, or ``None`` if ``_sample_data`` is unset.
+        """
+        if self._sample_data is None:
+            return None
+        self._sample_data.seek(0)
+        return pickle.loads(self._sample_data.read())  # noqa: S301
 
     def to_registry_dict(self) -> dict[str, str]:
         """Return a flat string dict of public fields suitable for registry tags.

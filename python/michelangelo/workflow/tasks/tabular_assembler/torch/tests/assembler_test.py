@@ -7,6 +7,7 @@ import pickle
 import tempfile
 import unittest
 import uuid
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -21,6 +22,7 @@ from michelangelo.workflow.schema.assembler import (
     TorchAssemblerConfig,
 )
 from michelangelo.workflow.tasks.tabular_assembler.torch.assembler import (
+    _normalize_scalar_shapes,
     _reorder_output_schema,
     torch_assembler,
 )
@@ -128,8 +130,8 @@ class TorchAssemblerTest(_LocalBackendTestCase):
                 model_class="test.SimpleTorchModel",
                 training_framework=TRAINING_FRAMEWORK_PYTORCH,
                 hyperparameters={"input_dim": 2, "output_dim": 1},
-                schema=_make_schema(),
-                sample_data=sample_data,
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps(sample_data)),
                 is_incremental_training=True,
                 baseline_model_identifier="baseline-model-v1",
             ),
@@ -145,10 +147,6 @@ class TorchAssemblerTest(_LocalBackendTestCase):
             assembled.deployable_model.metadata.schema, raw_model.metadata.schema
         )
         self.assertEqual(
-            assembled.deployable_model.metadata.sample_data,
-            raw_model.metadata.sample_data,
-        )
-        self.assertEqual(
             pickle.loads(assembled.deployable_model.metadata._schema.getvalue()),
             raw_model.metadata.schema,
         )
@@ -162,9 +160,6 @@ class TorchAssemblerTest(_LocalBackendTestCase):
         self.assertEqual(assembled.raw_model.metadata.deployable, False)
         self.assertEqual(assembled.raw_model.metadata.assembled, True)
         self.assertEqual(assembled.raw_model.metadata.schema, raw_model.metadata.schema)
-        self.assertEqual(
-            assembled.raw_model.metadata.sample_data, raw_model.metadata.sample_data
-        )
         self.assertEqual(
             pickle.loads(assembled.raw_model.metadata._schema.getvalue()),
             raw_model.metadata.schema,
@@ -225,7 +220,8 @@ class TorchAssemblerTest(_LocalBackendTestCase):
         raw_model = ModelArtifact(
             path=self._upload_raw_model_source(contents=b"weights-xyz"),
             metadata=ModelMetadata(
-                model_class="test.SimpleTorchModel", schema=_make_schema()
+                model_class="test.SimpleTorchModel",
+                _schema=BytesIO(pickle.dumps(_make_schema())),
             ),
         )
 
@@ -248,8 +244,8 @@ class TorchAssemblerTest(_LocalBackendTestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class="test.SimpleTorchModel",
-                schema=ModelSchema(),
-                sample_data=[],
+                _schema=BytesIO(pickle.dumps(ModelSchema())),
+                _sample_data=BytesIO(pickle.dumps([])),
             ),
         )
 
@@ -269,8 +265,8 @@ class TorchAssemblerTest(_LocalBackendTestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class="test.SimpleTorchModel",
-                schema=_make_schema(),
-                sample_data=[],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([])),
             ),
         )
 
@@ -279,33 +275,33 @@ class TorchAssemblerTest(_LocalBackendTestCase):
         self.assertEqual(mock_create_model.call_args.kwargs["backend"], "python")
 
     def test_native_transform_raises_not_implemented_pending_native_transform(self):
-        """Real fusion now runs (model_fuser landed); native_transform is still needed.
+        """Real fusion now runs; native_transform support is still needed.
 
         ``torch/assembler.py``'s native-transform branch resolves its
-        ``model_fuser.fuse`` import (bucket E landed it), so this no longer
-        fails at the import stub in ``_model_fuser_functions``. It reaches
-        real fusion code and still raises ``NotImplementedError`` -- now from
+        ``model_fuser.fuse`` import, so this no longer fails at the import
+        stub in ``_model_fuser_functions``. It reaches real fusion code and
+        still raises ``NotImplementedError`` -- now from
         ``fuse_models_to_python``'s ``_build_tx_hydra_spec`` call, which is
-        gated on the native-transform package (migration bucket "PR F"),
-        which hasn't landed yet. Real (non-garbage) model files are used here
-        so the ``NotImplementedError`` is unambiguously coming from that gate
-        and not an incidental file-format error.
+        gated on the native-transform package, which hasn't landed yet. Real
+        (non-garbage) model files are used here so the
+        ``NotImplementedError`` is unambiguously coming from that gate and
+        not an incidental file-format error.
         """
         config = TabularAssemblerConfig()
         raw_model = ModelArtifact(
             path=self._upload_real_module_source(_E2EPredictor()),
             metadata=ModelMetadata(
                 model_class=f"{__name__}._E2EPredictor",
-                schema=_make_schema(),
-                sample_data=[{"input": np.array([1.0, 2.0])}],
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([{"input": np.array([1.0, 2.0])}])),
             ),
         )
         native_tx = ModelArtifact(
             path=self._upload_real_module_source(_E2ETxModule(), as_state_dict=False),
             metadata=ModelMetadata(
                 model_class=f"{__name__}._E2ETxModule",
-                schema=_native_tx_schema(),
-                sample_data=[{"tx_in": np.array([1.0])}],
+                _schema=BytesIO(pickle.dumps(_native_tx_schema())),
+                _sample_data=BytesIO(pickle.dumps([{"tx_in": np.array([1.0])}])),
             ),
         )
 
@@ -346,30 +342,34 @@ class NativeTransformFusionTest(_LocalBackendTestCase):
             metadata=ModelMetadata(
                 model_class="test.SimpleTorchModel",
                 hyperparameters={"input_dim": 1},
-                schema=ModelSchema(
-                    input_schema=[
-                        ModelSchemaItem(
-                            name="pred_in", data_type=DataType.FLOAT, shape=[1]
-                        ),
-                    ],
-                    output_schema=[
-                        ModelSchemaItem(
-                            name="a_out", data_type=DataType.FLOAT, shape=[1]
-                        ),
-                        ModelSchemaItem(
-                            name="b_out", data_type=DataType.FLOAT, shape=[1]
-                        ),
-                    ],
+                _schema=BytesIO(
+                    pickle.dumps(
+                        ModelSchema(
+                            input_schema=[
+                                ModelSchemaItem(
+                                    name="pred_in", data_type=DataType.FLOAT, shape=[1]
+                                ),
+                            ],
+                            output_schema=[
+                                ModelSchemaItem(
+                                    name="a_out", data_type=DataType.FLOAT, shape=[1]
+                                ),
+                                ModelSchemaItem(
+                                    name="b_out", data_type=DataType.FLOAT, shape=[1]
+                                ),
+                            ],
+                        )
+                    )
                 ),
-                sample_data=[{"pred_in": np.array([1.0])}],
+                _sample_data=BytesIO(pickle.dumps([{"pred_in": np.array([1.0])}])),
             ),
         )
         native_tx = ModelArtifact(
             path=self._upload_raw_model_source(contents=b"tx-weights"),
             metadata=ModelMetadata(
                 model_class="test.TxModel",
-                schema=_native_tx_schema(),
-                sample_data=[{"tx_in": np.array([1.0])}],
+                _schema=BytesIO(pickle.dumps(_native_tx_schema())),
+                _sample_data=BytesIO(pickle.dumps([{"tx_in": np.array([1.0])}])),
                 transform_spec={"transform_specs": [{"name": "Scale"}]},
                 feature_stats={"tx_in": {"mean": 0.5}},
             ),
@@ -611,6 +611,122 @@ class ReorderOutputSchemaTest(unittest.TestCase):
         self.assertEqual(
             [item.name for item in reordered.output_schema], ["a_out", "b_out"]
         )
+
+
+class NormalizeScalarShapesTest(unittest.TestCase):
+    """Tests for ``_normalize_scalar_shapes``.
+
+    Regression coverage for a real bug: a plain tabular model built the
+    documented way (``ColumnConfig("torch.float32")`` with no ``shape``, the
+    common scalar-feature case) produced ``ModelSchemaItem(shape=[])``
+    entries that Triton's schema validator rejects outright
+    (``ValueError: Shape must be provided for item: ...``), so
+    ``torch_assembler`` could never package the most common kind of tabular
+    model. ``_normalize_scalar_shapes`` widens empty shapes to ``[1]`` (and
+    reshapes any matching sample-data values) before packaging.
+    """
+
+    def test_empty_shape_normalized_to_one(self):
+        """A scalar (``shape=[]``) item is widened to ``shape=[1]``."""
+        schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
+            ],
+            output_schema=[
+                ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1]),
+            ],
+        )
+        normalized_schema, _ = _normalize_scalar_shapes(schema, None)
+        self.assertEqual(normalized_schema.input_schema[0].shape, [1])
+        self.assertEqual(normalized_schema.output_schema[0].shape, [1])
+
+    def test_non_empty_shape_left_unchanged(self):
+        """An item with a real shape is untouched (same object, not a copy)."""
+        schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="vec_in", data_type=DataType.FLOAT, shape=[8]),
+            ],
+        )
+        normalized_schema, _ = _normalize_scalar_shapes(schema, None)
+        self.assertIs(normalized_schema.input_schema[0], schema.input_schema[0])
+
+    def test_sample_data_for_scalar_field_reshaped_to_match(self):
+        """Sample-data values for a normalized field are reshaped to ``(1,)``."""
+        schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
+            ],
+        )
+        sample_data = [{"scalar_in": np.float32(3.0)}]
+        _, normalized_sample_data = _normalize_scalar_shapes(schema, sample_data)
+        self.assertEqual(normalized_sample_data[0]["scalar_in"].shape, (1,))
+        np.testing.assert_array_equal(
+            normalized_sample_data[0]["scalar_in"], np.array([3.0])
+        )
+
+    def test_sample_data_for_non_scalar_field_untouched(self):
+        """Sample-data values for a non-scalar field pass through unchanged."""
+        schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="vec_in", data_type=DataType.FLOAT, shape=[2]),
+            ],
+        )
+        sample_data = [{"vec_in": np.array([1.0, 2.0])}]
+        _, normalized_sample_data = _normalize_scalar_shapes(schema, sample_data)
+        self.assertIs(normalized_sample_data[0]["vec_in"], sample_data[0]["vec_in"])
+
+    def test_none_sample_data_returns_none(self):
+        """``sample_data=None`` returns ``None`` rather than an empty list."""
+        schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
+            ],
+        )
+        _, normalized_sample_data = _normalize_scalar_shapes(schema, None)
+        self.assertIsNone(normalized_sample_data)
+
+
+class ScalarColumnPackagingTest(_LocalBackendTestCase):
+    """End-to-end coverage of the scalar-column repro reported against this branch."""
+
+    @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_model_package")
+    @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_raw_model_package")
+    def test_scalar_columns_do_not_raise_shape_validation_error(
+        self, mock_create_raw, mock_create_model
+    ):
+        """A model with only scalar (``shape=[]``) features packages cleanly.
+
+        This is the shape a ``ColumnConfig("torch.float32")``-style
+        (no explicit ``shape``) scalar feature actually produces -- the
+        documented, common case for plain tabular models.
+        """
+        mock_create_model.side_effect = _fake_create_package("deployable")
+        mock_create_raw.side_effect = _fake_create_package("raw")
+
+        scalar_schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="MedInc", data_type=DataType.FLOAT, shape=[]),
+            ],
+            output_schema=[
+                ModelSchemaItem(name="prediction", data_type=DataType.FLOAT, shape=[]),
+            ],
+        )
+        config = TabularAssemblerConfig()
+        raw_model = ModelArtifact(
+            path=self._upload_raw_model_source(),
+            metadata=ModelMetadata(
+                model_class="test.SimpleTorchModel",
+                _schema=BytesIO(pickle.dumps(scalar_schema)),
+                _sample_data=BytesIO(pickle.dumps([{"MedInc": np.float32(1.0)}])),
+            ),
+        )
+
+        # Packaging a scalar-only schema must not raise Triton's
+        # "Shape must be provided" ValueError.
+        torch_assembler(config, raw_model, storage_backend=self.storage_backend)
+
+        packaged_schema = mock_create_model.call_args.kwargs["model_schema"]
+        self.assertEqual(packaged_schema.input_schema[0].shape, [1])
 
 
 if __name__ == "__main__":

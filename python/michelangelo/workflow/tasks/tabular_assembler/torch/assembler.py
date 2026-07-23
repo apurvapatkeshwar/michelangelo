@@ -19,13 +19,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from michelangelo.lib.model_manager.constants import StorageType
+from michelangelo.lib.model_manager.constants import StorageType, TritonBackendType
 from michelangelo.lib.model_manager.packager.torch_triton import TorchTritonPackager
 from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
+from michelangelo.lib.model_manager.schema.fuse import fuse_model_schema
 from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse as _fuse
-from michelangelo.workflow.tasks.tabular_assembler._private.schema.fuse import (
-    fuse_model_schema,
-)
 from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
@@ -34,16 +32,6 @@ if TYPE_CHECKING:
     from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
 
 __all__ = ["torch_assembler"]
-
-# Triton backend identifiers accepted by ``TorchAssemblerConfig.backend``.
-# These mirror ``michelangelo.lib.model_manager._private.constants
-# .triton_backend_type.TritonBackendType.{PYTHON,ONNX}`` values, duplicated
-# here as plain strings rather than imported: that module is private to
-# ``model_manager`` and the assembler task layer never crosses that
-# boundary (see ``TorchAssemblerConfig.backend``'s docstring, which already
-# documents the accepted string values).
-_BACKEND_PYTHON = "python"
-_BACKEND_ONNX = "onnxruntime"
 
 
 def _normalize_scalar_shapes(
@@ -215,9 +203,9 @@ def torch_assembler(
                 )
             )
 
-            if backend == _BACKEND_PYTHON:
+            if backend == TritonBackendType.PYTHON:
                 deployable_model_path = raw_model_path
-            elif backend == _BACKEND_ONNX:
+            elif backend == TritonBackendType.ONNX:
                 deployable_model_path = os.path.join(temp_dir, "fused_model.onnx")
                 fuse_models_to_onnx(
                     torch_model_path=torch_local_path,
@@ -325,16 +313,12 @@ def torch_assembler(
     deployable_metadata = ModelMetadata(
         deployable=True,
         assembled=True,
-        schema=model_schema_for_package,
-        sample_data=packaged_sample_data,
         _schema=io.BytesIO(pickle.dumps(model_schema_for_package)),
         _sample_data=io.BytesIO(pickle.dumps(packaged_sample_data)),
     )
     raw_metadata = ModelMetadata(
         deployable=False,
         assembled=True,
-        schema=model_schema_for_package,
-        sample_data=packaged_sample_data,
         _schema=io.BytesIO(pickle.dumps(model_schema_for_package)),
         _sample_data=io.BytesIO(pickle.dumps(packaged_sample_data)),
         training_framework=raw_model.metadata.training_framework,

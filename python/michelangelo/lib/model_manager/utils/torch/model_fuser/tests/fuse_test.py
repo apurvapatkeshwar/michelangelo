@@ -1,17 +1,14 @@
 """Tests for ``model_fuser.fuse``.
 
-Landing order follows the migration plan's §3.7 strategy: non-native-transform,
-non-ONNX tests first; ONNX tests next; native-transform-gated tests last
-(present but skipped until native-transform support lands — see PR F).
+Tests are grouped into non-ONNX cases, ONNX export cases, and
+native-transform-gated cases (present but skipped until native-transform
+support is available).
 
-Two internal test classes are intentionally **not** re-ported here:
-``FuseModelSchemaTest``/``FuseInputSchemaTest`` (they exercise
-``fuse_input_schema``/``fuse_model_schema``, which already have full coverage
-in ``_private/schema/tests/fuse_test.py`` from bucket C) and
-``FusedModelPythonBackendTest`` (exercises ``FusedModel.forward`` directly,
-already covered by ``torch/model_fuser/tests/fused_model_test.py`` from
-bucket D). Re-porting them here would just duplicate coverage of code this
-bucket doesn't own.
+``fuse_input_schema``/``fuse_model_schema`` already have full coverage in
+``_private/schema/tests/fuse_test.py`` and are not re-tested here.
+``FusedModel.forward`` is exercised directly in
+``torch/model_fuser/tests/fused_model_test.py`` and is likewise not
+duplicated here.
 """
 
 from __future__ import annotations
@@ -1495,21 +1492,21 @@ class FuseModelsToOnnxTest(unittest.TestCase):
 
 
 # ===========================================================================
-# Tranche 3: native-transform-gated (see PR F)
+# Native-transform-gated cases
 # ===========================================================================
 #
 # fuse_models_to_python always raises NotImplementedError for its raw
 # package until the native-transform package (TransformSpec,
 # TorchTransformModule) is migrated -- see _build_tx_hydra_spec's docstring.
 # FuseModelsToPythonNotImplementedTest below locks in that current behavior.
-# Once native-transform lands (PR F), port the internal BuildTxHydraSpecTest
-# and FuseModelsToPythonTest suites here for real behavioral coverage.
+# Once native-transform lands, add real behavioral coverage for the raw
+# package here.
 
 
 class FuseModelsToPythonNotImplementedTest(unittest.TestCase):
     """Documents today's actual (gated) behavior of ``fuse_models_to_python``.
 
-    Unlike the placeholder class above (which mirrors the internal suite and
+    Unlike the placeholder class above (which mirrors the future suite and
     stays skipped), this test runs today: it locks in that calling
     ``fuse_models_to_python`` raises a clear, actionable ``NotImplementedError``
     rather than failing confusingly or silently returning bad data.
