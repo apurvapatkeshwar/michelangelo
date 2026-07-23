@@ -58,6 +58,13 @@ def _normalize_scalar_shapes(
         an empty ``shape`` is replaced by a copy with ``shape=[1]``; any
         ``sample_data`` value for a field renamed this way is reshaped from
         scalar to a 1-element array to match.
+
+    Raises:
+        ValueError: If a field marked scalar in ``schema`` (empty ``shape``)
+            has a sample-data value with more than one element -- schema and
+            sample data have fallen out of sync, and packaging with a
+            mismatched shape would silently produce a corrupted package
+            rather than a clear error at this boundary.
     """
     scalar_fields = {
         item.name
@@ -83,11 +90,21 @@ def _normalize_scalar_shapes(
     if not sample_data or not scalar_fields:
         return normalized_schema, sample_data
 
+    def _normalized_value(name: str, value: Any) -> Any:
+        if name not in scalar_fields:
+            return value
+        try:
+            return np.reshape(value, (1,))
+        except ValueError as exc:
+            raise ValueError(
+                f"sample_data field {name!r} is marked scalar in schema "
+                f"(shape=[]) but its value has more than one element "
+                f"(shape {np.asarray(value).shape}); schema and sample_data "
+                "have fallen out of sync."
+            ) from exc
+
     normalized_sample_data = [
-        {
-            name: (np.reshape(value, (1,)) if name in scalar_fields else value)
-            for name, value in record.items()
-        }
+        {name: _normalized_value(name, value) for name, value in record.items()}
         for record in sample_data
     ]
     return normalized_schema, normalized_sample_data

@@ -180,6 +180,11 @@ def _load_module_from_path(
     if not os.path.isfile(path):
         raise FileNotFoundError(f"Model file not found: {path}")
 
+    # weights_only=False: the file may hold a full nn.Module (not just a
+    # state_dict), which torch's restricted unpickler can't reconstruct.
+    # Safe only because model artifacts here come from a trusted pipeline
+    # (this package's own storage backend), never directly from an
+    # unauthenticated end user.
     loaded = torch.load(path, map_location="cpu", weights_only=False)
 
     if _is_state_dict(loaded):
@@ -1083,6 +1088,9 @@ def fuse_models_to_python(
     if "state_dict" in predictor_sd and isinstance(predictor_sd["state_dict"], dict):
         predictor_sd = predictor_sd["state_dict"]
 
+    # weights_only=False: this file holds a full nn.Module (need its
+    # architecture to call .state_dict() below, not just tensors), from the
+    # same trusted-pipeline storage backend as _load_module_from_path above.
     tx_obj = torch.load(tx_model_path, map_location="cpu", weights_only=False)
     tx_sd = tx_obj.state_dict()
     del tx_obj

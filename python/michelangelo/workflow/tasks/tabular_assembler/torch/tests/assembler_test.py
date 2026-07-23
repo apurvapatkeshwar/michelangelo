@@ -668,6 +668,19 @@ class NormalizeScalarShapesTest(unittest.TestCase):
             normalized_sample_data[0]["scalar_in"], np.array([3.0])
         )
 
+    def test_scalar_field_with_multi_element_value_raises_clear_error(self):
+        """A schema/sample_data mismatch raises a descriptive error, not a raw numpy one."""
+        schema = ModelSchema(
+            input_schema=[
+                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
+            ],
+        )
+        sample_data = [{"scalar_in": np.array([1.0, 2.0, 3.0])}]
+        with self.assertRaises(ValueError) as ctx:
+            _normalize_scalar_shapes(schema, sample_data)
+        self.assertIn("scalar_in", str(ctx.exception))
+        self.assertIn("fallen out of sync", str(ctx.exception))
+
     def test_sample_data_for_non_scalar_field_untouched(self):
         """Sample-data values for a non-scalar field pass through unchanged."""
         schema = ModelSchema(
