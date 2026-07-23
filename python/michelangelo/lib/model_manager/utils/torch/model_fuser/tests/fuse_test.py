@@ -253,7 +253,7 @@ def _simple_tx_and_pred_schemas() -> tuple[ModelSchema, ModelSchema]:
 
 
 # ===========================================================================
-# Tranche 1: non-native-transform, non-ONNX
+# Non-ONNX cases
 # ===========================================================================
 
 
@@ -1059,7 +1059,7 @@ class ComputePythonFuseMetadataTest(unittest.TestCase):
 
 
 # ===========================================================================
-# Tranche 2: ONNX
+# ONNX export cases
 # ===========================================================================
 
 

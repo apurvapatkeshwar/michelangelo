@@ -323,6 +323,7 @@ def torch_assembler(
         _sample_data=io.BytesIO(pickle.dumps(packaged_sample_data)),
         training_framework=raw_model.metadata.training_framework,
         model_class=packaged_model_class,
+        hyperparameters=packaged_hyperparameters,
         is_incremental_training=raw_model.metadata.is_incremental_training,
         baseline_model_identifier=raw_model.metadata.baseline_model_identifier,
     )

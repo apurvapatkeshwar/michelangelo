@@ -180,6 +180,10 @@ class TorchAssemblerTest(_LocalBackendTestCase):
         self.assertEqual(
             assembled.raw_model.metadata.baseline_model_identifier, "baseline-model-v1"
         )
+        self.assertEqual(
+            assembled.raw_model.metadata.hyperparameters,
+            {"input_dim": 2, "output_dim": 1},
+        )
 
         self.assertTrue(os.path.exists(assembled.deployable_model.path))
         self.assertTrue(os.path.exists(assembled.raw_model.path))
@@ -687,7 +691,7 @@ class NormalizeScalarShapesTest(unittest.TestCase):
 
 
 class ScalarColumnPackagingTest(_LocalBackendTestCase):
-    """End-to-end coverage of the scalar-column repro reported against this branch."""
+    """End-to-end regression coverage for scalar (``shape=[]``) column packaging."""
 
     @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_model_package")
     @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_raw_model_package")

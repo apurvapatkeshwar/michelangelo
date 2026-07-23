@@ -38,8 +38,9 @@ class CustomAssemblerConfig:
             large importable module graph (e.g. a monorepo where the model
             class's own package pulls in thousands of transitively-importable
             modules) — set this to scope the walk to the module prefixes that
-            actually matter for the model (e.g. an internal caller with a
-            single top-level namespace might pass that namespace's prefix).
+            actually matter for the model (e.g. ``["mypkg.models"]`` if the
+            model class and its real dependencies all live under that one
+            package).
 
     Example:
         >>> CustomAssemblerConfig(custom_batch_processing=True).custom_batch_processing
