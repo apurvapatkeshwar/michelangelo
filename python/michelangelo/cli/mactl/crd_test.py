@@ -2,8 +2,11 @@
 
 from datetime import datetime, timezone
 from inspect import Parameter, Signature
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import MagicMock, Mock, patch
+
+from grpc import RpcError, StatusCode
 
 from michelangelo.cli.mactl.crd import (
     CRD,
@@ -839,6 +842,211 @@ class CreateFuncImplTest(TestCase):
             mock_crd.func_crd_metadata_converter,
         )
         mock_call.assert_called_once_with(crd_method_info, mock_request)
+
+    @patch("michelangelo.cli.mactl.crd.crd_method_call")
+    @patch("michelangelo.cli.mactl.crd.apply_dry_run_to_request")
+    @patch("michelangelo.cli.mactl.crd.read_yaml_to_crd_request")
+    def test_create_func_impl_forwards_dry_run(
+        self, mock_read_yaml: MagicMock, mock_dry_run: MagicMock, _
+    ):
+        """create_func_impl invokes the dry-run helper with create_options."""
+        crd_method_info = CrdMethodInfo(
+            channel=Mock(),
+            crd_full_name="test.Service",
+            method_name="Create",
+            input_class=Mock,
+            output_class=Mock,
+        )
+        mock_crd = Mock()
+        mock_crd.full_name = "test.Service"
+        mock_crd.name = "test"
+        mock_request = Mock()
+        mock_read_yaml.return_value = mock_request
+
+        create_func_impl(
+            crd_method_info,
+            Mock(arguments={"self": mock_crd, "file": "f.yaml", "dry_run": True}),
+        )
+
+        mock_dry_run.assert_called_once_with(
+            mock_request,
+            "create_options",
+            {"self": mock_crd, "file": "f.yaml", "dry_run": True},
+        )
+
+
+class ApplyDryRunToRequestTest(TestCase):
+    """apply_dry_run_to_request helper wiring."""
+
+    def _fake_request(self, options_attr):
+        opts = SimpleNamespace(dryRun=[])
+        return SimpleNamespace(**{options_attr: opts})
+
+    def test_dry_run_true_appends_all_to_create_options(self):
+        """dry_run=True writes 'All' to create_options.dryRun."""
+        from michelangelo.cli.mactl.crd import apply_dry_run_to_request
+
+        req = self._fake_request("create_options")
+        apply_dry_run_to_request(req, "create_options", {"dry_run": True})
+        self.assertEqual(list(req.create_options.dryRun), ["All"])
+
+    def test_dry_run_true_appends_all_to_update_options(self):
+        """Same helper works for update_options."""
+        from michelangelo.cli.mactl.crd import apply_dry_run_to_request
+
+        req = self._fake_request("update_options")
+        apply_dry_run_to_request(req, "update_options", {"dry_run": True})
+        self.assertEqual(list(req.update_options.dryRun), ["All"])
+
+    def test_dry_run_false_leaves_options_untouched(self):
+        """dry_run=False adds nothing (default behavior)."""
+        from michelangelo.cli.mactl.crd import apply_dry_run_to_request
+
+        req = self._fake_request("create_options")
+        apply_dry_run_to_request(req, "create_options", {"dry_run": False})
+        self.assertEqual(list(req.create_options.dryRun), [])
+
+    def test_dry_run_missing_leaves_options_untouched(self):
+        """No dry_run key in bound_args → no-op."""
+        from michelangelo.cli.mactl.crd import apply_dry_run_to_request
+
+        req = self._fake_request("update_options")
+        apply_dry_run_to_request(req, "update_options", {})
+        self.assertEqual(list(req.update_options.dryRun), [])
+
+    def test_dry_run_wire_roundtrip_with_real_proto(self):
+        """Serialize→deserialize proves 'dryRun' hits the wire on real proto.
+
+        Guards silent no-ops: writing to `.dry_run` (snake_case) auto-creates
+        a phantom attribute on the real proto because k8s.io apimachinery uses
+        camelCase attribute names — the append would succeed but nothing
+        would reach the wire.
+        """
+        from google.protobuf.json_format import MessageToDict
+
+        from michelangelo.cli.mactl.crd import apply_dry_run_to_request
+        from michelangelo.gen.k8s.io.apimachinery.pkg.apis.meta.v1 import (
+            generated_pb2,
+        )
+
+        req_wrapper = SimpleNamespace(update_options=generated_pb2.UpdateOptions())
+        apply_dry_run_to_request(req_wrapper, "update_options", {"dry_run": True})
+
+        wire = req_wrapper.update_options.SerializeToString()
+        parsed = generated_pb2.UpdateOptions.FromString(wire)
+        self.assertEqual(
+            MessageToDict(parsed, preserving_proto_field_name=False).get("dryRun"),
+            ["All"],
+        )
+
+
+class ApplyFuncImplDryRunTest(TestCase):
+    """apply_func_impl dry-run wiring (F025)."""
+
+    @patch("michelangelo.cli.mactl.crd.crd_method_call")
+    @patch("michelangelo.cli.mactl.crd.apply_dry_run_to_request")
+    @patch("michelangelo.cli.mactl.crd.get_crd_namespace_and_name_from_yaml")
+    def test_update_path_calls_helper_with_update_options(
+        self, mock_get_ns, mock_dry_run, _
+    ):
+        """Update path (existing CRD) routes dry_run through update_options."""
+        crd_method_info = CrdMethodInfo(
+            channel=Mock(),
+            crd_full_name="test.Service",
+            method_name="Apply",
+            input_class=Mock,
+            output_class=Mock,
+        )
+        mock_crd = Mock()
+        mock_crd.full_name = "test.Service"
+        mock_crd._get.return_value = Mock()  # existing
+        mock_request = Mock()
+        mock_crd.read_yaml_and_update_crd_request.return_value = mock_request
+        mock_get_ns.return_value = ("ns", "name")
+
+        args = {"self": mock_crd, "file": "f.yaml", "dry_run": True}
+        apply_func_impl(crd_method_info, Mock(arguments=args))
+
+        mock_dry_run.assert_called_once_with(mock_request, "update_options", args)
+
+    @patch("michelangelo.cli.mactl.crd.get_crd_namespace_and_name_from_yaml")
+    def test_create_when_missing_forwards_dry_run_to_self_create(self, mock_get_ns):
+        """SF-8 guard: apply→create path passes dry_run through to _self.create.
+
+        Without this, `_self.create(file)` would default dry_run to False and
+        silently drop the user's --dry-run intent on the create-when-missing
+        path.
+        """
+        crd_method_info = CrdMethodInfo(
+            channel=Mock(),
+            crd_full_name="test.Service",
+            method_name="Apply",
+            input_class=Mock,
+            output_class=Mock,
+        )
+        mock_crd = Mock()
+        mock_crd.full_name = "test.Service"
+        mock_crd._get.side_effect = NotFoundRpcError()
+        mock_get_ns.return_value = ("ns", "name")
+
+        apply_func_impl(
+            crd_method_info,
+            Mock(arguments={"self": mock_crd, "file": "f.yaml", "dry_run": True}),
+        )
+
+        mock_crd.create.assert_called_once_with("f.yaml", dry_run=True)
+
+
+class GenerateCreateSignatureTest(TestCase):
+    """generate_create must produce a signature that accepts `dry_run`.
+
+    Regression: without dry_run in create_func_signature, apply_func_impl's
+    `_self.create(_file, dry_run=_dry_run)` call raises
+    `TypeError: got an unexpected keyword argument 'dry_run'` at bind time.
+    The pre-existing ApplyFuncImplDryRunTest missed this because it mocked
+    `_self.create` (Mock auto-accepts any kwargs).
+    """
+
+    @patch("michelangelo.cli.mactl.crd.crd_method_call")
+    @patch("michelangelo.cli.mactl.crd.apply_dry_run_to_request")
+    @patch("michelangelo.cli.mactl.crd.ParseDict")
+    @patch("michelangelo.cli.mactl.crd.get_crd_namespace_and_name_from_yaml")
+    @patch("michelangelo.cli.mactl.crd.read_yaml_to_crd_request")
+    @patch.object(CRD, "_extract_method_info")
+    def test_crd_create_call_accepts_dry_run_kwarg(
+        self,
+        mock_extract,
+        mock_read,
+        mock_get_ns,
+        _parse,
+        mock_apply_dry,
+        mock_call,
+    ):
+        """`crd.create(file, dry_run=True)` must not TypeError at bind."""
+        mock_extract.return_value = ("CreateTestCrd", Mock, Mock)
+        mock_get_ns.return_value = ("ns", "name")
+        mock_read.return_value = Mock()
+        mock_call.return_value = Mock()
+
+        crd = CRD(name="test_crd", full_name="test.service.TestCrd", metadata=[])
+        crd.generate_create(Mock())
+        # Real bound-method call — goes through bind_signature. Would TypeError
+        # if create_func_signature didn't include the dry_run parameter.
+        crd.create("f.yaml", dry_run=True)
+
+        # dry_run reached the helper via bound_args.arguments
+        args = mock_apply_dry.call_args[0][2]
+        self.assertTrue(args["dry_run"])
+
+
+class NotFoundRpcError(RpcError):
+    """Test fixture: RpcError with NOT_FOUND status code."""
+
+    def code(self):  # noqa: D102
+        return StatusCode.NOT_FOUND
+
+    def details(self):  # noqa: D102
+        return "not found"
 
 
 class BindSignatureTest(TestCase):

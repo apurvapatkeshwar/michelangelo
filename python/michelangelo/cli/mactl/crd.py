@@ -183,6 +183,30 @@ def read_yaml_to_crd_request(
     return crd_instance
 
 
+def apply_dry_run_to_request(
+    request: Message,
+    options_attr: str,
+    bound_args_arguments: dict,
+) -> None:
+    """Set server-side dry-run on ``request.<options_attr>`` when opted in.
+
+    When ``bound_args_arguments["dry_run"]`` is truthy, appends the ``"All"``
+    sentinel to the ``dryRun`` list on the nested k8s.io ``CreateOptions`` /
+    ``UpdateOptions`` / ``DeleteOptions`` submessage. Server does full
+    validation then rolls back — nothing persists.
+
+    ``options_attr`` is one of ``"create_options"``, ``"update_options"``,
+    ``"delete_options"``. The submessage exposes the field as ``dryRun``
+    (camelCase) at the Python attribute level — writing ``.dry_run`` raises
+    ``AttributeError``.
+    """
+    if not bound_args_arguments.get("dry_run", False):
+        return
+    options = getattr(request, options_attr)
+    options.dryRun.append("All")
+    _LOG.info("Dry-run enabled: %s.dryRun=%s", options_attr, list(options.dryRun))
+
+
 def snake_to_camel(name: str) -> str:
     """snake_case → UpperCamelCase(PascalCase).
 
@@ -480,6 +504,7 @@ def apply_func_impl(crd_method_info: CrdMethodInfo, bound_args: Signature) -> Me
     _LOG.info("Start apply_func for %r", _self.full_name)
 
     _file = get_single_arg(bound_args.arguments, "file")
+    _dry_run = bound_args.arguments.get("dry_run", False)
 
     _namespace, _name = get_crd_namespace_and_name_from_yaml(_file)
 
@@ -492,16 +517,19 @@ def apply_func_impl(crd_method_info: CrdMethodInfo, bound_args: Signature) -> Me
             raise
 
     if message_instance is None:
-        # Create new CRD
+        # Create new CRD — must forward dry_run explicitly. _self.create's
+        # bound_args does not inherit apply's dry_run otherwise (Signature.bind
+        # fills the default False).
         _LOG.info("Create a new CRD")
         _self.generate_create(crd_method_info.channel)
-        return _self.create(_file)
+        return _self.create(_file, dry_run=_dry_run)
 
     # Update existing CRD
     _LOG.info("Retrieved message instance: %r", message_instance)
     request_input = _self.read_yaml_and_update_crd_request(
         crd_method_info.input_class, _file, message_instance
     )
+    apply_dry_run_to_request(request_input, "update_options", bound_args.arguments)
     call_res = crd_method_call(crd_method_info, request_input)
     print(call_res)
     return call_res
@@ -521,6 +549,7 @@ def create_func_impl(crd_method_info: CrdMethodInfo, bound_args: Signature) -> M
         _file,
         _self.func_crd_metadata_converter,
     )
+    apply_dry_run_to_request(request_input, "create_options", bound_args.arguments)
     call_res = crd_method_call(crd_method_info, request_input)
     print(call_res)
     return call_res
@@ -552,6 +581,25 @@ class CRD:
                             "help": (
                                 "Custom Resource YAML file"
                                 " (can be configured with --file)"
+                            ),
+                        },
+                    },
+                    {
+                        "func_signature": Parameter(
+                            "dry_run",
+                            Parameter.POSITIONAL_OR_KEYWORD,
+                            default=False,
+                        ),
+                        "args": ["--dry-run"],
+                        "kwargs": {
+                            "dest": "dry_run",
+                            "action": "store_true",
+                            "default": False,
+                            "help": (
+                                "Send the request with server-side dry-run "
+                                "(k8s.io CreateOptions/UpdateOptions.dryRun="
+                                "['All']); server validates and rolls back "
+                                "without persisting."
                             ),
                         },
                     },
@@ -854,8 +902,14 @@ class CRD:
             *self._extract_method_info(channel, self.full_name, "Create"),
         )
         create_func_signature = Signature(
-            [Parameter("self", Parameter.POSITIONAL_OR_KEYWORD)]
-            + [Parameter(name, Parameter.POSITIONAL_OR_KEYWORD) for name in ["file"]]
+            [
+                Parameter("self", Parameter.POSITIONAL_OR_KEYWORD),
+                # `file` is the only positional; `dry_run` mirrors the apply
+                # func_signature so apply_func_impl.create(_, dry_run=...) call
+                # passes bind_signature on the create-when-missing path.
+                Parameter("file", Parameter.POSITIONAL_OR_KEYWORD),
+                Parameter("dry_run", Parameter.POSITIONAL_OR_KEYWORD, default=False),
+            ]
         )
 
         bound_func = partial(create_func_impl, method_info)
