@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.6.0] - 2026-07-27
 
 
 ### Bug Fixes
@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 - **rayjob:** Right-size submitter pod instead of cloning the head (#1562)
 
 
+- **ci:** Changelog.yml CR_PAT token + stop full-history CHANGELOG.md regeneration (cherry-pick #1599) (#1602)
+
+
 ### Documentation
 
 
@@ -33,6 +36,9 @@ All notable changes to this project will be documented in this file.
 
 
 - Standardize branding to "Michelangelo AI" across all docs (#1575)
+
+
+- Update CHANGELOG.md for v0.6.0-rc.1 (#1600)
 
 
 ### Features
@@ -81,6 +87,9 @@ All notable changes to this project will be documented in this file.
 
 
 - Bump version to 0.6.0-rc.1 (#1595)
+
+
+- Release 0.6.0 (#1607)
 
 
 ### Refactoring
