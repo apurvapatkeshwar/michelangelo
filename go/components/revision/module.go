@@ -31,5 +31,20 @@ type registerParams struct {
 }
 
 func register(p registerParams) error {
-	return NewReconciler(p.APIHandlerFactory, p.Logger, p.Handlers).Register(p.Mgr)
+	p.Logger.Debug("revision controller: register called",
+		zap.Int("handlerCount", len(p.Handlers)),
+	)
+	for _, h := range p.Handlers {
+		p.Logger.Debug("revision controller: handler registered",
+			zap.String("apiVersion", h.TypeMeta().APIVersion),
+			zap.String("kind", h.TypeMeta().Kind),
+		)
+	}
+	r := NewReconciler(p.APIHandlerFactory, p.Logger, p.Handlers)
+	if err := r.Register(p.Mgr); err != nil {
+		p.Logger.Error("revision controller: Register failed", zap.Error(err))
+		return err
+	}
+	p.Logger.Debug("revision controller: Register succeeded")
+	return nil
 }

@@ -53,14 +53,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	defer cancel()
 
 	logger := r.logger.With(zap.String("namespace-name", req.NamespacedName.String()))
+	logger.Debug("Reconcile called",
+		zap.String("namespace", req.Namespace),
+		zap.String("name", req.Name),
+	)
 
 	rev := &v2pb.Revision{}
 	if err := r.Get(ctx, req.Namespace, req.Name, &metav1.GetOptions{}, rev); err != nil {
 		if apiutils.IsNotFoundError(err) {
+			logger.Debug("revision not found; ignoring")
 			return ctrl.Result{}, nil
 		}
+		logger.Debug("Get revision failed", zap.Error(err))
 		return ctrl.Result{}, err
 	}
+	logger.Debug("Get revision succeeded",
+		zap.String("state", rev.Status.GetState().String()),
+		zap.Bool("hasBaseType", rev.Spec.BaseType != nil),
+	)
 
 	if !rev.GetDeletionTimestamp().IsZero() {
 		logger.Debug("revision is being deleted; skipping reconcile")
@@ -83,7 +93,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	if rev.Spec.BaseType == nil {
-		logger.Info("revision has no BaseType; skipping reconcile")
+		logger.Debug("revision has no BaseType; skipping reconcile")
 		return ctrl.Result{}, nil
 	}
 
@@ -96,6 +106,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		logger.Debug("no handler registered for BaseType; skipping reconcile",
 			zap.String("apiVersion", key.APIVersion),
 			zap.String("kind", key.Kind),
+			zap.Int("registeredHandlers", len(r.handlers)),
 		)
 		return ctrl.Result{}, nil
 	}
@@ -109,14 +120,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	result, handlerErr := h.Reconcile(ctx, rev)
 	if handlerErr != nil {
+		logger.Debug("handler reconcile failed",
+			zap.String("apiVersion", key.APIVersion),
+			zap.String("kind", key.Kind),
+			zap.Error(handlerErr),
+		)
 		handlerErr = fmt.Errorf("handler reconcile for %s/%s: %w", key.APIVersion, key.Kind, handlerErr)
+	} else {
+		logger.Debug("handler reconcile succeeded",
+			zap.String("newState", rev.Status.GetState().String()),
+			zap.Bool("requeue", result.Requeue),
+			zap.Duration("requeueAfter", result.RequeueAfter),
+		)
 	}
 
 	var updateErr error
-	if !reflect.DeepEqual(original.Status, rev.Status) {
+	statusChanged := !reflect.DeepEqual(original.Status, rev.Status)
+	logger.Debug("status diff check",
+		zap.Bool("statusChanged", statusChanged),
+		zap.String("originalState", original.Status.GetState().String()),
+		zap.String("currentState", rev.Status.GetState().String()),
+	)
+	if statusChanged {
 		logger.Debug("status changed; persisting update")
 		if err := r.UpdateStatus(ctx, rev, &metav1.UpdateOptions{}); err != nil {
+			logger.Debug("UpdateStatus failed", zap.Error(err))
 			updateErr = fmt.Errorf("update revision status %s/%s: %w", req.Namespace, req.Name, err)
+		} else {
+			logger.Debug("UpdateStatus succeeded")
 		}
 	}
 
@@ -127,6 +158,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 func (r *Reconciler) Register(mgr ctrl.Manager) error {
 	handler, err := r.apiHandlerFactory.GetAPIHandler(mgr.GetClient())
 	if err != nil {
+		r.logger.Error("GetAPIHandler failed", zap.Error(err))
 		return err
 	}
 	r.Handler = handler
@@ -135,7 +167,15 @@ func (r *Reconciler) Register(mgr ctrl.Manager) error {
 		For(&v2pb.Revision{}).
 		WithEventFilter(predicate.NewPredicateFuncs(func(object client.Object) bool {
 			rev, ok := object.(*v2pb.Revision)
-			if !ok || rev.Spec.BaseType == nil {
+			if !ok {
+				r.logger.Debug("event filter: object is not a Revision",
+					zap.String("type", fmt.Sprintf("%T", object)))
+				return false
+			}
+			if rev.Spec.BaseType == nil {
+				r.logger.Debug("event filter: revision has no BaseType",
+					zap.String("name", rev.GetName()),
+					zap.String("namespace", rev.GetNamespace()))
 				return false
 			}
 			key := metav1.TypeMeta{
@@ -143,6 +183,12 @@ func (r *Reconciler) Register(mgr ctrl.Manager) error {
 				Kind:       rev.Spec.BaseType.Kind,
 			}
 			_, ok = r.handlers[key]
+			if !ok {
+				r.logger.Debug("event filter: no handler for BaseType",
+					zap.String("name", rev.GetName()),
+					zap.String("apiVersion", key.APIVersion),
+					zap.String("kind", key.Kind))
+			}
 			return ok
 		})).
 		Complete(r)
