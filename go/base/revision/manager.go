@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/yarpc"
 	"go.uber.org/zap"
 
 	"github.com/michelangelo-ai/michelangelo/go/api"
 	apiutils "github.com/michelangelo-ai/michelangelo/go/api/utils"
+	v2pb "github.com/michelangelo-ai/michelangelo/proto-go/api/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type revisionManager struct {
@@ -23,7 +22,7 @@ func NewManager(handler api.Handler, logger *zap.Logger) Manager {
 	return &revisionManager{handler: handler, logger: logger}
 }
 
-func (m *revisionManager) UpsertRevision(ctx context.Context, rev client.Object, opts UpsertOpts, _ ...yarpc.CallOption) (bool, error) {
+func (m *revisionManager) UpsertRevision(ctx context.Context, rev *v2pb.Revision, opts UpsertOpts) (bool, error) {
 	namespace := rev.GetNamespace()
 	name := rev.GetName()
 	logger := m.logger.With(
@@ -31,7 +30,7 @@ func (m *revisionManager) UpsertRevision(ctx context.Context, rev client.Object,
 		zap.String("namespace", namespace),
 	)
 
-	existing := rev.DeepCopyObject().(client.Object)
+	existing := rev.DeepCopy()
 	err := m.handler.Get(ctx, namespace, name, &metav1.GetOptions{}, existing)
 	if err != nil {
 		if !apiutils.IsNotFoundError(err) {
