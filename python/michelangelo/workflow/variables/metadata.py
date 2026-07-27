@@ -128,7 +128,7 @@ class ModelMetadata:
         if self._schema is None:
             return None
         self._schema.seek(0)
-        return pickle.loads(self._schema.read())  # noqa: S301
+        return pickle.loads(self._schema.read())
 
     @property
     def sample_data(self) -> list[dict[str, Any]] | None:
@@ -143,7 +143,7 @@ class ModelMetadata:
         if self._sample_data is None:
             return None
         self._sample_data.seek(0)
-        return pickle.loads(self._sample_data.read())  # noqa: S301
+        return pickle.loads(self._sample_data.read())
 
     def to_registry_dict(self) -> dict[str, str]:
         """Return a flat string dict of public fields suitable for registry tags.

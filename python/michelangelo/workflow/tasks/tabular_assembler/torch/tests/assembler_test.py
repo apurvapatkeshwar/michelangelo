@@ -669,7 +669,7 @@ class NormalizeScalarShapesTest(unittest.TestCase):
         )
 
     def test_scalar_field_with_multi_element_value_raises_clear_error(self):
-        """A schema/sample_data mismatch raises a descriptive error, not a raw numpy one."""
+        """A scalar/sample_data mismatch raises a clear error, not a raw numpy one."""
         schema = ModelSchema(
             input_schema=[
                 ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
