@@ -129,7 +129,9 @@ class TorchAssemblerTest(_LocalBackendTestCase):
             metadata=ModelMetadata(
                 model_class="test.SimpleTorchModel",
                 training_framework=TRAINING_FRAMEWORK_PYTORCH,
-                hyperparameters={"input_dim": 2, "output_dim": 1},
+                _hyperparameters=BytesIO(
+                    pickle.dumps({"input_dim": 2, "output_dim": 1})
+                ),
                 _schema=BytesIO(pickle.dumps(_make_schema())),
                 _sample_data=BytesIO(pickle.dumps(sample_data)),
                 is_incremental_training=True,
@@ -345,7 +347,7 @@ class NativeTransformFusionTest(_LocalBackendTestCase):
             path=self._upload_raw_model_source(),
             metadata=ModelMetadata(
                 model_class="test.SimpleTorchModel",
-                hyperparameters={"input_dim": 1},
+                _hyperparameters=BytesIO(pickle.dumps({"input_dim": 1})),
                 _schema=BytesIO(
                     pickle.dumps(
                         ModelSchema(

@@ -520,7 +520,8 @@ class TestModelMetadataConstantsAndHyperparameters(TestCase):
 
     def test_hyperparameters_field_accepts_dict(self):
         """ModelMetadata stores a hyperparameters dict for Lightning loading."""
-        meta = ModelMetadata(hyperparameters={"lr": 0.001, "batch_size": 32})
+        meta = ModelMetadata()
+        meta.hyperparameters = {"lr": 0.001, "batch_size": 32}
         self.assertEqual(meta.hyperparameters["lr"], 0.001)
         self.assertEqual(meta.hyperparameters["batch_size"], 32)
 
@@ -937,13 +938,9 @@ class TestModelVariableLightningIO(TestCase):
         mock_torch.load = MagicMock(return_value={"w": 1.0})
         built = MagicMock(name="built")
         mock_class = MagicMock(return_value=built)
-        var = ModelVariable(
-            path="memory://lit",
-            metadata=ModelMetadata(
-                model_class="pkg.M",
-                hyperparameters={"hidden": 16},
-            ),
-        )
+        metadata = ModelMetadata(model_class="pkg.M")
+        metadata.hyperparameters = {"hidden": 16}
+        var = ModelVariable(path="memory://lit", metadata=metadata)
         with (
             patch.dict(sys.modules, {"torch": mock_torch}),
             patch(f"{_MODEL_PATH}.import_attribute", return_value=mock_class),
@@ -1021,7 +1018,7 @@ class TestModelVariableLightningIO(TestCase):
         mock_class = MagicMock(return_value=MagicMock())
         var = ModelVariable(
             path="memory://lit",
-            metadata=ModelMetadata(model_class="pkg.M", hyperparameters=None),
+            metadata=ModelMetadata(model_class="pkg.M"),
         )
         with (
             patch.dict(sys.modules, {"torch": mock_torch}),

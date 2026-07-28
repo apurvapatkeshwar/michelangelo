@@ -90,13 +90,17 @@ class ModelMetadata:
         _feature_stats: Serialised ``feature_stats``, for the same reason.
             Set via the ``feature_stats`` property setter. Not included in
             ``repr``.
-        _hyperparameters: Serialised training hyperparameters for
-            reproducibility. Not included in ``repr``.
-        hyperparameters: Live training hyperparameters as a Python dict.
-            Used by ``ModelVariable.load_lightning_model()`` to re-instantiate
-            the model class via ``model_class(**hyperparameters)``. Distinct
-            from ``_hyperparameters``, which is the registry-bound serialised
-            form.
+        _hyperparameters: Serialised (pickled) training hyperparameters. This,
+            not a live ``hyperparameters`` field, is what crosses a workflow
+            task boundary, for the same uniflow/cadence argument-size reason
+            as ``_schema``. Use the ``hyperparameters`` property to read or
+            write it as a live dict. Not included in ``repr``.
+        hyperparameters: Live training hyperparameters as a Python dict,
+            lazily unpickled from ``_hyperparameters``. Used by
+            ``ModelVariable.load_lightning_model()`` to re-instantiate the
+            model class via ``model_class(**hyperparameters)``. Has a
+            setter: assigning a dict pickles it into ``_hyperparameters``
+            for you.
 
     Example:
         >>> meta = ModelMetadata(training_framework="xgboost", deployable=True)
@@ -117,7 +121,6 @@ class ModelMetadata:
     _transform_spec: BytesIO | None = field(default=None, repr=False)
     _feature_stats: BytesIO | None = field(default=None, repr=False)
     _hyperparameters: BytesIO | None = field(default=None, repr=False)
-    hyperparameters: dict[str, Any] | None = None
 
     @property
     def schema(self) -> ModelSchema | None:
@@ -190,6 +193,26 @@ class ModelMetadata:
     @feature_stats.setter
     def feature_stats(self, value: dict[str, Any] | None) -> None:
         self._feature_stats = None if value is None else BytesIO(pickle.dumps(value))
+
+    @property
+    def hyperparameters(self) -> dict[str, Any] | None:
+        """Training hyperparameters, lazily unpickled from ``_hyperparameters``.
+
+        Has a setter for the same reason ``transform_spec``'s does — see
+        that property's docstring.
+
+        Returns:
+            The unpickled hyperparameters, or ``None`` if
+            ``_hyperparameters`` is unset.
+        """
+        if self._hyperparameters is None:
+            return None
+        self._hyperparameters.seek(0)
+        return pickle.loads(self._hyperparameters.read())
+
+    @hyperparameters.setter
+    def hyperparameters(self, value: dict[str, Any] | None) -> None:
+        self._hyperparameters = None if value is None else BytesIO(pickle.dumps(value))
 
     def to_registry_dict(self) -> dict[str, str]:
         """Return a flat string dict of public fields suitable for registry tags.
