@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import pickle
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from io import BytesIO
-
     from michelangelo.lib.model_manager.schema import ModelSchema
 
 
@@ -70,10 +69,10 @@ class ModelMetadata:
         transform_spec: Opaque feature-transform specification propagated
             from a native-transform model through assembly, used to
             reconstruct the transform at serve time. ``None`` when the model
-            has no associated transform.
+            has no associated transform. See ``_transform_spec``.
         feature_stats: Opaque feature statistics propagated from a
             native-transform model through assembly (e.g. normalization
-            parameters). ``None`` when not recorded.
+            parameters). ``None`` when not recorded. See ``_feature_stats``.
         _schema: Serialised (pickled) input/output schema. This, not a live
             ``schema`` field, is what actually crosses a workflow task
             boundary: a live ``ModelSchema`` object passed by value through
@@ -84,6 +83,13 @@ class ModelMetadata:
             smoke-testing the deployed model, for the same reason ``_schema``
             is serialised rather than carried live. Use the ``sample_data``
             property to read it back. Not included in ``repr``.
+        _transform_spec: Serialised ``transform_spec``, for the same
+            live-object-crossing-a-task-boundary reason as ``_schema``. Set
+            via the ``transform_spec`` property setter, which pickles the
+            value for you. Not included in ``repr``.
+        _feature_stats: Serialised ``feature_stats``, for the same reason.
+            Set via the ``feature_stats`` property setter. Not included in
+            ``repr``.
         _hyperparameters: Serialised training hyperparameters for
             reproducibility. Not included in ``repr``.
         hyperparameters: Live training hyperparameters as a Python dict.
@@ -106,10 +112,10 @@ class ModelMetadata:
     deployable: bool = False
     is_incremental_training: bool = False
     baseline_model_identifier: str | None = None
-    transform_spec: dict[str, Any] | None = None
-    feature_stats: dict[str, Any] | None = None
     _schema: BytesIO | None = field(default=None, repr=False)
     _sample_data: BytesIO | None = field(default=None, repr=False)
+    _transform_spec: BytesIO | None = field(default=None, repr=False)
+    _feature_stats: BytesIO | None = field(default=None, repr=False)
     _hyperparameters: BytesIO | None = field(default=None, repr=False)
     hyperparameters: dict[str, Any] | None = None
 
@@ -145,13 +151,53 @@ class ModelMetadata:
         self._sample_data.seek(0)
         return pickle.loads(self._sample_data.read())
 
+    @property
+    def transform_spec(self) -> dict[str, Any] | None:
+        """Feature-transform spec, lazily unpickled from ``_transform_spec``.
+
+        Unlike ``schema``/``sample_data``, this has a setter: callers may
+        assign a live dict directly (``meta.transform_spec = {...}``) and it
+        is pickled into ``_transform_spec`` for you, since the value only
+        needs to cross a task boundary after assembly, not at construction.
+
+        Returns:
+            The unpickled spec, or ``None`` if ``_transform_spec`` is unset.
+        """
+        if self._transform_spec is None:
+            return None
+        self._transform_spec.seek(0)
+        return pickle.loads(self._transform_spec.read())
+
+    @transform_spec.setter
+    def transform_spec(self, value: dict[str, Any] | None) -> None:
+        self._transform_spec = None if value is None else BytesIO(pickle.dumps(value))
+
+    @property
+    def feature_stats(self) -> dict[str, Any] | None:
+        """Feature statistics, lazily unpickled from ``_feature_stats``.
+
+        Has a setter for the same reason ``transform_spec``'s does — see
+        that property's docstring.
+
+        Returns:
+            The unpickled stats, or ``None`` if ``_feature_stats`` is unset.
+        """
+        if self._feature_stats is None:
+            return None
+        self._feature_stats.seek(0)
+        return pickle.loads(self._feature_stats.read())
+
+    @feature_stats.setter
+    def feature_stats(self, value: dict[str, Any] | None) -> None:
+        self._feature_stats = None if value is None else BytesIO(pickle.dumps(value))
+
     def to_registry_dict(self) -> dict[str, str]:
         """Return a flat string dict of public fields suitable for registry tags.
 
         Omits ``None``-valued optional fields and serialises ``bool`` fields as
         ``"true"`` / ``"false"`` (lowercase) for consistent cross-registry
         storage. Binary payload fields (``_schema``, ``_sample_data``,
-        ``_hyperparameters``) are excluded.
+        ``_transform_spec``, ``_feature_stats``, ``_hyperparameters``) are excluded.
 
         Subclasses should override this method to include their own fields::
 

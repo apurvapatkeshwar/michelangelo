@@ -374,8 +374,10 @@ class NativeTransformFusionTest(_LocalBackendTestCase):
                 model_class="test.TxModel",
                 _schema=BytesIO(pickle.dumps(_native_tx_schema())),
                 _sample_data=BytesIO(pickle.dumps([{"tx_in": np.array([1.0])}])),
-                transform_spec={"transform_specs": [{"name": "Scale"}]},
-                feature_stats={"tx_in": {"mean": 0.5}},
+                _transform_spec=BytesIO(
+                    pickle.dumps({"transform_specs": [{"name": "Scale"}]})
+                ),
+                _feature_stats=BytesIO(pickle.dumps({"tx_in": {"mean": 0.5}})),
             ),
         )
         return raw_model, native_tx
