@@ -740,10 +740,8 @@ class TensorColFillNone(TorchTransformBaseLayer):
             # The int32 minimum encodes a missing value.
             condition = stacked_input == self.int32_min
         elif stacked_input.dtype == torch.int64:
-            # Comparing ``x / 2 == int64_min / 2`` avoids embedding the literal
-            # ``int64`` minimum, which overflows TorchScript's signed-64-bit
-            # constant range.
-            condition = stacked_input / 2 == self.int64_min / 2
+            # The int64 minimum encodes a missing value.
+            condition = stacked_input == self.int64_min
         else:
             # NaN encodes a missing value in floating-point tensors.
             condition = torch.isnan(stacked_input)
@@ -948,6 +946,10 @@ class Tile(TorchTransformBaseLayer):
         target_tensor_provided: When ``True`` and ``count`` is ``None``, infer
             the count from the last input column's size along ``axis``.
         **kwargs: Additional base-layer options (e.g. ``name``).
+
+    Raises:
+        ValueError: If neither ``count`` is set nor ``target_tensor_provided``
+            is ``True``.
     """
 
     def __init__(
@@ -971,8 +973,16 @@ class Tile(TorchTransformBaseLayer):
             target_tensor_provided: When ``True`` and ``count`` is ``None``,
                 infer the count from the last input column's size along ``axis``.
             **kwargs: Additional base-layer options (e.g. ``name``).
+
+        Raises:
+            ValueError: If neither ``count`` is set nor
+                ``target_tensor_provided`` is ``True``.
         """
         super().__init__(input_cols, output_cols, **kwargs)
+        if count is None and not target_tensor_provided:
+            raise ValueError(
+                "Either count must be specified or target_tensor_provided must be True."
+            )
         self.axis = axis
         self.count = count
         self.target_tensor_provided = target_tensor_provided
@@ -996,7 +1006,9 @@ class Tile(TorchTransformBaseLayer):
         elif self.target_tensor_provided:
             source_cols = self.input_cols[:-1]
             target_tensor = inputs[self.input_cols[-1]]
-        else:
+        else:  # pragma: no cover
+            # Unreachable: validated in ``__init__``. Kept so TorchScript sees
+            # every branch bind ``source_cols`` and ``target_tensor``.
             raise ValueError(
                 "Either count must be specified or target_tensor_provided must be True."
             )
@@ -1059,8 +1071,9 @@ class PadOrCrop1D(TorchTransformBaseLayer):
             via ``isnan``) and numeric values (detected via ``==``).
         align: ``"left"`` (default) pads on the right and keeps the first
             ``max_length`` elements; ``"right"`` pads on the left and keeps the
-            last ``max_length`` elements. Retained elements keep their original
-            order.
+            last ``max_length`` elements of the real content, i.e. sentinel
+            positions trailing the data are stripped before the crop rather
+            than being cropped to. Retained elements keep their original order.
         **kwargs: Additional base-layer options (e.g. ``name``).
 
     Raises:
@@ -1144,46 +1157,55 @@ class PadOrCrop1D(TorchTransformBaseLayer):
                 stacked_input.new_full(shape, self.pad_value, dtype=output_dtype),
             )
 
-        # Convert the upstream ragged-padding sentinel to ``pad_value``.
+        # Positions holding upstream ragged padding rather than real data. The
+        # mask is kept (not just applied) because ``align='right'`` must know
+        # where the real content ends: once a sentinel is rewritten to
+        # ``pad_value`` it is indistinguishable from padding, and cropping to the
+        # "last max_length elements" would keep padding over real data.
+        sentinel_mask = torch.zeros_like(stacked_input, dtype=torch.bool)
         if self.ragged_fill_value is not None:
-            replacement = stacked_input.new_full((), self.pad_value)
             if self._ragged_sentinel_is_nan:
-                stacked_input = torch.where(
-                    torch.isnan(stacked_input), replacement, stacked_input
-                )
+                sentinel_mask = torch.isnan(stacked_input)
             elif stacked_input.is_floating_point():
                 incoming = stacked_input.new_full((), self.ragged_fill_value)
-                mask = (stacked_input == incoming) | torch.isnan(stacked_input)
-                stacked_input = torch.where(mask, replacement, stacked_input)
+                sentinel_mask = (stacked_input == incoming) | torch.isnan(stacked_input)
             else:
                 incoming = stacked_input.new_full((), self.ragged_fill_value)
-                stacked_input = torch.where(
-                    stacked_input == incoming, replacement, stacked_input
-                )
+                sentinel_mask = stacked_input == incoming
 
-        # Convert any remaining collation sentinels (NaN for floats,
-        # INT32_SENTINEL for ints) to ``pad_value``.
-        replacement = stacked_input.new_full((), self.pad_value)
+        # Remaining collation sentinels: NaN for floats, INT32_SENTINEL for ints.
         if stacked_input.is_floating_point():
-            stacked_input = torch.where(
-                torch.isnan(stacked_input), replacement, stacked_input
-            )
+            sentinel_mask = sentinel_mask | torch.isnan(stacked_input)
         else:
             sentinel = stacked_input.new_full((), self._int_sentinel)
-            stacked_input = torch.where(
-                stacked_input == sentinel, replacement, stacked_input
-            )
+            sentinel_mask = sentinel_mask | (stacked_input == sentinel)
 
-        # Pad to at least ``max_length``, then crop to ``max_length``.
-        # ``align='left'`` pads right and keeps the first N; ``align='right'``
-        # pads left and keeps the last N.
-        padding = max(self.max_length - stacked_input.size(-1), 0)
+        replacement = stacked_input.new_full((), self.pad_value)
+        stacked_input = torch.where(sentinel_mask, replacement, stacked_input)
+
         if self.align == "right":
-            padded_tensor = torch.nn.functional.pad(
-                stacked_input, (padding, 0), value=self.pad_value
+            # Gather the last ``max_length`` elements of the *real* content
+            # (everything up to and including the last non-sentinel position),
+            # left-padding when the content is shorter than ``max_length``.
+            positions = torch.arange(
+                stacked_input.size(-1), device=stacked_input.device
             )
-            output_tensor = padded_tensor[..., -self.max_length :].to(output_dtype)
+            content_length = torch.where(
+                sentinel_mask, torch.zeros_like(positions), positions + 1
+            ).amax(dim=-1, keepdim=True)
+            source_index = (
+                torch.arange(self.max_length, device=stacked_input.device)
+                + content_length
+                - self.max_length
+            )
+            gathered = torch.gather(stacked_input, -1, source_index.clamp(min=0))
+            output_tensor = torch.where(source_index >= 0, gathered, replacement).to(
+                output_dtype
+            )
         else:
+            # ``align='left'`` pads on the right and keeps the first
+            # ``max_length`` elements, which are always real content.
+            padding = max(self.max_length - stacked_input.size(-1), 0)
             padded_tensor = torch.nn.functional.pad(
                 stacked_input, (0, padding), value=self.pad_value
             )
@@ -1265,7 +1287,8 @@ class Clip(TorchTransformBaseLayer):
         **kwargs: Additional base-layer options (e.g. ``name``).
 
     Raises:
-        ValueError: If ``input_cols`` and ``output_cols`` differ in length.
+        ValueError: If ``input_cols`` and ``output_cols`` differ in length, or if
+            both ``min_value`` and ``max_value`` are ``None``.
     """
 
     def __init__(
@@ -1289,13 +1312,16 @@ class Clip(TorchTransformBaseLayer):
             **kwargs: Additional base-layer options (e.g. ``name``).
 
         Raises:
-            ValueError: If ``input_cols`` and ``output_cols`` differ in length.
+            ValueError: If ``input_cols`` and ``output_cols`` differ in length,
+                or if both ``min_value`` and ``max_value`` are ``None``.
         """
         super().__init__(input_cols, output_cols, **kwargs)
         if len(input_cols) != len(output_cols):
             raise ValueError(
                 "Input columns and output columns must have the same length."
             )
+        if min_value is None and max_value is None:
+            raise ValueError("At least one of min_value or max_value must not be None.")
         self.min_value = min_value
         self.max_value = max_value
         self.ignore_value = ignore_value

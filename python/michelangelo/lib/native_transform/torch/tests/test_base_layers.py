@@ -785,6 +785,36 @@ class TestTensorColFillNone:
         inputs = {"feature": torch.tensor([10, 20, 30], dtype=torch.int64)}
         torch.testing.assert_close(layer(inputs)["filled"], inputs["feature"])
 
+    def test_int64_no_false_positive_near_minimum(self) -> None:
+        """Values close to (but not equal to) the int64 minimum are not missing.
+
+        Detection must be an exact comparison. A float-mediated check loses
+        precision at this magnitude and flags a wide band around the sentinel.
+        """
+        min_val = torch.iinfo(torch.int64).min
+        near_min = [min_val + 1, min_val + 1_000_000_000, min_val + 10**15]
+        layer = TensorColFillNone(
+            input_cols=["feature"], output_cols=["filled"], default_value=0
+        )
+        inputs = {"feature": torch.tensor(near_min, dtype=torch.int64)}
+        torch.testing.assert_close(layer(inputs)["filled"], inputs["feature"])
+
+    def test_int64_minimum_still_detected_alongside_near_values(self) -> None:
+        """Only the exact int64 minimum is filled, even next to near-min values."""
+        min_val = torch.iinfo(torch.int64).min
+        layer = TensorColFillNone(
+            input_cols=["feature"], output_cols=["filled"], default_value=7
+        )
+        inputs = {
+            "feature": torch.tensor(
+                [min_val, min_val + 1_000_000_000], dtype=torch.int64
+            )
+        }
+        torch.testing.assert_close(
+            layer(inputs)["filled"],
+            torch.tensor([7, min_val + 1_000_000_000], dtype=torch.int64),
+        )
+
     def test_multiple_columns(self) -> None:
         """Each column is filled independently."""
         layer = TensorColFillNone(
@@ -1013,10 +1043,9 @@ class TestTile:
         )
 
     def test_missing_count_and_target_raises(self) -> None:
-        """Forward without a count or target tensor raises ``ValueError``."""
-        layer = Tile(input_cols=["source"], output_cols=["tiled"], axis=0)
+        """Construction without a count or target tensor raises ``ValueError``."""
         with pytest.raises(ValueError, match="count must be specified"):
-            layer({"source": torch.tensor([1, 2])})
+            Tile(input_cols=["source"], output_cols=["tiled"], axis=0)
 
     def test_axis_1_autounsqueeze_1d(self) -> None:
         """A 1D input with axis=1 is unsqueezed to produce a 2D result."""
@@ -1132,6 +1161,121 @@ class TestPadOrCrop1D:
         )
         out = layer({"f": torch.tensor([1, 2, 3, 4, 5])})["o"]
         torch.testing.assert_close(out, torch.tensor([3, 4, 5]))
+
+    def test_right_align_keeps_real_prefix_over_trailing_sentinels(self) -> None:
+        """align='right' crops to real content, not to sentinel padding.
+
+        A short sequence collated into a longer tensor carries trailing NaN
+        padding. Cropping to the last ``max_length`` raw positions would return
+        that padding; the real prefix must be kept instead.
+        """
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=3,
+            pad_value=-1.0,
+            align="right",
+        )
+        out = layer({"f": torch.tensor([1.0, 2.0, 3.0, float("nan"), float("nan")])})[
+            "o"
+        ]
+        torch.testing.assert_close(out, torch.tensor([1.0, 2.0, 3.0]))
+
+    def test_right_align_int_sentinel_stripped_before_crop(self) -> None:
+        """The integer collation sentinel is stripped before an align='right' crop."""
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=2,
+            pad_value=-1,
+            align="right",
+        )
+        out = layer(
+            {"f": torch.tensor([10, 20, 30, INT32_SENTINEL], dtype=torch.int32)}
+        )["o"]
+        torch.testing.assert_close(out, torch.tensor([20, 30], dtype=torch.int32))
+
+    def test_right_align_ragged_fill_value_stripped_before_crop(self) -> None:
+        """A ``ragged_fill_value`` is stripped before an align='right' crop."""
+        ragged_sentinel = -2_000_000_000
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=3,
+            dtype=torch.int32,
+            pad_value=-1,
+            ragged_fill_value=ragged_sentinel,
+            align="right",
+        )
+        out = layer(
+            {
+                "f": torch.tensor(
+                    [10, 20, 30, ragged_sentinel, ragged_sentinel], dtype=torch.int32
+                )
+            }
+        )["o"]
+        torch.testing.assert_close(out, torch.tensor([10, 20, 30], dtype=torch.int32))
+
+    def test_right_align_pads_when_content_shorter_than_max_length(self) -> None:
+        """Sentinel-trimmed content shorter than max_length is left-padded."""
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=4,
+            pad_value=-1.0,
+            align="right",
+        )
+        out = layer({"f": torch.tensor([1.0, 2.0, float("nan")])})["o"]
+        torch.testing.assert_close(out, torch.tensor([-1.0, -1.0, 1.0, 2.0]))
+
+    def test_right_align_all_sentinel_returns_all_pad(self) -> None:
+        """An input that is entirely sentinel yields only ``pad_value``."""
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=3,
+            pad_value=-1.0,
+            align="right",
+        )
+        out = layer({"f": torch.tensor([float("nan"), float("nan")])})["o"]
+        torch.testing.assert_close(out, torch.tensor([-1.0, -1.0, -1.0]))
+
+    def test_right_align_content_length_is_per_row(self) -> None:
+        """Each batch row is cropped against its own real-content length."""
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=3,
+            pad_value=-1.0,
+            align="right",
+        )
+        inputs = {
+            "f": torch.tensor(
+                [
+                    [1.0, 2.0, 3.0, float("nan"), float("nan")],
+                    [1.0, 2.0, 3.0, 4.0, 5.0],
+                    [1.0, float("nan"), float("nan"), float("nan"), float("nan")],
+                ]
+            )
+        }
+        torch.testing.assert_close(
+            layer(inputs)["o"],
+            torch.tensor([[1.0, 2.0, 3.0], [3.0, 4.0, 5.0], [-1.0, -1.0, 1.0]]),
+        )
+
+    def test_left_align_unaffected_by_trailing_sentinels(self) -> None:
+        """align='left' keeps the real prefix, as it always has."""
+        layer = PadOrCrop1D(
+            input_cols=["f"],
+            output_cols=["o"],
+            max_length=3,
+            pad_value=-1.0,
+            align="left",
+        )
+        out = layer({"f": torch.tensor([1.0, 2.0, 3.0, float("nan"), float("nan")])})[
+            "o"
+        ]
+        torch.testing.assert_close(out, torch.tensor([1.0, 2.0, 3.0]))
 
     def test_exact_length_unchanged(self) -> None:
         """An input already at max_length is returned unchanged."""
@@ -1422,6 +1566,11 @@ class TestClip:
         """Unequal input/output column counts raise ``ValueError``."""
         with pytest.raises(ValueError, match="same length"):
             Clip(input_cols=["a", "b"], output_cols=["out"], min_value=0.0)
+
+    def test_no_bounds_raises(self) -> None:
+        """Omitting both bounds raises ``ValueError`` at construction time."""
+        with pytest.raises(ValueError, match="min_value or max_value"):
+            Clip(input_cols=["val"], output_cols=["clipped"])
 
     def test_basic_clip(self) -> None:
         """Values are clamped to ``[min_value, max_value]``."""
