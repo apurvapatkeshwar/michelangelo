@@ -1,4 +1,4 @@
-"""Unit tests for ``...model_manager.schema.sample_data_fuse``."""
+"""Unit tests for ``lib.shared.utils.model_fuser.sample_data_fuse``."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from michelangelo.lib.model_manager.schema.sample_data_fuse import fuse_sample_data
+from michelangelo.lib.shared.utils.model_fuser.sample_data_fuse import fuse_sample_data
 
 
 class FuseSampleDataTest(unittest.TestCase):
