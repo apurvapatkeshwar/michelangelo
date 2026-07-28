@@ -1,11 +1,11 @@
-"""Unit tests for ``model_manager.schema.fuse``."""
+"""Unit tests for ``model_manager.utils.torch.model_fuser.schema_fuse``."""
 
 from __future__ import annotations
 
 import unittest
 
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
-from michelangelo.lib.model_manager.schema.fuse import (
+from michelangelo.lib.model_manager.utils.torch.model_fuser.schema_fuse import (
     fuse_input_schema,
     fuse_model_schema,
 )

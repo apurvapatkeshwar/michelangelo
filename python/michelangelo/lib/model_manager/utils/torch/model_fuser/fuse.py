@@ -34,13 +34,13 @@ import onnx
 import torch
 
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema
-from michelangelo.lib.model_manager.schema.fuse import fuse_input_schema
 from michelangelo.lib.model_manager.utils.torch.data_type import (
     data_type_to_torch_dtype,
 )
 from michelangelo.uniflow.core.utils import import_attribute
 
 from .fused_model import FusedModel
+from .schema_fuse import fuse_input_schema
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -22,8 +22,8 @@ import numpy as np
 from michelangelo.lib.model_manager.constants import StorageType, TritonBackendType
 from michelangelo.lib.model_manager.packager.torch_triton import TorchTritonPackager
 from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
-from michelangelo.lib.model_manager.schema.fuse import fuse_model_schema
 from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse as _fuse
+from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse_model_schema
 from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 

@@ -16,7 +16,7 @@ from michelangelo.lib.artifact_manager.storage_backend import LocalStorageBacken
 from michelangelo.lib.model_manager.constants import StorageType
 from michelangelo.lib.model_manager.interface.custom_model import Model
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
-from michelangelo.lib.model_manager.schema.fuse import fuse_model_schema
+from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse_model_schema
 from michelangelo.workflow.schema.assembler import (
     CustomAssemblerConfig,
     TabularAssemblerConfig,

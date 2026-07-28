@@ -1,9 +1,10 @@
 """Schema fusion for native-transform + predictor models.
 
-Shared by the custom and PyTorch/Lightning tabular assembler paths, and by
-the torch model fuser, when a model is preceded by a native-transform stage:
-the servable package exposes a single fused input/output schema rather than
-two independent ones.
+Used by the model fuser itself (to compute the fused input schema for ONNX/
+TorchScript/Python export) and by the custom and PyTorch/Lightning tabular
+assembler paths, when a model is preceded by a native-transform stage: the
+servable package exposes a single fused input/output schema rather than two
+independent ones.
 """
 
 from __future__ import annotations

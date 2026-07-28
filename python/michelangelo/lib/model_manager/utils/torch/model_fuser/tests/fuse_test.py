@@ -5,7 +5,7 @@ native-transform-gated cases (present but skipped until native-transform
 support is available).
 
 ``fuse_input_schema``/``fuse_model_schema`` already have full coverage in
-``_private/schema/tests/fuse_test.py`` and are not re-tested here.
+``schema_fuse_test.py`` and are not re-tested here.
 ``FusedModel.forward`` is exercised directly in
 ``torch/model_fuser/tests/fused_model_test.py`` and is likewise not
 duplicated here.

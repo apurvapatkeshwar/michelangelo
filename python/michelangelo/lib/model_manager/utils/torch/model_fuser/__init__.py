@@ -15,11 +15,14 @@ from .fuse import (
     get_predictor_output_field_order,
 )
 from .fused_model import FusedModel
+from .schema_fuse import fuse_input_schema, fuse_model_schema
 
 __all__ = [
     "FusedModel",
     "build_fused_sample_data",
     "compute_python_fuse_metadata",
+    "fuse_input_schema",
+    "fuse_model_schema",
     "fuse_models_to_onnx",
     "fuse_models_to_python",
     "fuse_models_to_torchscript",
