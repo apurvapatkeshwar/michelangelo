@@ -39,8 +39,8 @@ from michelangelo.lib.model_manager.utils.torch.data_type import (
 )
 from michelangelo.uniflow.core.utils import import_attribute
 
+from .fuse_schema import fuse_input_schema
 from .fused_model import FusedModel
-from .schema_fuse import fuse_input_schema
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

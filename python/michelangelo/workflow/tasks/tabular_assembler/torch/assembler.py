@@ -4,7 +4,7 @@ Packages a raw trained PyTorch or Lightning model into deployable and raw
 Triton packages using ``TorchTritonPackager``. When preceded by a
 native-transform stage, the predictor and transform models are fused into a
 single servable artifact via the ``model_fuser`` package
-(``lib.model_manager.utils.torch.model_fuser.fuse``).
+(``lib.shared.utils.model_fuser.fuse``).
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ import numpy as np
 from michelangelo.lib.model_manager.constants import StorageType, TritonBackendType
 from michelangelo.lib.model_manager.packager.torch_triton import TorchTritonPackager
 from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
-from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse as _fuse
-from michelangelo.lib.model_manager.utils.torch.model_fuser import fuse_model_schema
+from michelangelo.lib.shared.utils.model_fuser import fuse as _fuse
+from michelangelo.lib.shared.utils.model_fuser import fuse_model_schema
 from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
@@ -152,7 +152,7 @@ def torch_assembler(
     ``native_transform_model.path``) are downloaded via ``storage_backend``
     to a local temporary directory before packaging. When
     ``native_transform_model`` is supplied, the predictor and transform are
-    fused (see ``lib.model_manager.utils.torch.model_fuser``) into a single
+    fused (see ``lib.shared.utils.model_fuser``) into a single
     servable artifact with a combined schema; otherwise the predictor is
     packaged as-is.
 

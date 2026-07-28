@@ -5,7 +5,7 @@ native-transform-gated cases (present but skipped until native-transform
 support is available).
 
 ``fuse_input_schema``/``fuse_model_schema`` already have full coverage in
-``schema_fuse_test.py`` and are not re-tested here.
+``fuse_schema_test.py`` and are not re-tested here.
 ``FusedModel.forward`` is exercised directly in
 ``torch/model_fuser/tests/fused_model_test.py`` and is likewise not
 duplicated here.
@@ -27,13 +27,13 @@ import torch
 import torch.nn as nn
 
 from michelangelo.lib.model_manager.schema import DataType, ModelSchema, ModelSchemaItem
-from michelangelo.lib.model_manager.utils.torch.model_fuser import (
+from michelangelo.lib.shared.utils.model_fuser import (
     fuse as fuse_module,
 )
-from michelangelo.lib.model_manager.utils.torch.model_fuser import (
+from michelangelo.lib.shared.utils.model_fuser import (
     fused_model,
 )
-from michelangelo.lib.model_manager.utils.torch.model_fuser.fuse import (
+from michelangelo.lib.shared.utils.model_fuser.fuse import (
     _build_fused_sample_input,
     _disable_transformer_encoder_fused_fastpath_for_onnx,
     _FusedOnnxDynamoTupleWrapper,
@@ -56,7 +56,7 @@ from michelangelo.lib.model_manager.utils.torch.model_fuser.fuse import (
 
 FusedModel = fused_model.FusedModel
 
-_FUSE_MODULE = "michelangelo.lib.model_manager.utils.torch.model_fuser.fuse"
+_FUSE_MODULE = "michelangelo.lib.shared.utils.model_fuser.fuse"
 
 
 # ---------------------------------------------------------------------------
