@@ -7,7 +7,6 @@ import os
 import shutil
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import torch
 
 from michelangelo.lib.model_manager._private.packager.torch_triton.validation import (
@@ -16,73 +15,21 @@ from michelangelo.lib.model_manager._private.packager.torch_triton.validation im
 from michelangelo.lib.model_manager._private.utils.torch_utils import (
     is_state_dict,
     load_model_from_state_dict,
-    torch_export_supports_external_data,
 )
+from michelangelo.lib.model_manager.utils.onnx.torch_onnx import (
+    export_torch_to_onnx,
+    prepare_sample_inputs,
+)
+
+try:
+    import pytorch_lightning as pl
+except ImportError:  # pragma: no cover - pytorch_lightning is a declared dependency
+    pl = None
 
 if TYPE_CHECKING:
     from michelangelo.lib.model_manager.schema import ModelSchema
 
-OPSET_VERSION = 17
-
 _logger = logging.getLogger(__name__)
-
-
-def _expand_sample_inputs(
-    sample_inputs: tuple[torch.Tensor, ...],
-) -> tuple[torch.Tensor, ...]:
-    """Expand the batch dimension to at least 2 when it is 1.
-
-    A batch size of 1 during tracing can bake a fixed batch size into the
-    exported ONNX ops, which breaks dynamic batching at serve time.
-
-    Args:
-        sample_inputs: Trace tensors in input order.
-
-    Returns:
-        The same tensors with any size-1 batch dimension repeated to size 2.
-    """
-    expanded_batch_size = 2
-    expanded: list[torch.Tensor] = []
-    for inp in sample_inputs:
-        if inp.size(0) > 1:
-            expanded.append(inp)
-        else:
-            expanded.append(inp.repeat(expanded_batch_size, *[1] * (inp.dim() - 1)))
-    return tuple(expanded)
-
-
-def _prepare_sample_inputs(
-    input_names: list[str],
-    sample_data: dict[str, Any],
-) -> tuple[torch.Tensor, ...]:
-    """Build trace tensors from sample_data ordered by input_names.
-
-    Args:
-        input_names: Input tensor names in schema order.
-        sample_data: Mapping of input name to a torch.Tensor or numpy.ndarray.
-
-    Returns:
-        Trace tensors with batch dimensions expanded for ONNX export.
-
-    Raises:
-        ValueError: If sample_data is missing a required input.
-        TypeError: If a sample value is not a tensor or ndarray.
-    """
-    sample_list: list[torch.Tensor] = []
-    for name in input_names:
-        if name not in sample_data:
-            raise ValueError(f"onnx_sample_data missing required input '{name}'")
-        val = sample_data[name]
-        if isinstance(val, torch.Tensor):
-            sample_list.append(val)
-        elif isinstance(val, np.ndarray):
-            sample_list.append(torch.from_numpy(val))
-        else:
-            raise TypeError(
-                f"Sample data for '{name}' must be torch.Tensor or "
-                f"numpy.ndarray, got {type(val)}"
-            )
-    return _expand_sample_inputs(tuple(sample_list))
 
 
 def _load_torch_model(
@@ -292,7 +239,7 @@ def convert_to_onnx(
         )
 
     model = _load_torch_model(source_model_path, model_class, hyperparameters)
-    sample_inputs = _prepare_sample_inputs(input_names, sample_data)
+    sample_inputs = prepare_sample_inputs(input_names, sample_data)
 
     try:
         sample_output = model(*sample_inputs)
@@ -304,23 +251,18 @@ def convert_to_onnx(
             "Failed to run model with sample inputs before ONNX export: %s", e
         )
 
-    dynamic_axes = (
-        {name: {0: "b"} for name in input_names + output_names}
-        if enable_dynamic_batching
-        else {}
+    is_lightning = pl is not None and isinstance(model, pl.LightningModule)
+
+    export_torch_to_onnx(
+        model=model,
+        dest_path=dest_onnx_path,
+        sample_inputs=sample_inputs,
+        input_names=input_names,
+        output_names=output_names,
+        model_schemas=[model_schema],
+        enable_dynamic_batching=enable_dynamic_batching,
+        is_lightning_module=is_lightning,
     )
-
-    export_kwargs: dict[str, Any] = {
-        "input_names": input_names,
-        "output_names": output_names,
-        "opset_version": OPSET_VERSION,
-        "dynamic_axes": dynamic_axes or None,
-        "do_constant_folding": True,
-    }
-    if torch_export_supports_external_data():
-        export_kwargs["external_data"] = True
-
-    torch.onnx.export(model, sample_inputs, dest_onnx_path, **export_kwargs)
 
     is_valid, error = validate_deployable_onnx_file(dest_onnx_path)
     if not is_valid:
