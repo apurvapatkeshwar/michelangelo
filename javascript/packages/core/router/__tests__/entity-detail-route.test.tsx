@@ -8,6 +8,7 @@ import { buildTableConfigFactory } from '#core/components/views/__fixtures__/tab
 import { buildExecutionSchemaFactory } from '#core/components/views/execution/__fixtures__/execution-schema-factory';
 import { interpolate } from '#core/interpolation/interpolate';
 import { buildWrapper } from '#core/test/wrappers/build-wrapper';
+import { getConfigProviderWrapper } from '#core/test/wrappers/get-config-provider-wrapper';
 import { getErrorProviderWrapper } from '#core/test/wrappers/get-error-provider-wrapper';
 import { getRouterWrapper } from '#core/test/wrappers/get-router-wrapper';
 import {
@@ -25,6 +26,7 @@ import type {
   CustomDetailPageConfig,
   TableDetailPageConfig,
 } from '#core/components/views/detail-view/types/detail-view-schema-types';
+import type { PhaseConfig, StudioConfig } from '#core/types/common/studio-types';
 
 describe('EntityDetailRoute', () => {
   const buildEntity = buildEntityConfigFactory({
@@ -35,6 +37,13 @@ describe('EntityDetailRoute', () => {
   const buildExecutionSchema = buildExecutionSchemaFactory();
   const buildTableConfig = buildTableConfigFactory();
   const buildPhase = buildPhaseConfigFactory();
+
+  /** Wraps a phases record into a StudioConfig with a single test category. */
+  function toStudioConfig(phases: Record<string, PhaseConfig>): StudioConfig {
+    return {
+      categories: [{ id: 'test', name: 'Test', phases: Object.values(phases) }],
+    };
+  }
 
   test('renders execution tab', async () => {
     const testPhases = {
@@ -94,8 +103,9 @@ describe('EntityDetailRoute', () => {
     const mockRequest = vi.fn().mockResolvedValue(mockEntityData);
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -165,8 +175,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -222,8 +233,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -269,8 +281,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -322,8 +335,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123/invalid-tab' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -361,8 +375,9 @@ describe('EntityDetailRoute', () => {
     const mockRequest = vi.fn().mockRejectedValue(new Error('Entity not found'));
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -402,8 +417,9 @@ describe('EntityDetailRoute', () => {
     const mockRequest = vi.fn().mockRejectedValue(new Error('Entity not found'));
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -467,8 +483,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -535,8 +552,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -599,8 +617,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -692,8 +711,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/test-trigger-123',
@@ -766,8 +786,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -824,15 +845,16 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
       ])
     );
 
-    // Hierarchy resolves to PRIMARY → renders as a direct button, not in overflow menu
+    // Hierarchy resolves to PRIMARY -> renders as a direct button, not in overflow menu
     expect(await screen.findByRole('button', { name: 'Resume' })).toBeInTheDocument();
   });
 
@@ -887,8 +909,9 @@ describe('EntityDetailRoute', () => {
     });
 
     render(
-      <EntityDetailRoute phases={testPhases} />,
+      <EntityDetailRoute />,
       buildWrapper([
+        getConfigProviderWrapper(toStudioConfig(testPhases)),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -936,6 +959,7 @@ describe('EntityDetailRoute', () => {
         ],
       }),
     };
+    const detailConfig = toStudioConfig(detailPhases);
 
     test('pressing back from the detail page returns to the list', async () => {
       const user = userEvent.setup();
@@ -947,8 +971,9 @@ describe('EntityDetailRoute', () => {
       });
 
       render(
-        <EntityDetailRoute phases={detailPhases} />,
+        <EntityDetailRoute />,
         buildWrapper([
+          getConfigProviderWrapper(detailConfig),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs', '/myproject/train/runs/run-123'],
@@ -980,8 +1005,9 @@ describe('EntityDetailRoute', () => {
       });
 
       render(
-        <EntityDetailRoute phases={detailPhases} />,
+        <EntityDetailRoute />,
         buildWrapper([
+          getConfigProviderWrapper(detailConfig),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs/run-123/overview'],
@@ -1012,8 +1038,9 @@ describe('EntityDetailRoute', () => {
       });
 
       render(
-        <EntityDetailRoute phases={detailPhases} />,
+        <EntityDetailRoute />,
         buildWrapper([
+          getConfigProviderWrapper(detailConfig),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs', '/myproject/train/runs/run-123'],
@@ -1051,8 +1078,9 @@ describe('EntityDetailRoute', () => {
       });
 
       render(
-        <EntityDetailRoute phases={detailPhases} />,
+        <EntityDetailRoute />,
         buildWrapper([
+          getConfigProviderWrapper(detailConfig),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs/run-123/overview'],
