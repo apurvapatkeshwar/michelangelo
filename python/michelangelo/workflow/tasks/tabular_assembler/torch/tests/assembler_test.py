@@ -22,8 +22,6 @@ from michelangelo.workflow.schema.assembler import (
     TorchAssemblerConfig,
 )
 from michelangelo.workflow.tasks.tabular_assembler.torch.assembler import (
-    _normalize_scalar_shapes,
-    _reorder_output_schema,
     torch_assembler,
 )
 from michelangelo.workflow.variables.metadata import (
@@ -600,145 +598,6 @@ class NativeTransformFusionTest(_LocalBackendTestCase):
         )
 
 
-class ReorderOutputSchemaTest(unittest.TestCase):
-    """Tests for ``_reorder_output_schema``."""
-
-    def _schema(self) -> ModelSchema:
-        return ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="in", data_type=DataType.FLOAT, shape=[1])
-            ],
-            output_schema=[
-                ModelSchemaItem(name="a_out", data_type=DataType.FLOAT, shape=[1]),
-                ModelSchemaItem(name="b_out", data_type=DataType.FLOAT, shape=[1]),
-            ],
-        )
-
-    def test_none_field_order_returns_schema_unchanged(self):
-        """``field_order=None`` returns the exact same schema instance."""
-        schema = self._schema()
-        self.assertIs(_reorder_output_schema(schema, None), schema)
-
-    def test_reorders_to_match_field_order(self):
-        """Output fields are reordered to match ``field_order``; input is untouched."""
-        schema = self._schema()
-        reordered = _reorder_output_schema(schema, ["b_out", "a_out"])
-        self.assertEqual(
-            [item.name for item in reordered.output_schema], ["b_out", "a_out"]
-        )
-        self.assertEqual(reordered.input_schema, schema.input_schema)
-
-    def test_fields_not_in_order_are_appended(self):
-        """Output fields absent from ``field_order`` are appended at the end."""
-        schema = self._schema()
-        reordered = _reorder_output_schema(schema, ["b_out"])
-        self.assertEqual(
-            [item.name for item in reordered.output_schema], ["b_out", "a_out"]
-        )
-
-    def test_unknown_field_order_entries_are_ignored(self):
-        """Names in ``field_order`` that aren't in the schema are silently skipped."""
-        schema = self._schema()
-        reordered = _reorder_output_schema(schema, ["nonexistent", "b_out"])
-        self.assertEqual(
-            [item.name for item in reordered.output_schema], ["b_out", "a_out"]
-        )
-
-    def test_empty_field_order_appends_all_original_fields(self):
-        """An empty (but non-``None``) ``field_order`` keeps the original order."""
-        schema = self._schema()
-        reordered = _reorder_output_schema(schema, [])
-        self.assertEqual(
-            [item.name for item in reordered.output_schema], ["a_out", "b_out"]
-        )
-
-
-class NormalizeScalarShapesTest(unittest.TestCase):
-    """Tests for ``_normalize_scalar_shapes``.
-
-    Regression coverage for a real bug: a plain tabular model built the
-    documented way (``ColumnConfig("torch.float32")`` with no ``shape``, the
-    common scalar-feature case) produced ``ModelSchemaItem(shape=[])``
-    entries that Triton's schema validator rejects outright
-    (``ValueError: Shape must be provided for item: ...``), so
-    ``torch_assembler`` could never package the most common kind of tabular
-    model. ``_normalize_scalar_shapes`` widens empty shapes to ``[1]`` (and
-    reshapes any matching sample-data values) before packaging.
-    """
-
-    def test_empty_shape_normalized_to_one(self):
-        """A scalar (``shape=[]``) item is widened to ``shape=[1]``."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
-            ],
-            output_schema=[
-                ModelSchemaItem(name="out", data_type=DataType.FLOAT, shape=[1]),
-            ],
-        )
-        normalized_schema, _ = _normalize_scalar_shapes(schema, None)
-        self.assertEqual(normalized_schema.input_schema[0].shape, [1])
-        self.assertEqual(normalized_schema.output_schema[0].shape, [1])
-
-    def test_non_empty_shape_left_unchanged(self):
-        """An item with a real shape is untouched (same object, not a copy)."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="vec_in", data_type=DataType.FLOAT, shape=[8]),
-            ],
-        )
-        normalized_schema, _ = _normalize_scalar_shapes(schema, None)
-        self.assertIs(normalized_schema.input_schema[0], schema.input_schema[0])
-
-    def test_sample_data_for_scalar_field_reshaped_to_match(self):
-        """Sample-data values for a normalized field are reshaped to ``(1,)``."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
-            ],
-        )
-        sample_data = [{"scalar_in": np.float32(3.0)}]
-        _, normalized_sample_data = _normalize_scalar_shapes(schema, sample_data)
-        self.assertEqual(normalized_sample_data[0]["scalar_in"].shape, (1,))
-        np.testing.assert_array_equal(
-            normalized_sample_data[0]["scalar_in"], np.array([3.0])
-        )
-
-    def test_scalar_field_with_multi_element_value_raises_clear_error(self):
-        """A scalar/sample_data mismatch raises a clear error, not a raw numpy one."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
-            ],
-        )
-        sample_data = [{"scalar_in": np.array([1.0, 2.0, 3.0])}]
-        with self.assertRaises(ValueError) as ctx:
-            _normalize_scalar_shapes(schema, sample_data)
-        self.assertIn("scalar_in", str(ctx.exception))
-        self.assertIn("fallen out of sync", str(ctx.exception))
-
-    def test_sample_data_for_non_scalar_field_untouched(self):
-        """Sample-data values for a non-scalar field pass through unchanged."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="vec_in", data_type=DataType.FLOAT, shape=[2]),
-            ],
-        )
-        sample_data = [{"vec_in": np.array([1.0, 2.0])}]
-        _, normalized_sample_data = _normalize_scalar_shapes(schema, sample_data)
-        self.assertIs(normalized_sample_data[0]["vec_in"], sample_data[0]["vec_in"])
-
-    def test_none_sample_data_returns_none(self):
-        """``sample_data=None`` returns ``None`` rather than an empty list."""
-        schema = ModelSchema(
-            input_schema=[
-                ModelSchemaItem(name="scalar_in", data_type=DataType.FLOAT, shape=[]),
-            ],
-        )
-        _, normalized_sample_data = _normalize_scalar_shapes(schema, None)
-        self.assertIsNone(normalized_sample_data)
-
-
 class ScalarColumnPackagingTest(_LocalBackendTestCase):
     """End-to-end regression coverage for scalar (``shape=[]``) column packaging."""
 
@@ -747,11 +606,13 @@ class ScalarColumnPackagingTest(_LocalBackendTestCase):
     def test_scalar_columns_do_not_raise_shape_validation_error(
         self, mock_create_raw, mock_create_model
     ):
-        """A model with only scalar (``shape=[]``) features packages cleanly.
+        """A model with an explicit scalar (``shape=[1]``) feature packages cleanly.
 
-        This is the shape a ``ColumnConfig("torch.float32")``-style
-        (no explicit ``shape``) scalar feature actually produces -- the
-        documented, common case for plain tabular models.
+        ``ColumnConfig.shape`` no longer defaults to ``[]`` (fixed to match
+        internal's required, no-default field), so a scalar feature must be
+        declared with an explicit ``shape=[1]``. This test locks in that
+        ``normalize_scalar_shapes``'s defensive handling still works for the
+        (now only explicitly reachable) ``shape=[]`` case.
         """
         mock_create_model.side_effect = _fake_create_package("deployable")
         mock_create_raw.side_effect = _fake_create_package("raw")

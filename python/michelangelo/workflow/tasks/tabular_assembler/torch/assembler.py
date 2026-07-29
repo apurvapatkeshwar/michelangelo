@@ -14,16 +14,16 @@ import os
 import pickle
 import tempfile
 import uuid
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any
-
-import numpy as np
+from typing import TYPE_CHECKING
 
 from michelangelo.lib.model_manager.constants import StorageType, TritonBackendType
 from michelangelo.lib.model_manager.packager.torch_triton import TorchTritonPackager
-from michelangelo.lib.model_manager.schema import ModelSchema, ModelSchemaItem
 from michelangelo.lib.shared.utils.model_fuser import fuse as _fuse
 from michelangelo.lib.shared.utils.model_fuser import fuse_model_schema
+from michelangelo.workflow.tasks.tabular_assembler._private.schema import (
+    normalize_scalar_shapes,
+    reorder_output_schema,
+)
 from michelangelo.workflow.variables.metadata import ModelMetadata
 from michelangelo.workflow.variables.types import AssembledModel, ModelArtifact
 
@@ -32,110 +32,6 @@ if TYPE_CHECKING:
     from michelangelo.workflow.schema.assembler import TabularAssemblerConfig
 
 __all__ = ["torch_assembler"]
-
-
-def _normalize_scalar_shapes(
-    schema: ModelSchema, sample_data: list[dict[str, Any]] | None
-) -> tuple[ModelSchema, list[dict[str, Any]] | None]:
-    """Return copies of ``schema``/``sample_data`` with scalar shapes set to ``[1]``.
-
-    ``ColumnConfig``'s documented usage for a scalar column omits ``shape``,
-    defaulting it to ``[]`` (see ``workflow.schema.tabular_trainer
-    .ColumnConfig``), and ``tabular_trainer`` keeps the matching sample-data
-    value at its natural rank-0 shape to match. Triton's schema validation
-    (``validate_model_schema_item``) requires a non-empty shape, and its
-    sample-data validation requires the sample's rank to equal the schema
-    shape's length -- so ``schema`` and ``sample_data`` must be renormalized
-    together, not independently, or the two fall out of sync.
-
-    Args:
-        schema: Schema to normalize.
-        sample_data: Sample inference inputs to normalize alongside
-            ``schema``, or ``None``.
-
-    Returns:
-        ``(normalized_schema, normalized_sample_data)``. Any schema item with
-        an empty ``shape`` is replaced by a copy with ``shape=[1]``; any
-        ``sample_data`` value for a field renamed this way is reshaped from
-        scalar to a 1-element array to match.
-
-    Raises:
-        ValueError: If a field marked scalar in ``schema`` (empty ``shape``)
-            has a sample-data value with more than one element -- schema and
-            sample data have fallen out of sync, and packaging with a
-            mismatched shape would silently produce a corrupted package
-            rather than a clear error at this boundary.
-    """
-    scalar_fields = {
-        item.name
-        for item in (
-            *schema.input_schema,
-            *schema.feature_store_features_schema,
-            *schema.output_schema,
-        )
-        if not item.shape
-    }
-
-    def _normalized_item(item: ModelSchemaItem) -> ModelSchemaItem:
-        return item if item.shape else replace(item, shape=[1])
-
-    normalized_schema = ModelSchema(
-        input_schema=[_normalized_item(i) for i in schema.input_schema],
-        feature_store_features_schema=[
-            _normalized_item(i) for i in schema.feature_store_features_schema
-        ],
-        output_schema=[_normalized_item(i) for i in schema.output_schema],
-    )
-
-    if not sample_data or not scalar_fields:
-        return normalized_schema, sample_data
-
-    def _normalized_value(name: str, value: Any) -> Any:
-        if name not in scalar_fields:
-            return value
-        try:
-            return np.reshape(value, (1,))
-        except ValueError as exc:
-            raise ValueError(
-                f"sample_data field {name!r} is marked scalar in schema "
-                f"(shape=[]) but its value has more than one element "
-                f"(shape {np.asarray(value).shape}); schema and sample_data "
-                "have fallen out of sync."
-            ) from exc
-
-    normalized_sample_data = [
-        {name: _normalized_value(name, value) for name, value in record.items()}
-        for record in sample_data
-    ]
-    return normalized_schema, normalized_sample_data
-
-
-def _reorder_output_schema(
-    schema: ModelSchema, field_order: list[str] | None
-) -> ModelSchema:
-    """Return a copy of ``schema`` with its output fields reordered.
-
-    Fields named in ``field_order`` are placed first, in that order. Any
-    output fields not covered by ``field_order`` are appended at the end,
-    keeping their relative order.
-
-    Args:
-        schema: Schema whose ``output_schema`` should be reordered.
-        field_order: Desired output field name order, or ``None`` to leave
-            ``schema`` unchanged.
-
-    Returns:
-        ``schema`` unchanged when ``field_order`` is ``None``; otherwise a
-        new ``ModelSchema`` with the same ``input_schema`` and a reordered
-        ``output_schema``.
-    """
-    if field_order is None:
-        return schema
-    schema_by_name = {item.name: item for item in schema.output_schema}
-    reordered = [schema_by_name[f] for f in field_order if f in schema_by_name]
-    covered = set(field_order)
-    reordered += [item for item in schema.output_schema if item.name not in covered]
-    return ModelSchema(input_schema=list(schema.input_schema), output_schema=reordered)
 
 
 def torch_assembler(
@@ -260,7 +156,7 @@ def torch_assembler(
                 hyperparameters,
                 raw_model.metadata.schema,
             )
-            predictor_schema = _reorder_output_schema(
+            predictor_schema = reorder_output_schema(
                 raw_model.metadata.schema, field_order
             )
             model_schema_for_package = fuse_model_schema(
@@ -282,7 +178,7 @@ def torch_assembler(
             packaged_hyperparameters = hyperparameters
             packaged_sample_data = raw_model.metadata.sample_data
 
-        model_schema_for_package, packaged_sample_data = _normalize_scalar_shapes(
+        model_schema_for_package, packaged_sample_data = normalize_scalar_shapes(
             model_schema_for_package, packaged_sample_data
         )
 
