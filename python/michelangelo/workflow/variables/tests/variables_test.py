@@ -525,6 +525,14 @@ class TestModelMetadataConstantsAndHyperparameters(TestCase):
         self.assertEqual(meta.hyperparameters["lr"], 0.001)
         self.assertEqual(meta.hyperparameters["batch_size"], 32)
 
+    def test_hyperparameters_setter_none_clears_field(self):
+        """Assigning None through the setter clears _hyperparameters."""
+        meta = ModelMetadata()
+        meta.hyperparameters = {"lr": 0.001}
+        meta.hyperparameters = None
+        self.assertIsNone(meta.hyperparameters)
+        self.assertIsNone(meta._hyperparameters)
+
 
 class TestModelVariableCreate(TestCase):
     """Tests for ModelVariable.create() auto-detection."""

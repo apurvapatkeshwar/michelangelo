@@ -76,7 +76,7 @@ class ModelMetadata:
         _schema: Serialised (pickled) input/output schema. This, not a live
             ``schema`` field, is what actually crosses a workflow task
             boundary: a live ``ModelSchema`` object passed by value through
-            uniflow/cadence can be large enough to exceed shell/cadence
+            the workflow orchestrator can be large enough to exceed its
             argument-size limits when inlined. Use the ``schema`` property to
             read it back as a live object. Not included in ``repr``.
         _sample_data: Serialised sample inference payload used for
@@ -92,7 +92,7 @@ class ModelMetadata:
             ``repr``.
         _hyperparameters: Serialised (pickled) training hyperparameters. This,
             not a live ``hyperparameters`` field, is what crosses a workflow
-            task boundary, for the same uniflow/cadence argument-size reason
+            task boundary, for the same workflow-orchestrator argument-size reason
             as ``_schema``. Use the ``hyperparameters`` property to read or
             write it as a live dict. Not included in ``repr``.
         hyperparameters: Live training hyperparameters as a Python dict,
