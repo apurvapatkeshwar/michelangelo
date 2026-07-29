@@ -280,6 +280,38 @@ class TorchAssemblerTest(_LocalBackendTestCase):
 
         self.assertEqual(mock_create_model.call_args.kwargs["backend"], "python")
 
+    @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_model_package")
+    @patch(f"{_ASSEMBLER_MODULE}.TorchTritonPackager.create_raw_model_package")
+    def test_passes_include_import_prefixes(self, mock_create_raw, mock_create_model):
+        """``include_import_prefixes`` reach both packager calls, empty or not."""
+        for prefixes in (["mypkg.models"], []):
+            with self.subTest(prefixes=prefixes):
+                mock_create_model.side_effect = _fake_create_package("deployable")
+                mock_create_raw.side_effect = _fake_create_package("raw")
+
+                config = TabularAssemblerConfig(
+                    torch=TorchAssemblerConfig(include_import_prefixes=prefixes)
+                )
+                raw_model = ModelArtifact(
+                    path=self._upload_raw_model_source(),
+                    metadata=ModelMetadata(
+                        model_class="test.SimpleTorchModel",
+                        _schema=BytesIO(pickle.dumps(_make_schema())),
+                        _sample_data=BytesIO(pickle.dumps([])),
+                    ),
+                )
+
+                torch_assembler(config, raw_model, storage_backend=self.storage_backend)
+
+                self.assertEqual(
+                    mock_create_model.call_args.kwargs["include_import_prefixes"],
+                    prefixes,
+                )
+                self.assertEqual(
+                    mock_create_raw.call_args.kwargs["include_import_prefixes"],
+                    prefixes,
+                )
+
     def test_native_transform_raises_not_implemented_pending_native_transform(self):
         """Real fusion now runs; native_transform support is still needed.
 

@@ -47,6 +47,7 @@ from michelangelo.lib.shared.utils.model_fuser._private.fuse import (
     _onnx_dynamo_export_error_should_retry_legacy,
     _onnx_dynamo_exporter_dependencies_available,
     _onnx_export_attach_inputs_to_output,
+    _run_export_with_retry,
     _schema_input_keys,
     _schema_output_keys,
 )
@@ -1202,6 +1203,39 @@ class OnnxDynamoExportErrorRetryPolicyTest(unittest.TestCase):
                 RuntimeError("shape mismatch")
             )
         )
+
+
+class RunExportWithRetryTest(unittest.TestCase):
+    """Tests for ``_run_export_with_retry``'s dynamo-failure re-raise branch."""
+
+    def test_non_recoverable_dynamo_error_is_reraised_without_legacy_fallback(self):
+        """A dynamo-export error outside the retry signatures propagates as-is.
+
+        Proves the ``if not _onnx_dynamo_export_error_should_retry_legacy(e): raise``
+        branch (``_private/fuse.py``) actually re-raises instead of silently
+        falling through to the legacy exporter or swallowing the error.
+        """
+        model = nn.Linear(1, 1)
+        sample_args = (torch.zeros(1, 1),)
+
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.object(
+                torch.onnx, "export", side_effect=RuntimeError("shape mismatch")
+            ) as mock_export,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "shape mismatch"):
+                _run_export_with_retry(
+                    export_args=(model, sample_args, os.path.join(d, "out.onnx")),
+                    export_kwargs={"dynamic_shapes": {}},
+                    legacy_export_kwargs={},
+                    use_dynamo=True,
+                    use_tuple_wrapper=True,
+                    model=model,
+                    input_key_order=["x"],
+                )
+            # Only the dynamo attempt ran; no legacy fallback export was attempted.
+            self.assertEqual(mock_export.call_count, 1)
 
 
 class OnnxExportAttachInputsToOutputTest(unittest.TestCase):
