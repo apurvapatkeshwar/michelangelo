@@ -536,6 +536,16 @@ def _compute_steps_per_epoch(
        accumulate_grad_batches`` (``max_steps`` counts optimizer steps, the
        estimate counts mini-batches).
 
+    The division by ``world_size`` assumes each worker iterates roughly
+    ``1 / world_size`` of the rows. That holds for every configuration this
+    trainer supports: the split is performed by Ray Train's default
+    ``DataConfig`` (``datasets_to_split="all"``), which shards the dataset
+    evenly across workers before the Lightning strategy sees it, so it is
+    unaffected by the choice of DDP / FSDP / DeepSpeed. A caller supplying a
+    custom ``Strategy`` under which several workers form one model replica and
+    must therefore see identical batches would break the assumption, and the
+    estimate would then be low by the replication factor.
+
     Args:
         trainer_kwargs: Keyword arguments destined for ``pl.Trainer``. Read
             only; ``limit_train_batches``, ``max_steps``, and
