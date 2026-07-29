@@ -112,6 +112,23 @@ class ResolveTest(unittest.TestCase):
         """A non-class attribute (e.g. a function) returns ``None``."""
         self.assertIsNone(try_load_class("math.sqrt"))
 
+    def test_try_load_class_propagates_exceptions_outside_the_narrow_catch(self):
+        """An exception from the target module's own top-level code is not swallowed.
+
+        ``try_load_class`` only degrades to ``None`` for
+        ``ModuleNotFoundError``/``ImportError``/``AttributeError``/``ValueError``
+        (an import-resolution failure). A module that imports successfully as
+        far as Python is concerned but raises something else (e.g. a plain
+        ``RuntimeError``) during its own top-level execution is a different
+        failure mode -- a broken module, not a missing one -- and should
+        propagate uncaught rather than silently resolve to ``None``.
+        """
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            try_load_class(
+                "michelangelo.workflow.tasks.tabular_assembler._private.model_class."
+                "tests.fixtures.broken_module.SomeClass"
+            )
+
     def test_resolve_training_framework_custom_model(self):
         """A ``Model`` subclass resolves to the custom framework."""
         self.assertEqual(
