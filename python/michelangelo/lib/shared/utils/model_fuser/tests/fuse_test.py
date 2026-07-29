@@ -33,7 +33,10 @@ from michelangelo.lib.shared.utils.model_fuser import (
 from michelangelo.lib.shared.utils.model_fuser import (
     fused_model,
 )
-from michelangelo.lib.shared.utils.model_fuser.fuse import (
+from michelangelo.lib.shared.utils.model_fuser._private import (
+    fuse as private_fuse_module,
+)
+from michelangelo.lib.shared.utils.model_fuser._private.fuse import (
     _build_fused_sample_input,
     _disable_transformer_encoder_fused_fastpath_for_onnx,
     _FusedOnnxDynamoTupleWrapper,
@@ -46,6 +49,8 @@ from michelangelo.lib.shared.utils.model_fuser.fuse import (
     _onnx_export_attach_inputs_to_output,
     _schema_input_keys,
     _schema_output_keys,
+)
+from michelangelo.lib.shared.utils.model_fuser.fuse import (
     build_fused_sample_data,
     compute_python_fuse_metadata,
     fuse_models_to_onnx,
@@ -57,6 +62,7 @@ from michelangelo.lib.shared.utils.model_fuser.fuse import (
 FusedModel = fused_model.FusedModel
 
 _FUSE_MODULE = "michelangelo.lib.shared.utils.model_fuser.fuse"
+_PRIVATE_FUSE_MODULE = "michelangelo.lib.shared.utils.model_fuser._private.fuse"
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +314,7 @@ class ForwardAcceptsDictTest(unittest.TestCase):
             def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
                 return next(iter(x.values()))
 
-        self.assertTrue(fuse_module._forward_accepts_dict(M()))
+        self.assertTrue(private_fuse_module._forward_accepts_dict(M()))
 
     def test_accepts_dict_false_single_tensor(self):
         """Accepts dict false single tensor."""
@@ -317,7 +323,7 @@ class ForwardAcceptsDictTest(unittest.TestCase):
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 return x
 
-        self.assertFalse(fuse_module._forward_accepts_dict(M()))
+        self.assertFalse(private_fuse_module._forward_accepts_dict(M()))
 
     def test_accepts_dict_false_no_annotation(self):
         """Accepts dict false no annotation."""
@@ -326,7 +332,7 @@ class ForwardAcceptsDictTest(unittest.TestCase):
             def forward(self, x):
                 return x
 
-        self.assertFalse(fuse_module._forward_accepts_dict(M()))
+        self.assertFalse(private_fuse_module._forward_accepts_dict(M()))
 
     def test_accepts_dict_false_forward_no_params(self):
         """Accepts dict false forward no params."""
@@ -335,17 +341,17 @@ class ForwardAcceptsDictTest(unittest.TestCase):
             def forward(self) -> torch.Tensor:
                 return torch.tensor(0.0)
 
-        self.assertFalse(fuse_module._forward_accepts_dict(M()))
+        self.assertFalse(private_fuse_module._forward_accepts_dict(M()))
 
     def test_accepts_dict_false_when_signature_raises(self):
         """Accepts dict false when signature raises."""
         m = _TensorPredictor()
-        with mock.patch(f"{_FUSE_MODULE}.inspect.signature") as sig:
+        with mock.patch(f"{_PRIVATE_FUSE_MODULE}.inspect.signature") as sig:
             sig.side_effect = ValueError("cannot inspect")
-            self.assertFalse(fuse_module._forward_accepts_dict(m))
-        with mock.patch(f"{_FUSE_MODULE}.inspect.signature") as sig:
+            self.assertFalse(private_fuse_module._forward_accepts_dict(m))
+        with mock.patch(f"{_PRIVATE_FUSE_MODULE}.inspect.signature") as sig:
             sig.side_effect = TypeError("cannot inspect")
-            self.assertFalse(fuse_module._forward_accepts_dict(m))
+            self.assertFalse(private_fuse_module._forward_accepts_dict(m))
 
     def test_accepts_dict_false_non_dict_annotation_after_self(self):
         """Accepts dict false non dict annotation after self."""
@@ -354,7 +360,7 @@ class ForwardAcceptsDictTest(unittest.TestCase):
             def forward(self, x: int) -> torch.Tensor:
                 return torch.tensor(float(x))
 
-        self.assertFalse(fuse_module._forward_accepts_dict(M()))
+        self.assertFalse(private_fuse_module._forward_accepts_dict(M()))
 
     def test_accepts_dict_continue_when_param_is_self(self):
         """A signature that still lists ``self`` exercises the ``continue`` branch."""
@@ -368,8 +374,8 @@ class ForwardAcceptsDictTest(unittest.TestCase):
             "x", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=dict
         )
         fake_sig = inspect.Signature(parameters=[self_param, x_param])
-        with mock.patch(f"{_FUSE_MODULE}.inspect.signature", return_value=fake_sig):
-            self.assertTrue(fuse_module._forward_accepts_dict(m))
+        with mock.patch(f"{_PRIVATE_FUSE_MODULE}.inspect.signature", return_value=fake_sig):
+            self.assertTrue(private_fuse_module._forward_accepts_dict(m))
 
 
 class ForwardParamOrderTest(unittest.TestCase):
@@ -377,8 +383,8 @@ class ForwardParamOrderTest(unittest.TestCase):
 
     def test_returns_param_names_excluding_self(self):
         """Returns param names excluding self."""
-        self.assertEqual(fuse_module._forward_param_order(_TensorPredictor()), ["out"])
-        self.assertEqual(fuse_module._forward_param_order(_DictPredictor()), ["inputs"])
+        self.assertEqual(private_fuse_module._forward_param_order(_TensorPredictor()), ["out"])
+        self.assertEqual(private_fuse_module._forward_param_order(_DictPredictor()), ["inputs"])
 
     def test_returns_multiple_params_in_signature_order(self):
         """Returns multiple params in signature order."""
@@ -389,7 +395,7 @@ class ForwardParamOrderTest(unittest.TestCase):
             ) -> torch.Tensor:
                 return a + b + c
 
-        self.assertEqual(fuse_module._forward_param_order(M()), ["a", "b", "c"])
+        self.assertEqual(private_fuse_module._forward_param_order(M()), ["a", "b", "c"])
 
     def test_returns_empty_when_no_params_after_self(self):
         """Returns empty when no params after self."""
@@ -398,17 +404,17 @@ class ForwardParamOrderTest(unittest.TestCase):
             def forward(self) -> torch.Tensor:
                 return torch.tensor(0.0)
 
-        self.assertEqual(fuse_module._forward_param_order(M()), [])
+        self.assertEqual(private_fuse_module._forward_param_order(M()), [])
 
     def test_returns_empty_when_signature_raises(self):
         """Returns empty when signature raises."""
         m = _TensorPredictor()
-        with mock.patch(f"{_FUSE_MODULE}.inspect.signature") as sig:
+        with mock.patch(f"{_PRIVATE_FUSE_MODULE}.inspect.signature") as sig:
             sig.side_effect = ValueError("cannot inspect")
-            self.assertEqual(fuse_module._forward_param_order(m), [])
-        with mock.patch(f"{_FUSE_MODULE}.inspect.signature") as sig:
+            self.assertEqual(private_fuse_module._forward_param_order(m), [])
+        with mock.patch(f"{_PRIVATE_FUSE_MODULE}.inspect.signature") as sig:
             sig.side_effect = TypeError("cannot inspect")
-            self.assertEqual(fuse_module._forward_param_order(m), [])
+            self.assertEqual(private_fuse_module._forward_param_order(m), [])
 
 
 class BuildFusedSampleInputTest(unittest.TestCase):
@@ -628,7 +634,7 @@ class FuseModelsToTorchscriptTest(unittest.TestCase):
                 "predictor_cls": _TensorPredictor,
                 "schema_names": ["x"],
                 "tx_output_name": "x",
-                "extra_mock_target": f"{_FUSE_MODULE}._forward_param_order",
+                "extra_mock_target": f"{_PRIVATE_FUSE_MODULE}._forward_param_order",
                 "expect_error": False,
                 "expected_takes_dict": False,
                 "expected_keys": ["x"],
@@ -671,7 +677,7 @@ class FuseModelsToTorchscriptTest(unittest.TestCase):
                             ctx = stack.enter_context(self.assertRaises(ValueError))
                         else:
                             mock_fused = stack.enter_context(
-                                mock.patch(f"{_FUSE_MODULE}.FusedModel")
+                                mock.patch(f"{_PRIVATE_FUSE_MODULE}.FusedModel")
                             )
                             stack.enter_context(
                                 mock.patch(
@@ -1070,7 +1076,7 @@ class ExpandBatchForOnnxExportTest(unittest.TestCase):
         """Repeats batch one to two."""
         a = torch.zeros(1, 3)
         b = torch.ones(1, 1)
-        out = fuse_module._expand_batch_for_onnx_export((a, b))
+        out = private_fuse_module._expand_batch_for_onnx_export((a, b))
         self.assertEqual(out[0].shape, (2, 3))
         self.assertEqual(out[1].shape, (2, 1))
 
@@ -1078,7 +1084,7 @@ class ExpandBatchForOnnxExportTest(unittest.TestCase):
         """Leaves batch greater than one unchanged."""
         a = torch.randn(3, 2)
         b = torch.randn(1, 2)
-        out = fuse_module._expand_batch_for_onnx_export((a, b))
+        out = private_fuse_module._expand_batch_for_onnx_export((a, b))
         self.assertIs(out[0], a)
         self.assertEqual(out[1].shape[0], 2)
 
@@ -1125,14 +1131,14 @@ class OnnxDynamoExporterDepsTest(unittest.TestCase):
     def test_true_when_onnxscript_importable(self):
         """True when onnxscript importable."""
         with mock.patch.object(
-            fuse_module.importlib.util, "find_spec", return_value=object()
+            private_fuse_module.importlib.util, "find_spec", return_value=object()
         ):
             self.assertTrue(_onnx_dynamo_exporter_dependencies_available())
 
     def test_false_when_onnxscript_missing(self):
         """False when onnxscript missing."""
         with mock.patch.object(
-            fuse_module.importlib.util, "find_spec", return_value=None
+            private_fuse_module.importlib.util, "find_spec", return_value=None
         ):
             self.assertFalse(_onnx_dynamo_exporter_dependencies_available())
 
@@ -1142,7 +1148,7 @@ class OnnxDynamoDynamicShapesForTupleArgTest(unittest.TestCase):
 
     def test_returns_none_when_torch_export_dim_unavailable(self):
         """Returns none when torch export dim unavailable."""
-        with mock.patch.object(fuse_module, "_TorchExportDim", None):
+        with mock.patch.object(private_fuse_module, "_TorchExportDim", None):
             self.assertIsNone(
                 _onnx_dynamo_dynamic_shapes_for_tuple_arg((torch.zeros(1),))
             )
@@ -1315,7 +1321,7 @@ class ForceOnnxIoShapesFromSchemaTest(unittest.TestCase):
                     ModelSchemaItem(name="y", data_type=DataType.FLOAT, shape=[32])
                 ],
             )
-            fuse_module._force_onnx_io_shapes_from_schema(dest_path, [schema])
+            private_fuse_module._force_onnx_io_shapes_from_schema(dest_path, [schema])
             model_proto = onnx.load(dest_path)
             for value_info in list(model_proto.graph.input) + list(
                 model_proto.graph.output
@@ -1330,7 +1336,7 @@ class ForceOnnxIoShapesFromSchemaTest(unittest.TestCase):
             dest_path = os.path.join(d, "m.onnx")
             self._export_simple_onnx(dest_path)
             before = onnx.load(dest_path).SerializeToString()
-            fuse_module._force_onnx_io_shapes_from_schema(dest_path, [None])
+            private_fuse_module._force_onnx_io_shapes_from_schema(dest_path, [None])
             after = onnx.load(dest_path).SerializeToString()
             self.assertEqual(before, after)
 
@@ -1347,8 +1353,8 @@ class ForceOnnxIoShapesFromSchemaTest(unittest.TestCase):
                     ModelSchemaItem(name="x", data_type=DataType.FLOAT, shape=[32, 32])
                 ],
             )
-            with self.assertLogs(fuse_module._logger, level="WARNING") as cm:
-                fuse_module._force_onnx_io_shapes_from_schema(dest_path, [schema])
+            with self.assertLogs(private_fuse_module._logger, level="WARNING") as cm:
+                private_fuse_module._force_onnx_io_shapes_from_schema(dest_path, [schema])
             self.assertTrue(
                 any("Skipping ONNX shape override" in line for line in cm.output)
             )
