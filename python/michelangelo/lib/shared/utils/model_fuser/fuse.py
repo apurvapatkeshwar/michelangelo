@@ -8,11 +8,11 @@ combined state dict for Python-backend serving.
 
 Private helpers live in
 :mod:`michelangelo.lib.shared.utils.model_fuser._private.fuse` — module
-loading/forward-signature helpers, and the ONNX export machinery (MHA
-fused-fastpath disable, dynamo-with-legacy-fallback, IO shape normalization,
-batch-size expansion) that mirrors the same fixes applied by the non-fused
-``model_manager`` Triton packagers, so fused and non-fused models get
-equivalent ONNX output quality.
+loading and forward-signature helpers used to build the fused model for
+tracing. ONNX export itself delegates to the shared
+:func:`michelangelo.lib.model_manager.utils.onnx.torch_onnx.export_torch_to_onnx`,
+which the non-fused ``model_manager`` Triton packager also uses, so fused and
+non-fused models get equivalent ONNX output quality.
 
 Building the Hydra reconstruction spec for a fused *native-transform* model's
 Python-backend package (:func:`~._private.fuse._build_tx_hydra_spec`)
@@ -31,12 +31,13 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
+from michelangelo.lib.model_manager.utils.onnx.torch_onnx import export_torch_to_onnx
+
 from ._private.fuse import (
     _align_predictor_input_keys,
     _build_fused_model_and_sample,
     _build_fused_sample_input,
     _build_tx_hydra_spec,
-    _export_fused_onnx,
     _forward_accepts_dict,
     _forward_param_order,
     _load_module_from_path,
@@ -195,9 +196,9 @@ def fuse_models_to_onnx(
     """Fuse the predictor and transform models and save as ONNX.
 
     Uses the same composition rules as :func:`fuse_models_to_torchscript`,
-    then exports with the dynamo-first/legacy-fallback ONNX pipeline (see the
-    module docstring) so fused and non-fused models get equivalent export
-    quality.
+    then delegates ONNX export to the shared ``export_torch_to_onnx`` (see
+    the module docstring) so fused and non-fused models get equivalent
+    export quality.
 
     Args:
         torch_model_path: Local path to the predictor model.
@@ -240,13 +241,16 @@ def fuse_models_to_onnx(
             "Could not infer ONNX output names from forward sample run: %s", e
         )
 
-    return _export_fused_onnx(
+    return export_torch_to_onnx(
         model=fused,
         dest_path=dest_path,
         sample_inputs=tuple_in,
         input_names=input_names,
         output_names=output_names,
         model_schemas=[tx_model_schema, model_schema],
+        enable_dynamic_batching=True,
+        is_lightning_module=False,
+        use_tuple_wrapper=True,
         input_key_order=input_key_order,
     )
 
