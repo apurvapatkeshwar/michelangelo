@@ -534,6 +534,48 @@ class TestModelMetadataConstantsAndHyperparameters(TestCase):
         self.assertIsNone(meta._hyperparameters)
 
 
+class TestModelMetadataTransformSpecAndFeatureStats(TestCase):
+    """Tests for the ``transform_spec`` and ``feature_stats`` properties."""
+
+    def test_transform_spec_field_defaults_to_none(self):
+        """ModelMetadata.transform_spec defaults to None."""
+        meta = ModelMetadata()
+        self.assertIsNone(meta.transform_spec)
+
+    def test_transform_spec_field_accepts_dict(self):
+        """ModelMetadata stores a transform_spec dict via the setter."""
+        meta = ModelMetadata()
+        meta.transform_spec = {"scaler": "standard"}
+        self.assertEqual(meta.transform_spec["scaler"], "standard")
+
+    def test_transform_spec_setter_none_clears_field(self):
+        """Assigning None through the setter clears _transform_spec."""
+        meta = ModelMetadata()
+        meta.transform_spec = {"scaler": "standard"}
+        meta.transform_spec = None
+        self.assertIsNone(meta.transform_spec)
+        self.assertIsNone(meta._transform_spec)
+
+    def test_feature_stats_field_defaults_to_none(self):
+        """ModelMetadata.feature_stats defaults to None."""
+        meta = ModelMetadata()
+        self.assertIsNone(meta.feature_stats)
+
+    def test_feature_stats_field_accepts_dict(self):
+        """ModelMetadata stores a feature_stats dict via the setter."""
+        meta = ModelMetadata()
+        meta.feature_stats = {"mean": 0.0, "std": 1.0}
+        self.assertEqual(meta.feature_stats["mean"], 0.0)
+
+    def test_feature_stats_setter_none_clears_field(self):
+        """Assigning None through the setter clears _feature_stats."""
+        meta = ModelMetadata()
+        meta.feature_stats = {"mean": 0.0}
+        meta.feature_stats = None
+        self.assertIsNone(meta.feature_stats)
+        self.assertIsNone(meta._feature_stats)
+
+
 class TestModelVariableCreate(TestCase):
     """Tests for ModelVariable.create() auto-detection."""
 

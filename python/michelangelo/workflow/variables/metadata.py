@@ -102,6 +102,15 @@ class ModelMetadata:
             setter: assigning a dict pickles it into ``_hyperparameters``
             for you.
 
+    Warning:
+        The ``_schema``, ``_sample_data``, ``_transform_spec``,
+        ``_feature_stats``, and ``_hyperparameters`` fields are unpickled on
+        read (``schema``, ``sample_data``, ``transform_spec``,
+        ``feature_stats``, ``hyperparameters`` properties). Unpickling
+        executes arbitrary code embedded in the payload, so only construct
+        ``ModelMetadata`` from a trusted source (e.g. your own workflow task
+        output), never from unvalidated external input.
+
     Example:
         >>> meta = ModelMetadata(training_framework="xgboost", deployable=True)
         >>> meta.training_framework
