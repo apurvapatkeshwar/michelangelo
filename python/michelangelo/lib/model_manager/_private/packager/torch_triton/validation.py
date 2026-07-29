@@ -138,6 +138,14 @@ def validate_deployable_onnx_file(
 
     Validation is content-based, so the file extension may differ from .onnx.
 
+    Handles both standard ONNX files and the external-data format (weights
+    stored in sidecar files next to the ``.onnx``, used for graphs exceeding
+    the 2 GiB protobuf serialization limit). For external-data models,
+    ``onnx.checker.check_model`` is invoked with the file path rather than a
+    loaded proto, so the checker resolves and validates the sidecar files
+    relative to the ``.onnx`` location — loading the full proto first would
+    require inlining the (potentially multi-GB) external tensors.
+
     Args:
         model_onnx_path: Path to the candidate ONNX file.
 
@@ -151,8 +159,16 @@ def validate_deployable_onnx_file(
             return False, ValueError(f"Path is not a file: {model_onnx_path}")
         if os.path.getsize(model_onnx_path) == 0:
             return False, ValueError(f"File is empty: {model_onnx_path}")
-        model_proto = onnx.load(model_onnx_path)
-        onnx.checker.check_model(model_proto)
+        model_proto = onnx.load(model_onnx_path, load_external_data=False)
+        has_external_data = any(
+            initializer.HasField("data_location")
+            and initializer.data_location == onnx.TensorProto.EXTERNAL
+            for initializer in model_proto.graph.initializer
+        )
+        if has_external_data:
+            onnx.checker.check_model(model_onnx_path, full_check=False)
+        else:
+            onnx.checker.check_model(model_proto, full_check=False)
     except Exception as e:
         return False, RuntimeError(f"File is not a valid ONNX model: {e}")
     else:

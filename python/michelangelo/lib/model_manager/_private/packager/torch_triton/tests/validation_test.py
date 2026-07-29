@@ -4,6 +4,7 @@ import os
 import tempfile
 from unittest import TestCase
 
+import onnx
 import pytest
 import torch
 
@@ -145,6 +146,40 @@ class ValidateDeployableOnnxFileTest(TestCase):
                 input_names=["x"],
                 output_names=["y"],
                 opset_version=14,
+            )
+
+            is_valid, error = validate_deployable_onnx_file(path)
+
+            self.assertTrue(is_valid, error)
+            self.assertIsNone(error)
+
+    def test_valid_onnx_with_external_data(self):
+        """An external-data ONNX model validates via the path-based checker.
+
+        Uses size_threshold=0 to force every initializer into a sidecar file
+        regardless of size, exercising the external-data path without needing
+        an actual >2GB model.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "model.onnx")
+            model = torch.nn.Linear(4, 2)
+            model.eval()
+            torch.onnx.export(
+                model,
+                (torch.randn(2, 4),),
+                path,
+                input_names=["x"],
+                output_names=["y"],
+                opset_version=14,
+            )
+            model_proto = onnx.load(path)
+            onnx.save_model(
+                model_proto,
+                path,
+                save_as_external_data=True,
+                all_tensors_to_one_file=True,
+                location="model.onnx.data",
+                size_threshold=0,
             )
 
             is_valid, error = validate_deployable_onnx_file(path)
