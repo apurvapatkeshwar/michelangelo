@@ -93,6 +93,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from michelangelo.api.v2.util import generate_random_name
 from michelangelo.workflow.schema.exceptions import ConfigurationError
 from michelangelo.workflow.tasks.pusher.plugins.base import PusherPluginBase
 
@@ -346,7 +347,8 @@ class ModelPusherPlugin(PusherPluginBase):
         if config.model_name == "":
             raise ConfigurationError(
                 "ModelPusherPlugin: model_name must be a non-empty string or None "
-                "(None auto-generates a unique name, e.g. 'model-a1b2c3d4')."
+                "(None auto-generates a unique name, e.g. "
+                "'model-20260721-114130-2d9c959d')."
             )
         # Resolve the effective registry list at init time.
         has_injected = registry_client is not None
@@ -405,10 +407,11 @@ class ModelPusherPlugin(PusherPluginBase):
         """
         if self._config.model_name is None:
             _logger.warning(
-                "No model_name set in config — auto-generating a UUID-based name. "
+                "No model_name set in config — auto-generating a "
+                "timestamp+UUID-based name. "
                 "Set config.model_name explicitly for reproducible model identities."
             )
-            model_name = _generate_name()
+            model_name = generate_random_name("model")
         else:
             model_name = self._config.model_name
         push_id = uuid.uuid4().hex[:16]
@@ -515,8 +518,3 @@ class ModelPusherPlugin(PusherPluginBase):
         if self._config.run_id is not None:
             result["run_id"] = self._config.run_id  # run_id wins on collision
         return result
-
-
-def _generate_name() -> str:
-    """Generate a unique model name with an 8-character hex UUID suffix."""
-    return f"model-{uuid.uuid4().hex[:8]}"
