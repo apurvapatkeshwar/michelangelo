@@ -101,6 +101,12 @@ All notable changes to this project will be documented in this file.
   (validated via `TorchTrainer.can_restore()`). Defaults to `None` (no tracking,
   no resume); bring your own `ExperimentStore` for other backends.
 
+### Fixed
+
+- Ray tasks now create Michelangelo `RayCluster` and `RayJob` resources in
+  `MA_NAMESPACE`; workflows without `MA_NAMESPACE` continue using `default`,
+  and downstream KubeRay compute-resource placement is unchanged.
+
 ## [0.5.0] - 2026-07-20
 
 ### Breaking Changes
