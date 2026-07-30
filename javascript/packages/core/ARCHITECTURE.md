@@ -134,7 +134,7 @@ import { ICONS } from './icons/icons';
 
 <IconProvider icons={ICONS}>
   <App />
-</IconProvider>
+</IconProvider>;
 ```
 
 Components reference icons by key through the configuration system's `icon` field or directly via the hook:
@@ -172,14 +172,14 @@ The reference registry lives in `javascript/app/icons/icons.tsx`. To add an icon
 
 **Naming convention**
 
-Icon keys use **camelCase** throughout. Names should be semantic — describe what the icon *means* in context, not what it looks like:
+Icon keys use **camelCase** throughout. Names should be semantic — describe what the icon _means_ in context, not what it looks like:
 
-| Key | MUI source | Meaning |
-|---|---|---|
-| `trashCan` | `Delete` | Destructive delete action |
-| `circleCheck` | `CheckCircle` | Success / complete state |
-| `overflowMenu` | `MoreVert` | Three-dot overflow menu |
-| `playerPlay` | `PlayArrow` | Start / run an action |
+| Key            | MUI source    | Meaning                   |
+| -------------- | ------------- | ------------------------- |
+| `trashCan`     | `Delete`      | Destructive delete action |
+| `circleCheck`  | `CheckCircle` | Success / complete state  |
+| `overflowMenu` | `MoreVert`    | Three-dot overflow menu   |
+| `playerPlay`   | `PlayArrow`   | Start / run an action     |
 
 Avoid naming icons after their visual shape (`arrowDown`) when a semantic name is available (`sortDescending`).
 
