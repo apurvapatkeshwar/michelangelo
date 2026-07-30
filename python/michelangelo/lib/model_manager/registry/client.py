@@ -134,6 +134,12 @@ class ModelRegistryClient(ABC):
     ) -> RegisteredModel:
         """Register a model and its artifact URI in the registry.
 
+        If a model with this name already exists, a new revision is created;
+        prior revisions and their artifact URIs remain associated with the
+        model. Retrieving an earlier revision is implementation-dependent —
+        :meth:`get_model` may only be able to return the latest, so consult the
+        concrete client's documentation.
+
         Args:
             name: Model name to register under. The registry creates the model
                 entry if it does not already exist.

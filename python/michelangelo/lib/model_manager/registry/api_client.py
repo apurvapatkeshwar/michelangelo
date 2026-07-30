@@ -94,11 +94,17 @@ class APIRegistryClient(ModelRegistryClient):
     ``rpc-encoding``) on every call via ``DefaultHeaderProvider``, eliminating
     the need for a manual interceptor.
 
-    **Create vs. update (with retry):** :meth:`register_model` attempts
-    ``create_model`` first. On ``ALREADY_EXISTS`` it fetches ``resourceVersion``
-    via ``get_model`` and retries as ``update_model``. On ``FAILED_PRECONDITION``
-    (concurrent write) the whole sequence retries up to
-    :data:`_MAX_REGISTER_RETRIES` times.
+    **Create vs. new revision (with retry):** :meth:`register_model` attempts
+    ``create_model`` first. On ``ALREADY_EXISTS`` it fetches the current model
+    via ``get_model`` and writes back a new revision — ``spec.revision_id`` is
+    incremented and the new artifact URIs are *appended* to the existing ones,
+    so prior pushes stay associated with the model rather than being
+    overwritten. On ``FAILED_PRECONDITION`` (concurrent write) the whole
+    sequence retries up to :data:`_MAX_REGISTER_RETRIES` times.
+
+    Note that :meth:`get_model` still only resolves the latest revision;
+    earlier artifact URIs are retained on the model but are not individually
+    addressable through this client.
 
     **registry_uri format:** ``models:/{namespace}/{name}/{version}`` —
     Michelangelo's three-segment format, not the two-segment MLflow format.
@@ -170,7 +176,12 @@ class APIRegistryClient(ModelRegistryClient):
         labels: Mapping[str, str] | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> RegisteredModel:
-        """Register a model via ``create_model``, falling back to ``update_model``.
+        """Register a model via ``create_model``, falling back to a new revision.
+
+        If a model with this name already exists, a new revision is written:
+        ``spec.revision_id`` is incremented and ``artifact_uri`` /
+        ``deployable_artifact_uri`` are appended to the URIs already recorded
+        on the model, so prior pushes remain associated with it.
 
         Args:
             name: Model name. Used as ``model.metadata.name``.
@@ -184,6 +195,7 @@ class APIRegistryClient(ModelRegistryClient):
 
         Returns:
             :class:`~michelangelo.lib.model_manager.registry.client.RegisteredModel`
+            for the newly created revision.
 
         Raises:
             grpc.RpcError: On gRPC errors other than ``ALREADY_EXISTS`` /
@@ -208,14 +220,24 @@ class APIRegistryClient(ModelRegistryClient):
                     raise
 
             _logger.warning(
-                "Model '%s' already exists — fetching resourceVersion and "
-                "updating (attempt %d/%d).",
+                "Model '%s' already exists — fetching it and writing a new "
+                "revision (attempt %d/%d).",
                 name,
                 attempt,
                 _MAX_REGISTER_RETRIES,
             )
             existing = self._svc.get_model(self._namespace, name)
+            model = self._build_model_proto(
+                name=name,
+                artifact_uri=artifact_uri,
+                deployable_artifact_uri=deployable_artifact_uri,
+                description=description,
+                labels=labels,
+                metadata=metadata,
+                existing=existing,
+            )
             model.metadata.resourceVersion = existing.metadata.resourceVersion
+            model.spec.revision_id = existing.spec.revision_id + 1
             try:
                 updated = self._svc.update_model(model)
                 return self._to_registered_model(updated)
@@ -271,11 +293,17 @@ class APIRegistryClient(ModelRegistryClient):
         description: str | None,
         labels: Mapping[str, str] | None,
         metadata: Mapping[str, Any] | None,
+        existing: model_pb2.Model | None = None,
     ) -> model_pb2.Model:
         model = model_pb2.Model()
         model.metadata.name = name
         if self._namespace:
             model.metadata.namespace = self._namespace
+        if existing is not None:
+            model.spec.model_artifact_uri.extend(existing.spec.model_artifact_uri)
+            model.spec.deployable_artifact_uri.extend(
+                existing.spec.deployable_artifact_uri
+            )
         model.spec.model_artifact_uri.append(artifact_uri)
         if deployable_artifact_uri:
             model.spec.deployable_artifact_uri.append(deployable_artifact_uri)
@@ -318,11 +346,12 @@ class APIRegistryClient(ModelRegistryClient):
         name = model.metadata.name
         namespace = model.metadata.namespace or self._namespace
         version = str(model.spec.revision_id)
+        # The URI lists accumulate one entry per revision; the last is this one's.
         artifact_uri = (
-            model.spec.model_artifact_uri[0] if model.spec.model_artifact_uri else None
+            model.spec.model_artifact_uri[-1] if model.spec.model_artifact_uri else None
         )
         deployable_artifact_uri = (
-            model.spec.deployable_artifact_uri[0]
+            model.spec.deployable_artifact_uri[-1]
             if model.spec.deployable_artifact_uri
             else None
         )

@@ -284,6 +284,98 @@ class TestAPIRegistryClientAlreadyExists(TestCase):
             _client(svc).register_model("m", "s3://b/raw")
 
 
+class _FakeModelService:
+    """Stateful ModelService double implementing create/get/update semantics.
+
+    Echoes back whatever proto the client sends on update, so assertions on the
+    returned ``RegisteredModel`` also assert what the client asked for.
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, model_pb2.Model] = {}
+
+    def create_model(self, model: model_pb2.Model) -> model_pb2.Model:
+        if model.metadata.name in self._store:
+            raise _RpcError(grpc.StatusCode.ALREADY_EXISTS)
+        stored = model_pb2.Model()
+        stored.CopyFrom(model)
+        stored.spec.revision_id = 1
+        self._store[model.metadata.name] = stored
+        return stored
+
+    def get_model(self, namespace: str, name: str) -> model_pb2.Model:
+        return self._store[name]
+
+    def update_model(self, model: model_pb2.Model) -> model_pb2.Model:
+        stored = model_pb2.Model()
+        stored.CopyFrom(model)
+        self._store[model.metadata.name] = stored
+        return stored
+
+
+class TestAPIRegistryClientRevisions(TestCase):
+    """Tests for revision semantics when re-registering an existing name."""
+
+    def test_second_registration_increments_revision(self):
+        """Re-registering the same name yields the next revision."""
+        client = _client(_FakeModelService())
+
+        first = client.register_model("m", "s3://b/raw/v1")
+        second = client.register_model("m", "s3://b/raw/v2")
+
+        self.assertEqual(first.version, "1")
+        self.assertEqual(second.version, "2")
+
+    def test_second_registration_reports_latest_artifact_uri(self):
+        """The returned artifact URIs are this push's, not the first push's."""
+        client = _client(_FakeModelService())
+
+        client.register_model("m", "s3://b/raw/v1", deployable_artifact_uri="s3://b/d1")
+        second = client.register_model(
+            "m", "s3://b/raw/v2", deployable_artifact_uri="s3://b/d2"
+        )
+
+        self.assertEqual(second.artifact_uri, "s3://b/raw/v2")
+        self.assertEqual(second.deployable_artifact_uri, "s3://b/d2")
+
+    def test_prior_artifact_uris_are_retained(self):
+        """Earlier revisions' URIs stay on the model instead of being replaced."""
+        svc = _FakeModelService()
+        client = _client(svc)
+
+        client.register_model("m", "s3://b/raw/v1", deployable_artifact_uri="s3://b/d1")
+        client.register_model("m", "s3://b/raw/v2", deployable_artifact_uri="s3://b/d2")
+
+        stored = svc.get_model("default", "m")
+        self.assertEqual(
+            list(stored.spec.model_artifact_uri), ["s3://b/raw/v1", "s3://b/raw/v2"]
+        )
+        self.assertEqual(
+            list(stored.spec.deployable_artifact_uri), ["s3://b/d1", "s3://b/d2"]
+        )
+
+    def test_build_model_proto_extends_existing_uris(self):
+        """_build_model_proto() appends to an existing model's URI lists."""
+        existing = _model("m", artifact_uri="s3://b/raw/v1", deployable_uri="s3://b/d1")
+
+        proto = _client()._build_model_proto(
+            name="m",
+            artifact_uri="s3://b/raw/v2",
+            deployable_artifact_uri="s3://b/d2",
+            description=None,
+            labels=None,
+            metadata=None,
+            existing=existing,
+        )
+
+        self.assertEqual(
+            list(proto.spec.model_artifact_uri), ["s3://b/raw/v1", "s3://b/raw/v2"]
+        )
+        self.assertEqual(
+            list(proto.spec.deployable_artifact_uri), ["s3://b/d1", "s3://b/d2"]
+        )
+
+
 # ---------------------------------------------------------------------------
 # get_model
 # ---------------------------------------------------------------------------
