@@ -121,6 +121,23 @@ export enum FieldType {
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface FieldConfigExtensions {}
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface FieldValidationExtensions {}
+
+export type BuiltinFieldValidation = {
+  regex?: { pattern: string | RegExp; errorMessage?: string };
+  min?: number;
+  max?: number;
+  minLength?: number;
+  maxLength?: number;
+  url?: { errorMessage?: string } | boolean;
+};
+
+export type FieldValidation = BuiltinFieldValidation &
+  FieldValidationExtensions & {
+    validate?: (value: unknown) => string | undefined;
+  };
+
 export type SharedFieldConfig = {
   label?: string;
   required?: boolean;
@@ -131,6 +148,7 @@ export type SharedFieldConfig = {
   caption?: string;
   defaultValue?: unknown;
   initialValue?: unknown;
+  validation?: FieldValidation;
 };
 
 type StringFieldConfig = SharedFieldConfig & {
