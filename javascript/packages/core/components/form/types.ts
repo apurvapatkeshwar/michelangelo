@@ -138,7 +138,89 @@ type StringFieldConfig = SharedFieldConfig & {
   multi?: boolean;
 };
 
-export type BuiltinFieldConfig = StringFieldConfig;
+type NumberFieldConfig = SharedFieldConfig & {
+  type: FieldType.NUMBER | 'number';
+};
+
+type BooleanFieldConfig = SharedFieldConfig & {
+  type: FieldType.BOOLEAN | 'boolean';
+  checkboxLabel?: string;
+  toggle?: boolean;
+};
+
+type SelectFieldConfig = SharedFieldConfig & {
+  type: FieldType.SELECT | 'select';
+  options?: Array<{ id: string | number; label: string; disabled?: boolean }>;
+  multi?: boolean;
+  clearable?: boolean;
+  searchable?: boolean;
+  creatable?: boolean;
+  isLoading?: boolean;
+  visibleOptionLimit?: number;
+};
+
+type CheckboxFieldConfig = SharedFieldConfig & {
+  type: FieldType.CHECKBOX | 'checkbox';
+  options?: Array<{ id: string; label: string; description?: string }>;
+};
+
+type RadioFieldConfig = SharedFieldConfig & {
+  type: FieldType.RADIO | 'radio';
+  options?: Array<{
+    value: string | boolean;
+    label: string;
+    description?: string;
+    disabled?: boolean;
+  }>;
+  align?: 'horizontal' | 'vertical';
+};
+
+type DateFieldConfig = SharedFieldConfig & {
+  type: FieldType.DATE | 'date';
+  dateFormat?: string;
+  noFutureDate?: boolean;
+};
+
+type TextareaFieldConfig = SharedFieldConfig & {
+  type: FieldType.TEXTAREA | 'textarea';
+  rows?: number;
+  maxLength?: number;
+};
+
+type UrlFieldConfig = SharedFieldConfig & {
+  type: FieldType.URL | 'url';
+  urlName?: string;
+};
+
+type MapFieldConfig = SharedFieldConfig & {
+  type: FieldType.MAP | 'map';
+  singleValue?: boolean;
+  creatable?: boolean;
+  deletable?: boolean;
+  emptyMessage?: string;
+  keyConfig?: { placeholder?: string; readOnly?: boolean };
+  valueConfig?: { placeholder?: string };
+  size?: string;
+};
+
+type MarkdownFieldConfig = SharedFieldConfig & {
+  type: FieldType.MARKDOWN | 'markdown';
+  rows?: number;
+  maxLength?: number;
+};
+
+export type BuiltinFieldConfig =
+  | StringFieldConfig
+  | NumberFieldConfig
+  | BooleanFieldConfig
+  | SelectFieldConfig
+  | CheckboxFieldConfig
+  | RadioFieldConfig
+  | DateFieldConfig
+  | TextareaFieldConfig
+  | UrlFieldConfig
+  | MapFieldConfig
+  | MarkdownFieldConfig;
 
 export type FieldConfig = BuiltinFieldConfig | (SharedFieldConfig & { type: string });
 

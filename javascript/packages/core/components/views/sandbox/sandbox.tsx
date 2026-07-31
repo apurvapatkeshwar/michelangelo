@@ -9,23 +9,34 @@ import type { FormConfig } from '#core/components/form/types';
 const SAMPLE_FORM_CONFIG: FormConfig = {
   entities: {
     'spec.title': { type: 'string', label: 'Title', required: true, placeholder: 'Enter a title' },
-    'spec.description': {
-      type: 'string',
-      label: 'Description',
-      placeholder: 'Enter a description',
-    },
+    'spec.description': { type: 'textarea', label: 'Description', rows: 3 },
     'spec.tags': { type: 'string', label: 'Tags', multi: true, placeholder: 'Add a tag' },
+    'spec.priority': {
+      type: 'select',
+      label: 'Priority',
+      options: [
+        { id: 'low', label: 'Low' },
+        { id: 'medium', label: 'Medium' },
+        { id: 'high', label: 'High' },
+      ],
+    },
+    'spec.enabled': { type: 'boolean', label: 'Enabled', toggle: true },
+    'spec.replicas': { type: 'number', label: 'Replicas', placeholder: '1' },
   },
   layout: [
     {
       type: 'group',
       label: 'General',
-      items: ['spec.title', 'spec.description'],
+      items: [
+        'spec.title',
+        'spec.description',
+        { type: 'row', span: [1, 1], items: ['spec.priority', 'spec.replicas'] },
+      ],
     },
     {
       type: 'group',
-      label: 'Metadata',
-      items: ['spec.tags'],
+      label: 'Settings',
+      items: ['spec.enabled', 'spec.tags'],
     },
   ],
 };
