@@ -15,10 +15,7 @@ import {
   createQueryMockRouter,
   getServiceProviderWrapper,
 } from '#core/test/wrappers/get-service-provider-wrapper';
-import {
-  buildEntityConfigFactory,
-  buildPhaseConfigFactory,
-} from '../__fixtures__/phase-config-factory';
+import { buildEntityConfigFactory, buildStudioConfig } from '../__fixtures__/phase-config-factory';
 import { EntityDetailRoute } from '../entity-detail-route';
 
 import type { ActionComponentProps } from '#core/components/actions/types';
@@ -35,7 +32,6 @@ describe('EntityDetailRoute', () => {
   });
   const buildExecutionSchema = buildExecutionSchemaFactory();
   const buildTableConfig = buildTableConfigFactory();
-  const buildPhase = buildPhaseConfigFactory();
 
   test('renders execution tab', async () => {
     const mockEntityData = {
@@ -67,43 +63,34 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [
-                            {
-                              id: 'metadata.creationTimestamp.seconds',
-                              label: 'Created',
-                              type: CellType.DATE,
-                            },
-                            { id: 'status.state', label: 'State', type: CellType.STATE },
-                          ],
-                          pages: [
-                            {
-                              id: 'execution',
-                              label: 'Execution',
-                              ...buildExecutionSchema(),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [
+                      {
+                        id: 'metadata.creationTimestamp.seconds',
+                        label: 'Created',
+                        type: CellType.DATE,
+                      },
+                      { id: 'status.state', label: 'State', type: CellType.STATE },
+                    ],
+                    pages: [
+                      {
+                        id: 'execution',
+                        label: 'Execution',
+                        ...buildExecutionSchema(),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -145,43 +132,34 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'first-page',
-                              label: 'First page',
-                              type: 'custom',
-                              component: () => <div>First page component</div>,
-                            } as CustomDetailPageConfig,
-                            {
-                              id: 'second-page',
-                              label: 'Second page',
-                              type: 'custom',
-                              component: () => <div>Second page component</div>,
-                            } as CustomDetailPageConfig,
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'first-page',
+                        label: 'First page',
+                        type: 'custom',
+                        component: () => <div>First page component</div>,
+                      } as CustomDetailPageConfig,
+                      {
+                        id: 'second-page',
+                        label: 'Second page',
+                        type: 'custom',
+                        component: () => <div>Second page component</div>,
+                      } as CustomDetailPageConfig,
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -213,43 +191,34 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            // cast: testing runtime behavior with an unknown page type; not representable in
-                            // the type-safe union
-                            {
-                              id: 'unknown-type',
-                              label: 'Unknown Type',
-                              type: 'some-unknown-type',
-                            } as never,
-                            {
-                              id: 'execution',
-                              label: 'Execution',
-                              ...buildExecutionSchema(),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      // cast: testing runtime behavior with an unknown page type; not representable in
+                      // the type-safe union
+                      {
+                        id: 'unknown-type',
+                        label: 'Unknown Type',
+                        type: 'some-unknown-type',
+                      } as never,
+                      {
+                        id: 'execution',
+                        label: 'Execution',
+                        ...buildExecutionSchema(),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -280,30 +249,21 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -334,36 +294,27 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'execution',
-                              label: 'Execution',
-                              ...buildExecutionSchema(),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'execution',
+                        label: 'Execution',
+                        ...buildExecutionSchema(),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123/invalid-tab' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -380,36 +331,27 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'execution',
-                              label: 'Execution',
-                              ...buildExecutionSchema(),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'execution',
+                        label: 'Execution',
+                        ...buildExecutionSchema(),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -444,44 +386,35 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'runs-table',
-                              label: 'Related Runs',
-                              type: 'table',
-                              queryConfig: {
-                                service: 'pipelineRun',
-                                serviceOptions: {},
-                                clientOptions: { enabled: false },
-                              },
-                              tableConfig: buildTableConfig({
-                                columns: [{ id: 'name', label: 'Run Name', type: CellType.TEXT }],
-                              }),
-                            },
-                          ],
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'runs-table',
+                        label: 'Related Runs',
+                        type: 'table',
+                        queryConfig: {
+                          service: 'pipelineRun',
+                          serviceOptions: {},
+                          clientOptions: { enabled: false },
                         },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+                        tableConfig: buildTableConfig({
+                          columns: [{ id: 'name', label: 'Run Name', type: CellType.TEXT }],
+                        }),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -517,46 +450,37 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'filtered-runs',
-                              label: 'Filtered Runs',
-                              type: 'table',
-                              queryConfig: {
-                                service: 'pipelineRun',
-                                serviceOptions: {
-                                  filter: 'status=SUCCESS',
-                                  limit: 10,
-                                },
-                              },
-                              tableConfig: buildTableConfig({
-                                columns: [{ id: 'name', label: 'Run Name', type: CellType.TEXT }],
-                              }),
-                            },
-                          ],
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'filtered-runs',
+                        label: 'Filtered Runs',
+                        type: 'table',
+                        queryConfig: {
+                          service: 'pipelineRun',
+                          serviceOptions: {
+                            filter: 'status=SUCCESS',
+                            limit: 10,
+                          },
                         },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+                        tableConfig: buildTableConfig({
+                          columns: [{ id: 'name', label: 'Run Name', type: CellType.TEXT }],
+                        }),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -590,44 +514,35 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'runs-table',
-                              label: 'Related Runs',
-                              type: 'table',
-                              queryConfig: {
-                                service: 'pipelineRun',
-                                endpoint: 'list',
-                                serviceOptions: {},
-                              },
-                              tableConfig: buildTableConfig({
-                                columns: [{ id: 'name', label: 'Run Name', type: CellType.TEXT }],
-                              }),
-                            } as TableDetailPageConfig,
-                          ],
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'runs-table',
+                        label: 'Related Runs',
+                        type: 'table',
+                        queryConfig: {
+                          service: 'pipelineRun',
+                          endpoint: 'list',
+                          serviceOptions: {},
                         },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+                        tableConfig: buildTableConfig({
+                          columns: [{ id: 'name', label: 'Run Name', type: CellType.TEXT }],
+                        }),
+                      } as TableDetailPageConfig,
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/run-123',
@@ -671,63 +586,54 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [
-                            { id: 'status.state', label: 'State', type: CellType.STATE },
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [
+                      { id: 'status.state', label: 'State', type: CellType.STATE },
+                      {
+                        id: 'metadata.name',
+                        label: 'Name: ${page.metadata.name}',
+                        type: CellType.TEXT,
+                      },
+                    ],
+                    pages: [
+                      {
+                        id: 'interpolated-table',
+                        label: 'Related Runs',
+                        type: 'table',
+                        queryConfig: {
+                          endpoint: 'list',
+                          service: 'pipelineRun',
+                          serviceOptions: {
+                            listOptions: {
+                              labelSelector:
+                                'pipelinerun.michelangelo/source-trigger=${page.metadata.name}',
+                            },
+                          },
+                        },
+                        tableConfig: buildTableConfig({
+                          columns: [
                             {
                               id: 'metadata.name',
-                              label: 'Name: ${page.metadata.name}',
+                              label: 'Run Name',
                               type: CellType.TEXT,
+                              url: '/${studio.projectId}/${studio.phase}/runs/${row.metadata.name}?page=${page.metadata.name}',
                             },
                           ],
-                          pages: [
-                            {
-                              id: 'interpolated-table',
-                              label: 'Related Runs',
-                              type: 'table',
-                              queryConfig: {
-                                endpoint: 'list',
-                                service: 'pipelineRun',
-                                serviceOptions: {
-                                  listOptions: {
-                                    labelSelector:
-                                      'pipelinerun.michelangelo/source-trigger=${page.metadata.name}',
-                                  },
-                                },
-                              },
-                              tableConfig: buildTableConfig({
-                                columns: [
-                                  {
-                                    id: 'metadata.name',
-                                    label: 'Run Name',
-                                    type: CellType.TEXT,
-                                    url: '/${studio.projectId}/${studio.phase}/runs/${row.metadata.name}?page=${page.metadata.name}',
-                                  },
-                                ],
-                              }),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+                        }),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({
           location: '/myproject/train/runs/test-trigger-123',
@@ -772,43 +678,34 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      actions: [
-                        {
-                          display: { label: 'Run', icon: 'playerPlay' },
-                          modal: { type: 'custom', component: RunDialog },
-                          hierarchy: ActionHierarchy.PRIMARY,
-                        },
-                      ],
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'execution',
-                              label: 'Execution',
-                              ...buildExecutionSchema(),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                actions: [
+                  {
+                    display: { label: 'Run', icon: 'playerPlay' },
+                    modal: { type: 'custom', component: RunDialog },
+                    hierarchy: ActionHierarchy.PRIMARY,
+                  },
+                ],
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'execution',
+                        label: 'Execution',
+                        ...buildExecutionSchema(),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -838,44 +735,33 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      actions: [
-                        {
-                          display: { label: 'Resume' },
-                          modal: { type: 'custom', component: StubDialog },
-                          hierarchy: interpolate(({ data }) => {
-                            const record = data as { status?: { state?: string } } | undefined;
-                            return record?.status?.state === 'PAUSED'
-                              ? ActionHierarchy.PRIMARY
-                              : ActionHierarchy.TERTIARY;
-                          }),
-                        },
-                      ],
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            { id: 'execution', label: 'Execution', ...buildExecutionSchema() },
-                          ],
-                        },
-                      ],
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                actions: [
+                  {
+                    display: { label: 'Resume' },
+                    modal: { type: 'custom', component: StubDialog },
+                    hierarchy: interpolate(({ data }) => {
+                      const record = data as { status?: { state?: string } } | undefined;
+                      return record?.status?.state === 'PAUSED'
+                        ? ActionHierarchy.PRIMARY
+                        : ActionHierarchy.TERTIARY;
                     }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+                  },
+                ],
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [{ id: 'execution', label: 'Execution', ...buildExecutionSchema() }],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -900,52 +786,43 @@ describe('EntityDetailRoute', () => {
     render(
       <EntityDetailRoute />,
       buildWrapper([
-        getConfigProviderWrapper({
-          categories: [
-            {
-              id: 'test',
-              name: 'Test',
-              phases: [
-                buildPhase({
-                  id: 'train',
-                  entities: [
-                    buildEntity({
-                      actions: [
-                        {
-                          display: { label: 'Run', icon: 'playerPlay' },
-                          modal: { type: 'custom', component: StubDialog },
-                          hierarchy: ActionHierarchy.PRIMARY,
-                          disabled: [
-                            {
-                              condition: interpolate(({ data }) => {
-                                const record = data as { status?: { state?: string } } | undefined;
-                                return record?.status?.state === 'RUNNING';
-                              }),
-                              message: 'Pipeline is already running',
-                            },
-                          ],
-                        },
-                      ],
-                      views: [
-                        {
-                          type: 'detail',
-                          metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
-                          pages: [
-                            {
-                              id: 'execution',
-                              label: 'Execution',
-                              ...buildExecutionSchema(),
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  ],
-                }),
-              ],
-            },
-          ],
-        }),
+        getConfigProviderWrapper(
+          buildStudioConfig({
+            entities: [
+              buildEntity({
+                actions: [
+                  {
+                    display: { label: 'Run', icon: 'playerPlay' },
+                    modal: { type: 'custom', component: StubDialog },
+                    hierarchy: ActionHierarchy.PRIMARY,
+                    disabled: [
+                      {
+                        condition: interpolate(({ data }) => {
+                          const record = data as { status?: { state?: string } } | undefined;
+                          return record?.status?.state === 'RUNNING';
+                        }),
+                        message: 'Pipeline is already running',
+                      },
+                    ],
+                  },
+                ],
+                views: [
+                  {
+                    type: 'detail',
+                    metadata: [{ id: 'status.state', label: 'State', type: CellType.STATE }],
+                    pages: [
+                      {
+                        id: 'execution',
+                        label: 'Execution',
+                        ...buildExecutionSchema(),
+                      },
+                    ],
+                  },
+                ],
+              }),
+            ],
+          })
+        ),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/runs/run-123' }),
         getServiceProviderWrapper({ request: mockRequest }),
@@ -976,43 +853,34 @@ describe('EntityDetailRoute', () => {
       render(
         <EntityDetailRoute />,
         buildWrapper([
-          getConfigProviderWrapper({
-            categories: [
-              {
-                id: 'test',
-                name: 'Test',
-                phases: [
-                  buildPhase({
-                    id: 'train',
-                    entities: [
-                      buildEntity({
-                        views: [
-                          {
-                            type: 'detail',
-                            metadata: [],
-                            pages: [
-                              {
-                                id: 'overview',
-                                label: 'Overview',
-                                type: 'custom',
-                                component: () => <div>Overview content</div>,
-                              } as CustomDetailPageConfig,
-                              {
-                                id: 'logs',
-                                label: 'Logs',
-                                type: 'custom',
-                                component: () => <div>Logs content</div>,
-                              } as CustomDetailPageConfig,
-                            ],
-                          },
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              },
-            ],
-          }),
+          getConfigProviderWrapper(
+            buildStudioConfig({
+              entities: [
+                buildEntity({
+                  views: [
+                    {
+                      type: 'detail',
+                      metadata: [],
+                      pages: [
+                        {
+                          id: 'overview',
+                          label: 'Overview',
+                          type: 'custom',
+                          component: () => <div>Overview content</div>,
+                        } as CustomDetailPageConfig,
+                        {
+                          id: 'logs',
+                          label: 'Logs',
+                          type: 'custom',
+                          component: () => <div>Logs content</div>,
+                        } as CustomDetailPageConfig,
+                      ],
+                    },
+                  ],
+                }),
+              ],
+            })
+          ),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs', '/myproject/train/runs/run-123'],
@@ -1046,43 +914,34 @@ describe('EntityDetailRoute', () => {
       render(
         <EntityDetailRoute />,
         buildWrapper([
-          getConfigProviderWrapper({
-            categories: [
-              {
-                id: 'test',
-                name: 'Test',
-                phases: [
-                  buildPhase({
-                    id: 'train',
-                    entities: [
-                      buildEntity({
-                        views: [
-                          {
-                            type: 'detail',
-                            metadata: [],
-                            pages: [
-                              {
-                                id: 'overview',
-                                label: 'Overview',
-                                type: 'custom',
-                                component: () => <div>Overview content</div>,
-                              } as CustomDetailPageConfig,
-                              {
-                                id: 'logs',
-                                label: 'Logs',
-                                type: 'custom',
-                                component: () => <div>Logs content</div>,
-                              } as CustomDetailPageConfig,
-                            ],
-                          },
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              },
-            ],
-          }),
+          getConfigProviderWrapper(
+            buildStudioConfig({
+              entities: [
+                buildEntity({
+                  views: [
+                    {
+                      type: 'detail',
+                      metadata: [],
+                      pages: [
+                        {
+                          id: 'overview',
+                          label: 'Overview',
+                          type: 'custom',
+                          component: () => <div>Overview content</div>,
+                        } as CustomDetailPageConfig,
+                        {
+                          id: 'logs',
+                          label: 'Logs',
+                          type: 'custom',
+                          component: () => <div>Logs content</div>,
+                        } as CustomDetailPageConfig,
+                      ],
+                    },
+                  ],
+                }),
+              ],
+            })
+          ),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs/run-123/overview'],
@@ -1115,43 +974,34 @@ describe('EntityDetailRoute', () => {
       render(
         <EntityDetailRoute />,
         buildWrapper([
-          getConfigProviderWrapper({
-            categories: [
-              {
-                id: 'test',
-                name: 'Test',
-                phases: [
-                  buildPhase({
-                    id: 'train',
-                    entities: [
-                      buildEntity({
-                        views: [
-                          {
-                            type: 'detail',
-                            metadata: [],
-                            pages: [
-                              {
-                                id: 'overview',
-                                label: 'Overview',
-                                type: 'custom',
-                                component: () => <div>Overview content</div>,
-                              } as CustomDetailPageConfig,
-                              {
-                                id: 'logs',
-                                label: 'Logs',
-                                type: 'custom',
-                                component: () => <div>Logs content</div>,
-                              } as CustomDetailPageConfig,
-                            ],
-                          },
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              },
-            ],
-          }),
+          getConfigProviderWrapper(
+            buildStudioConfig({
+              entities: [
+                buildEntity({
+                  views: [
+                    {
+                      type: 'detail',
+                      metadata: [],
+                      pages: [
+                        {
+                          id: 'overview',
+                          label: 'Overview',
+                          type: 'custom',
+                          component: () => <div>Overview content</div>,
+                        } as CustomDetailPageConfig,
+                        {
+                          id: 'logs',
+                          label: 'Logs',
+                          type: 'custom',
+                          component: () => <div>Logs content</div>,
+                        } as CustomDetailPageConfig,
+                      ],
+                    },
+                  ],
+                }),
+              ],
+            })
+          ),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs', '/myproject/train/runs/run-123'],
@@ -1191,43 +1041,34 @@ describe('EntityDetailRoute', () => {
       render(
         <EntityDetailRoute />,
         buildWrapper([
-          getConfigProviderWrapper({
-            categories: [
-              {
-                id: 'test',
-                name: 'Test',
-                phases: [
-                  buildPhase({
-                    id: 'train',
-                    entities: [
-                      buildEntity({
-                        views: [
-                          {
-                            type: 'detail',
-                            metadata: [],
-                            pages: [
-                              {
-                                id: 'overview',
-                                label: 'Overview',
-                                type: 'custom',
-                                component: () => <div>Overview content</div>,
-                              } as CustomDetailPageConfig,
-                              {
-                                id: 'logs',
-                                label: 'Logs',
-                                type: 'custom',
-                                component: () => <div>Logs content</div>,
-                              } as CustomDetailPageConfig,
-                            ],
-                          },
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              },
-            ],
-          }),
+          getConfigProviderWrapper(
+            buildStudioConfig({
+              entities: [
+                buildEntity({
+                  views: [
+                    {
+                      type: 'detail',
+                      metadata: [],
+                      pages: [
+                        {
+                          id: 'overview',
+                          label: 'Overview',
+                          type: 'custom',
+                          component: () => <div>Overview content</div>,
+                        } as CustomDetailPageConfig,
+                        {
+                          id: 'logs',
+                          label: 'Logs',
+                          type: 'custom',
+                          component: () => <div>Logs content</div>,
+                        } as CustomDetailPageConfig,
+                      ],
+                    },
+                  ],
+                }),
+              ],
+            })
+          ),
           getErrorProviderWrapper(),
           getRouterWrapper({
             initialEntries: ['/myproject/train/runs/run-123/overview'],

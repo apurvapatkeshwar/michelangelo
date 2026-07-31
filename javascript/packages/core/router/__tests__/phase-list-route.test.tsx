@@ -14,10 +14,9 @@ import { getServiceProviderWrapper } from '#core/test/wrappers/get-service-provi
 import {
   buildEntityConfigFactory,
   buildPhaseConfigFactory,
+  buildStudioConfig,
 } from '../__fixtures__/phase-config-factory';
 import { PhaseListRoute } from '../phase-list-route';
-
-import type { StudioConfig } from '#core/types/common/studio-types';
 
 describe('PhaseListRoute', () => {
   const buildEntity = buildEntityConfigFactory();
@@ -26,63 +25,58 @@ describe('PhaseListRoute', () => {
     columns: [{ id: 'name', label: 'Name', type: CellType.TEXT }],
   });
 
-  const buildTestConfig = (): StudioConfig => ({
-    categories: [
-      {
-        id: 'test',
-        name: 'Test',
-        phases: [
-          buildPhase({
-            id: 'train',
-            icon: 'train',
-            name: 'Train',
-            entities: [
-              buildEntity({
-                id: 'pipelines',
-                name: 'Pipelines',
-                service: 'pipeline',
-              }),
-              buildEntity({
-                id: 'runs',
-                name: 'Pipeline Runs',
-                service: 'pipelineRun',
-              }),
-              buildEntity({
-                id: 'disabled-entity',
-                name: 'Disabled Entity',
-                service: 'disabled',
-                state: 'disabled',
-                views: [
-                  {
-                    type: 'list',
-                    tableConfig: buildTableConfig(),
-                  },
-                ],
-              }),
-            ],
-          }),
-          buildPhase({
-            id: 'evaluate',
-            icon: 'evaluate',
-            name: 'Evaluate',
-            entities: [
-              buildEntity({
-                id: 'evaluations',
-                name: 'Evaluations',
-                service: 'evaluation',
-                views: [
-                  {
-                    type: 'list',
-                    tableConfig: buildTableConfig(),
-                  },
-                ],
-              }),
-            ],
-          }),
-        ],
-      },
-    ],
-  });
+  const buildTestConfig = () =>
+    buildStudioConfig({
+      phases: [
+        buildPhase({
+          id: 'train',
+          icon: 'train',
+          name: 'Train',
+          entities: [
+            buildEntity({
+              id: 'pipelines',
+              name: 'Pipelines',
+              service: 'pipeline',
+            }),
+            buildEntity({
+              id: 'runs',
+              name: 'Pipeline Runs',
+              service: 'pipelineRun',
+            }),
+            buildEntity({
+              id: 'disabled-entity',
+              name: 'Disabled Entity',
+              service: 'disabled',
+              state: 'disabled',
+              views: [
+                {
+                  type: 'list',
+                  tableConfig: buildTableConfig(),
+                },
+              ],
+            }),
+          ],
+        }),
+        buildPhase({
+          id: 'evaluate',
+          icon: 'evaluate',
+          name: 'Evaluate',
+          entities: [
+            buildEntity({
+              id: 'evaluations',
+              name: 'Evaluations',
+              service: 'evaluation',
+              views: [
+                {
+                  type: 'list',
+                  tableConfig: buildTableConfig(),
+                },
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
 
   test('renders tabs for active entities only, filtering out disabled ones', () => {
     const mockRequest = vi.fn().mockResolvedValue({
@@ -119,35 +113,29 @@ describe('PhaseListRoute', () => {
   });
 
   test('shows message when phase has no listable entities', () => {
-    const config: StudioConfig = {
-      categories: [
-        {
-          id: 'test',
-          name: 'Test',
-          phases: [
-            buildPhase({
-              id: 'no-listable',
-              icon: 'no-listable',
-              name: 'No Listable',
-              entities: [
-                buildEntity({
-                  id: 'disabled-only',
-                  name: 'Disabled Only',
-                  service: 'disabled',
-                  state: 'disabled',
-                  views: [
-                    {
-                      type: 'list',
-                      tableConfig: buildTableConfig(),
-                    },
-                  ],
-                }),
+    const config = buildStudioConfig({
+      phases: [
+        buildPhase({
+          id: 'no-listable',
+          icon: 'no-listable',
+          name: 'No Listable',
+          entities: [
+            buildEntity({
+              id: 'disabled-only',
+              name: 'Disabled Only',
+              service: 'disabled',
+              state: 'disabled',
+              views: [
+                {
+                  type: 'list',
+                  tableConfig: buildTableConfig(),
+                },
               ],
             }),
           ],
-        },
+        }),
       ],
-    };
+    });
 
     render(
       <PhaseListRoute />,
@@ -286,7 +274,7 @@ describe('PhaseListRoute', () => {
     render(
       <PhaseListRoute />,
       buildWrapper([
-        getConfigProviderWrapper({ categories: [] }),
+        getConfigProviderWrapper(buildStudioConfig({ categories: [] })),
         getErrorProviderWrapper(),
         getRouterWrapper({ location: '/myproject/train/pipelines' }),
         getServiceProviderWrapper({ request: vi.fn() }),
@@ -297,18 +285,12 @@ describe('PhaseListRoute', () => {
   });
 
   test('handles configuration with empty entity arrays', () => {
-    const config: StudioConfig = {
-      categories: [
-        {
-          id: 'test',
-          name: 'Test',
-          phases: [
-            buildPhase({ id: 'train', entities: [] }),
-            buildPhase({ id: 'evaluate', entities: [] }),
-          ],
-        },
+    const config = buildStudioConfig({
+      phases: [
+        buildPhase({ id: 'train', entities: [] }),
+        buildPhase({ id: 'evaluate', entities: [] }),
       ],
-    };
+    });
 
     render(
       <PhaseListRoute />,
@@ -326,38 +308,27 @@ describe('PhaseListRoute', () => {
   });
 
   test('filters out entities without list views', () => {
-    const config: StudioConfig = {
-      categories: [
-        {
-          id: 'test',
-          name: 'Test',
-          phases: [
-            buildPhase({
-              id: 'train',
-              entities: [
-                buildEntity({
-                  id: 'detail-only',
-                  name: 'Detail Only',
-                  service: 'detail',
-                  views: [],
-                }),
-                buildEntity({
-                  id: 'pipelines',
-                  name: 'Pipelines',
-                  service: 'pipeline',
-                  views: [
-                    {
-                      type: 'list',
-                      tableConfig: buildTableConfig(),
-                    },
-                  ],
-                }),
-              ],
-            }),
+    const config = buildStudioConfig({
+      entities: [
+        buildEntity({
+          id: 'detail-only',
+          name: 'Detail Only',
+          service: 'detail',
+          views: [],
+        }),
+        buildEntity({
+          id: 'pipelines',
+          name: 'Pipelines',
+          service: 'pipeline',
+          views: [
+            {
+              type: 'list',
+              tableConfig: buildTableConfig(),
+            },
           ],
-        },
+        }),
       ],
-    };
+    });
 
     const mockRequest = vi.fn().mockResolvedValue({
       pipelineList: { items: [] },
@@ -378,15 +349,9 @@ describe('PhaseListRoute', () => {
   });
 
   test('handles empty entities array gracefully', () => {
-    const config: StudioConfig = {
-      categories: [
-        {
-          id: 'test',
-          name: 'Test',
-          phases: [buildPhase({ id: 'train', entities: [] })],
-        },
-      ],
-    };
+    const config = buildStudioConfig({
+      phases: [buildPhase({ id: 'train', entities: [] })],
+    });
 
     render(
       <PhaseListRoute />,
@@ -402,26 +367,15 @@ describe('PhaseListRoute', () => {
   });
 
   test('handles single entity', () => {
-    const config: StudioConfig = {
-      categories: [
-        {
-          id: 'test',
-          name: 'Test',
-          phases: [
-            buildPhase({
-              id: 'train',
-              entities: [
-                buildEntity({
-                  id: 'pipelines',
-                  name: 'Pipelines',
-                  service: 'pipeline',
-                }),
-              ],
-            }),
-          ],
-        },
+    const config = buildStudioConfig({
+      entities: [
+        buildEntity({
+          id: 'pipelines',
+          name: 'Pipelines',
+          service: 'pipeline',
+        }),
       ],
-    };
+    });
 
     const mockRequest = vi.fn().mockResolvedValue({
       pipelineList: { items: [] },
@@ -442,30 +396,24 @@ describe('PhaseListRoute', () => {
   });
 
   test('renders phase header with config metadata', () => {
-    const config: StudioConfig = {
-      categories: [
-        {
-          id: 'test',
-          name: 'Test',
-          phases: [
-            buildPhase({
-              id: 'train',
-              icon: 'train',
-              name: 'Train & Evaluate',
-              description: 'Train machine learning models and evaluate their performance',
-              docUrl: 'https://docs.example.com',
-              entities: [
-                buildEntity({
-                  id: 'pipelines',
-                  name: 'Pipelines',
-                  service: 'pipeline',
-                }),
-              ],
+    const config = buildStudioConfig({
+      phases: [
+        buildPhase({
+          id: 'train',
+          icon: 'train',
+          name: 'Train & Evaluate',
+          description: 'Train machine learning models and evaluate their performance',
+          docUrl: 'https://docs.example.com',
+          entities: [
+            buildEntity({
+              id: 'pipelines',
+              name: 'Pipelines',
+              service: 'pipeline',
             }),
           ],
-        },
+        }),
       ],
-    };
+    });
 
     const mockRequest = vi.fn().mockResolvedValue({
       pipelineList: { items: [] },
