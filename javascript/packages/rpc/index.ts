@@ -32,4 +32,3 @@ export * from './gen/michelangelo/api/v2/user_pb';
 
 export { request } from './request';
 export { normalizeTranscoderError } from './normalize-transcoder-error';
-
