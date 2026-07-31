@@ -754,6 +754,93 @@ func TestCronTrigger_Update(t *testing.T) {
 	}
 }
 
+func TestCronTrigger_UpdateDefersDriftWhilePaused(t *testing.T) {
+	for _, test := range []struct {
+		action          v2pb.TriggerRunAction
+		expectedHandled bool
+	}{
+		{action: v2pb.TRIGGER_RUN_ACTION_NO_ACTION},
+		{action: v2pb.TRIGGER_RUN_ACTION_KILL},
+		{action: v2pb.TRIGGER_RUN_ACTION_PAUSE, expectedHandled: true},
+	} {
+		t.Run(test.action.String(), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockClient := interfaceMock.NewMockWorkflowClient(ctrl)
+			triggerRun := &v2pb.TriggerRun{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "test-namespace",
+					Name:      "test-triggerrun",
+				},
+				Spec: v2pb.TriggerRunSpec{
+					Trigger: &v2pb.Trigger{
+						TriggerType: &v2pb.Trigger_CronSchedule{
+							CronSchedule: &v2pb.CronSchedule{Cron: "0 0 * * *"},
+						},
+						MaxConcurrency: 2,
+					},
+				},
+				Status: v2pb.TriggerRunStatus{
+					State:                   v2pb.TRIGGER_RUN_STATE_PAUSED,
+					ActualTrigger:           &v2pb.Trigger{TriggerType: &v2pb.Trigger_CronSchedule{CronSchedule: &v2pb.CronSchedule{Cron: "0 6 * * *"}}},
+					ActualScheduleInputHash: "previous-input-hash",
+					ErrorMessage:            "exceeded workflow execution limit for signal events",
+				},
+			}
+
+			status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient).Update(
+				context.Background(), triggerRun, test.action)
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expectedHandled, handled)
+			assert.Equal(t, triggerRun.Status, status)
+		})
+	}
+}
+
+func TestCronTrigger_UpdateSyncsDriftOnResume(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockClient := interfaceMock.NewMockWorkflowClient(ctrl)
+	triggerRun := &v2pb.TriggerRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "test-namespace",
+			Name:      "test-triggerrun",
+		},
+		Spec: v2pb.TriggerRunSpec{
+			Trigger: &v2pb.Trigger{
+				TriggerType: &v2pb.Trigger_CronSchedule{
+					CronSchedule: &v2pb.CronSchedule{Cron: "0 0 * * *"},
+				},
+				MaxConcurrency: 2,
+			},
+		},
+		Status: v2pb.TriggerRunStatus{
+			State:         v2pb.TRIGGER_RUN_STATE_PAUSED,
+			ActualTrigger: &v2pb.Trigger{TriggerType: &v2pb.Trigger_CronSchedule{CronSchedule: &v2pb.CronSchedule{Cron: "0 0 * * *"}}},
+			ErrorMessage:  "exceeded workflow execution limit for signal events",
+		},
+	}
+	previousInput := triggerRun.DeepCopy()
+	previousInput.Spec.Trigger.MaxConcurrency = 1
+	triggerRun.Status.ActualScheduleInputHash = mustScheduleInputHash(t, previousInput)
+	resumed := false
+	mockClient.EXPECT().UpdateTrigger(
+		gomock.Any(),
+		"test-namespace.test-triggerrun",
+		"",
+		gomock.Eq(&resumed),
+		gomock.Eq([]interface{}{CreateTriggerRequest{TriggerRun: scheduleWorkflowInput(triggerRun)}}),
+	).Return(nil)
+
+	status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient).Update(
+		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_RESUME)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, v2pb.TRIGGER_RUN_STATE_RUNNING, status.State)
+	assert.Empty(t, status.ErrorMessage)
+	assert.Equal(t, mustScheduleInputHash(t, triggerRun), status.ActualScheduleInputHash)
+}
+
 func TestCronTrigger_UpdateNotifications(t *testing.T) {
 	notification := func(events ...v2pb.Notification_EventType) *v2pb.Notification {
 		return &v2pb.Notification{
