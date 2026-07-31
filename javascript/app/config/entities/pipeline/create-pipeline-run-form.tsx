@@ -1,11 +1,12 @@
 import {
   FormDialog,
-  generateSuffix,
   StringField,
   TextareaField,
   useStudioMutation,
   useStudioParams,
 } from '@michelangelo-ai/core';
+
+import { generateSuffix } from './name-utils';
 
 import type { ActionComponentProps } from '@michelangelo-ai/core';
 import type { PipelineRun } from '../run/types';
