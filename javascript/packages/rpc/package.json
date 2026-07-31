@@ -22,6 +22,9 @@
   "exports": {
     ".": {
       "default": "./index.ts"
+    },
+    "./resource-types": {
+      "default": "./resource-types.ts"
     }
   },
   "imports": {
