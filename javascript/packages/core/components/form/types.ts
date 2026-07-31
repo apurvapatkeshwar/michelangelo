@@ -1,6 +1,7 @@
 import type { FORM_ERROR } from 'final-form';
 import type { ComponentType } from 'react';
 import type { BaseFieldProps } from '#core/components/form/fields/types';
+import type { DeepInterpolatable, Interpolatable } from '#core/interpolation/types';
 import type { DeepPartial } from '#core/types/utility-types';
 
 export type FormData = Record<string, unknown>;
@@ -284,7 +285,17 @@ type GridLayoutConfig = {
   items: LayoutItem[];
 };
 
-export type BuiltinLayoutConfig = GroupLayoutConfig | RowLayoutConfig | GridLayoutConfig;
+type ConditionLayoutConfig = {
+  type: 'condition';
+  when: Interpolatable<boolean>;
+  items: LayoutItem[];
+};
+
+export type BuiltinLayoutConfig =
+  | GroupLayoutConfig
+  | RowLayoutConfig
+  | GridLayoutConfig
+  | ConditionLayoutConfig;
 
 export type LayoutConfig = BuiltinLayoutConfig | { type: string; items: LayoutItem[] };
 
@@ -302,3 +313,5 @@ export type FormConfig = {
   entities: Record<string, FieldConfig>;
   layout: LayoutItem[];
 };
+
+export type FormConfigSchema = DeepInterpolatable<FormConfig>;

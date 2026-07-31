@@ -34,5 +34,7 @@ export function BuiltinLayoutRenderer({
       );
     case 'grid':
       return <FormGrid>{renderChildren}</FormGrid>;
+    case 'condition':
+      return config.when ? renderChildren : null;
   }
 }

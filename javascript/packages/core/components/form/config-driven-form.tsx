@@ -1,10 +1,10 @@
 import { Form } from '#core/components/form/form';
-import { LayoutItemList } from '#core/components/form/layout/layout-item-list';
+import { ResolvedFormContent } from '#core/components/form/resolved-form-content';
 
-import type { FormConfig, FormData } from '#core/components/form/types';
+import type { FormConfigSchema, FormData } from '#core/components/form/types';
 
 type ConfigDrivenFormProps = {
-  config: FormConfig;
+  config: FormConfigSchema;
   onSubmit: (values: FormData) => void | object | Promise<object>;
   initialValues?: Record<string, unknown>;
 };
@@ -12,7 +12,7 @@ type ConfigDrivenFormProps = {
 export function ConfigDrivenForm({ config, onSubmit, initialValues }: ConfigDrivenFormProps) {
   return (
     <Form onSubmit={onSubmit} initialValues={initialValues}>
-      <LayoutItemList items={config.layout} entities={config.entities} />
+      <ResolvedFormContent config={config} />
     </Form>
   );
 }
