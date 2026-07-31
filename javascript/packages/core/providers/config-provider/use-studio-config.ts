@@ -20,5 +20,9 @@ import { ConfigContext } from './config-context';
  * ```
  */
 export function useStudioConfig() {
-  return useContext(ConfigContext);
+  const context = useContext(ConfigContext);
+  if (!context) {
+    throw new Error('useStudioConfig must be used within a ConfigProvider');
+  }
+  return context;
 }

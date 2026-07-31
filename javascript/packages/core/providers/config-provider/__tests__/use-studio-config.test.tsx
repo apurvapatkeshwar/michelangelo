@@ -150,8 +150,7 @@ describe('useStudioConfig', () => {
 
   test('throws when used outside ConfigProvider', () => {
     expect(() => {
-      const { result } = renderHook(() => useStudioConfig());
-      result.current.getPhase('train');
-    }).toThrow('must be used within a ConfigProvider');
+      renderHook(() => useStudioConfig());
+    }).toThrow('useStudioConfig must be used within a ConfigProvider');
   });
 });
