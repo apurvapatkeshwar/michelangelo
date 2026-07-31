@@ -175,7 +175,7 @@ func generateSQL(reqData []byte) *pluginpb.CodeGeneratorResponse {
 			}
 
 			if options.Bool("has_resource") {
-				buf = append(buf, generateSQLSchema(msg, options)...)
+				buf = generateSQLSchema(msg, options)
 			}
 		}
 
