@@ -156,21 +156,25 @@ func ParseRevisionedIndex(crdRootMsg *protogen.Message, crdOptions *pboptions.Op
 	return &RevisionedIndex{Kinds: kinds, Fields: fields}
 }
 
-// SidecarTable returns the sidecar table name for a (base table, wrapper kind)
-// pair. protoc-gen-sql emits the CREATE TABLE under this name and
-// protoc-gen-kubeproto bakes it into the generated RevisionedIndexSpecs, so both
-// generators MUST derive it from here — the runtime queries whatever the spec
-// says, and a divergence between the two would only surface as a missing table
-// in production.
-func SidecarTable(baseTableName, kind string) string {
-	return baseTableName + "_" + kind + "_unmarshaled"
+// Sidecar names the storage artifacts of one (base table, wrapper kind) pair:
+// the "<base>_<kind>_unmarshaled" table and its "<kind>_uid" primary-key column.
+// protoc-gen-sql emits the CREATE TABLE under these names and
+// protoc-gen-kubeproto bakes them into the generated RevisionedIndexSpecs, so
+// both generators MUST derive them from SidecarFor — the runtime queries
+// whatever the spec says, and a divergence between the two would only surface
+// as a missing table in production.
+type Sidecar struct {
+	Table     string
+	UIDColumn string
 }
 
-// SidecarUIDColumn returns the primary-key column of a wrapper kind's sidecar
-// table (e.g. "revision" -> "revision_uid"). Shared by both generators for the
-// same reason as SidecarTable.
-func SidecarUIDColumn(kind string) string {
-	return kind + "_uid"
+// SidecarFor derives the sidecar identity for a (base table, wrapper kind) pair,
+// e.g. ("pipeline", "revision") -> {pipeline_revision_unmarshaled, revision_uid}.
+func SidecarFor(baseTableName, kind string) Sidecar {
+	return Sidecar{
+		Table:     baseTableName + "_" + kind + "_unmarshaled",
+		UIDColumn: kind + "_uid",
+	}
 }
 
 // buildIndexedField resolves a single (key, path) against rootMsg and returns the

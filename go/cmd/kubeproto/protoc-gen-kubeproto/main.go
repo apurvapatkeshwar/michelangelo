@@ -511,8 +511,7 @@ func genCRDRevisionedIndex(crdName string, crdRootMsg *protogen.Message, crdBuf 
 	templates.CRDRevisionedIndexSpecsHeader.Execute(crdBuf, typeInfo)
 	for _, kind := range revisioned.Kinds {
 		wrapperKindKind := resolveWrapperKind(crdName, kind, allProtoMsgs, extTypes)
-		table := util.SidecarTable(tableBaseName, kind)
-		uidCol := util.SidecarUIDColumn(kind)
+		sidecar := util.SidecarFor(tableBaseName, kind)
 
 		crdBuf.Write([]byte("\t\t{\n"))
 		crdBuf.Write([]byte("\t\t\tWrapperGVK: schema.GroupVersionKind{Group: \"" + gInfo.Name + "\", Version: \"" +
@@ -520,8 +519,8 @@ func genCRDRevisionedIndex(crdName string, crdRootMsg *protogen.Message, crdBuf 
 		crdBuf.Write([]byte("\t\t\tWrapperKind: \"" + kind + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tContentPath: \"" + wrapperContentPath + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tBaseKind: \"" + crdName + "\",\n"))
-		crdBuf.Write([]byte("\t\t\tTable: \"" + table + "\",\n"))
-		crdBuf.Write([]byte("\t\t\tUIDCol: \"" + uidCol + "\",\n"))
+		crdBuf.Write([]byte("\t\t\tTable: \"" + sidecar.Table + "\",\n"))
+		crdBuf.Write([]byte("\t\t\tUIDCol: \"" + sidecar.UIDColumn + "\",\n"))
 		crdBuf.Write([]byte("\t\t\tFields: []storage.RevisionedIndexField{\n"))
 		for _, field := range revisioned.Fields {
 			if field.Flag&util.IndexFlagPrimitive != 0 {
@@ -549,7 +548,7 @@ func resolveWrapperKind(baseCrdName, kind string, allProtoMsgs map[string]*proto
 	if kind == "" {
 		logger.Panicf("Invalid revisioned_in annotation on %v: kind is empty", baseCrdName)
 	}
-	wrapperKind := snakeToPascalCase(kind)
+	wrapperKind := utils.ToPascalCase(kind)
 
 	wrapperMsg, ok := allProtoMsgs[wrapperKind]
 	if !ok {
@@ -566,16 +565,6 @@ func resolveWrapperKind(baseCrdName, kind string, allProtoMsgs map[string]*proto
 			"a CRD resource (missing michelangelo.api.resource)", baseCrdName, kind, wrapperKind)
 	}
 	return wrapperKind
-}
-
-func snakeToPascalCase(s string) string {
-	parts := strings.Split(s, "_")
-	for i, p := range parts {
-		if p != "" {
-			parts[i] = strings.ToUpper(p[:1]) + p[1:]
-		}
-	}
-	return strings.Join(parts, "")
 }
 
 func findBlobFields(curMsg *protogen.Message, pathPrefix string, blobFields *[]string,

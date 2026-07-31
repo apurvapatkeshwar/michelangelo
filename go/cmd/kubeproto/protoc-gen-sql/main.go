@@ -106,13 +106,12 @@ func generateSQLSchema(crdRootMsg *protogen.Message, crdOptions *pboptions.Optio
 //	    KEY `..._<key>` (`<key>`), ...
 //	);
 func emitUnmarshaledTable(buf *bytes.Buffer, baseTableName string, fields []util.IndexedField, wrapperKind string) {
-	tableName := util.SidecarTable(baseTableName, wrapperKind)
-	uidColumn := util.SidecarUIDColumn(wrapperKind)
+	sidecar := util.SidecarFor(baseTableName, wrapperKind)
 
 	templates.CRDMySQLUnmarshaledTable.Execute(buf, struct {
 		TableName string
 		UIDColumn string
-	}{tableName, uidColumn})
+	}{sidecar.Table, sidecar.UIDColumn})
 
 	for _, field := range fields {
 		if field.Flag&util.IndexFlagPrimitive != 0 {
@@ -124,15 +123,15 @@ func emitUnmarshaledTable(buf *bytes.Buffer, baseTableName string, fields []util
 		}
 	}
 
-	buf.Write([]byte("    PRIMARY KEY (`" + uidColumn + "`)"))
+	buf.Write([]byte("    PRIMARY KEY (`" + sidecar.UIDColumn + "`)"))
 	for _, field := range fields {
 		if field.Flag&util.IndexFlagPrimitive != 0 {
-			buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, field.Key) + "` (`" + field.Key + "`)"))
+			buf.Write([]byte(",\n    KEY    `" + getIndexName(sidecar.Table, field.Key) + "` (`" + field.Key + "`)"))
 		} else if field.Flag&util.IndexFlagCompositeKey != 0 {
 			// Composite message field (e.g. ResourceIdentifier): emit one
 			// composite KEY over all subfields, matching the base table so a
 			// mirrored composite index has the same semantics in the sidecar.
-			buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, field.Key) + "` ("))
+			buf.Write([]byte(",\n    KEY    `" + getIndexName(sidecar.Table, field.Key) + "` ("))
 			firstSubField := true
 			for _, subField := range field.SubFields {
 				if firstSubField {
@@ -145,7 +144,7 @@ func emitUnmarshaledTable(buf *bytes.Buffer, baseTableName string, fields []util
 			buf.Write([]byte(")"))
 		} else {
 			for _, subField := range field.SubFields {
-				buf.Write([]byte(",\n    KEY    `" + getIndexName(tableName, subField.Key) + "` (`" + subField.Key + "`)"))
+				buf.Write([]byte(",\n    KEY    `" + getIndexName(sidecar.Table, subField.Key) + "` (`" + subField.Key + "`)"))
 			}
 		}
 	}
