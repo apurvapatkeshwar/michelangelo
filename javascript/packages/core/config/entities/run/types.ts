@@ -1,3 +1,5 @@
+import type { Notification } from '#core/config/entities/shared/notification-types';
+
 export type PipelineRun = {
   metadata: {
     name: string;
@@ -14,5 +16,6 @@ export type PipelineRun = {
     };
     /** Optional human-readable description for this run. */
     description?: string;
+    notifications?: Notification[];
   };
 };

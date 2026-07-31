@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { combineValidators } from '#core/components/form/validation/combine-validators';
 import {
+  email,
   max,
   maxLength,
   min,
@@ -220,5 +221,36 @@ describe('combineValidators', () => {
 
   it('returns undefined when no validators are provided', () => {
     expect(combineValidators()('anything')).toBeUndefined();
+  });
+});
+
+describe('email', () => {
+  it('returns undefined for valid email', () => {
+    expect(email()('user@example.com')).toBeUndefined();
+  });
+
+  it('returns error for invalid email', () => {
+    expect(email()('not-an-email')).toBe('Must be a valid email address.');
+  });
+
+  it('returns error for email without domain', () => {
+    expect(email()('user@')).toBe('Must be a valid email address.');
+  });
+
+  it('returns undefined for empty value', () => {
+    expect(email()('')).toBeUndefined();
+    expect(email()(undefined)).toBeUndefined();
+  });
+
+  it('validates each entry in an array', () => {
+    expect(email()(['a@b.com', 'c@d.com'])).toBeUndefined();
+  });
+
+  it('returns error naming the invalid entry in an array', () => {
+    expect(email()(['a@b.com', 'bad'])).toBe('bad is not a valid email address.');
+  });
+
+  it('uses custom error message for single value', () => {
+    expect(email('Invalid')('bad')).toBe('Invalid');
   });
 });

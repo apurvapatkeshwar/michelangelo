@@ -1,6 +1,7 @@
 import { FormDialog } from '#core/components/form/components/form-dialog/form-dialog';
 import { StringField } from '#core/components/form/fields/string/string-field';
 import { TextareaField } from '#core/components/form/fields/textarea/textarea-field';
+import { NotificationSection } from '#core/config/entities/pipeline/notification-section';
 import { useStudioParams } from '#core/hooks/routing/use-studio-params/use-studio-params';
 import { useStudioMutation } from '#core/hooks/use-studio-mutation/use-studio-mutation';
 import { generateSuffix } from '#core/utils/name-utils';
@@ -21,7 +22,18 @@ export const CreatePipelineRunForm = ({ record, onClose }: ActionComponentProps<
       return;
     }
 
-    await createPipelineRunMutation.mutateAsync(values);
+    const submitted = {
+      ...values,
+      spec: {
+        ...values.spec,
+        notifications: values.spec.notifications?.map((n) => ({
+          ...n,
+          resource_type: 'PIPELINE_RUN',
+        })),
+      },
+    };
+
+    await createPipelineRunMutation.mutateAsync(submitted);
   };
 
   const initialValues: PipelineRun = {
@@ -54,6 +66,8 @@ export const CreatePipelineRunForm = ({ record, onClose }: ActionComponentProps<
         placeholder="Enter a description for this run…"
         description="Optional. Helps identify this run in the pipeline run list."
       />
+
+      <NotificationSection />
     </FormDialog>
   );
 };

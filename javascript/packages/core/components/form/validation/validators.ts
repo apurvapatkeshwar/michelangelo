@@ -78,3 +78,21 @@ export const url =
     if (isEmpty(value)) return undefined;
     return isAbsoluteUrl(String(value)) ? undefined : errorMessage;
   };
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const email =
+  (errorMessage = 'Must be a valid email address.'): FieldValidator =>
+  (value) => {
+    if (isEmpty(value)) return undefined;
+    if (Array.isArray(value)) {
+      // cast: Array.isArray narrows to any[]; re-assert as unknown[] for type-safe iteration
+      const entries = value as unknown[];
+      const invalidEntry = entries.find((v) => !EMAIL_REGEX.test(String(v)));
+      if (invalidEntry !== undefined) {
+        return `${typeof invalidEntry === 'string' ? invalidEntry : 'Entry'} is not a valid email address.`;
+      }
+      return undefined;
+    }
+    return EMAIL_REGEX.test(String(value)) ? undefined : errorMessage;
+  };
