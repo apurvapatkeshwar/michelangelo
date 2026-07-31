@@ -999,7 +999,8 @@ func TestCronTrigger_UpdateNotifications_SignalLimitError(t *testing.T) {
 		gomock.Eq([]interface{}{CreateTriggerRequest{TriggerRun: scheduleWorkflowInput(triggerRun)}}),
 	).Return(signalLimitErr)
 
-	status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient).Update(
+	runner := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient)
+	status, handled, err := runner.Update(
 		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_NO_ACTION)
 
 	assert.Error(t, err, "expected error to be returned")
@@ -1018,6 +1019,16 @@ func TestCronTrigger_UpdateNotifications_SignalLimitError(t *testing.T) {
 	assert.Contains(t, status.ErrorMessage, "exceeded workflow execution limit for signal events")
 	assert.Equal(t, triggerRun.Status.ActualScheduleInputHash, status.ActualScheduleInputHash,
 		"input hash must not advance when the workflow input update fails")
+
+	// The failed notification update is intentionally acknowledged through
+	// ActualNotifications. Notifications are excluded from the input hash, so the
+	// next reconciliation must not call UpdateTrigger again.
+	triggerRun.Status = status
+	secondStatus, secondHandled, secondErr := runner.Update(
+		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_NO_ACTION)
+	require.NoError(t, secondErr)
+	assert.False(t, secondHandled)
+	assert.Equal(t, status, secondStatus)
 }
 
 func mustScheduleInputHash(t *testing.T, triggerRun *v2pb.TriggerRun) string {

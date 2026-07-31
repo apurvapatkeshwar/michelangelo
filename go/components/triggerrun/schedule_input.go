@@ -16,9 +16,10 @@ const (
 )
 
 // scheduleInputHash returns a deterministic hash of the TriggerRun data consumed by
-// recurring trigger workflows. It deliberately excludes status, volatile metadata,
-// and one-shot action fields so periodic reconciliation and pause/resume handling do
-// not create false input drift.
+// recurring trigger workflows. It deliberately excludes notifications, which use
+// ActualNotifications as their independent drift and retry-suppression marker. It
+// also excludes status, volatile metadata, and one-shot action fields so periodic
+// reconciliation and pause/resume handling do not create false input drift.
 func scheduleInputHash(triggerRun *v2pb.TriggerRun) (string, error) {
 	normalized := normalizeScheduleInput(triggerRun)
 	serialized, err := json.Marshal(normalized)
@@ -34,6 +35,7 @@ func scheduleInputHash(triggerRun *v2pb.TriggerRun) (string, error) {
 
 func normalizeScheduleInput(triggerRun *v2pb.TriggerRun) *v2pb.TriggerRun {
 	normalized := scheduleWorkflowInput(triggerRun)
+	normalized.Spec.Notifications = nil
 	normalized.TypeMeta = metav1.TypeMeta{}
 	normalized.ObjectMeta = metav1.ObjectMeta{
 		Name:      triggerRun.Name,

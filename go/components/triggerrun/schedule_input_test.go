@@ -58,15 +58,6 @@ func TestScheduleInputHashTracksEffectiveInput(t *testing.T) {
 			},
 		},
 		{
-			name: "notifications",
-			mutate: func(triggerRun *v2pb.TriggerRun) {
-				triggerRun.Spec.Notifications = []*v2pb.Notification{{
-					NotificationType: v2pb.NOTIFICATION_TYPE_EMAIL,
-					Emails:           []string{"owner@example.com"},
-				}}
-			},
-		},
-		{
 			name: "environment label",
 			mutate: func(triggerRun *v2pb.TriggerRun) {
 				triggerRun.Labels[scheduleInputEnvironmentLabel] = "staging"
@@ -87,6 +78,19 @@ func TestScheduleInputHashTracksEffectiveInput(t *testing.T) {
 			assert.NotEqual(t, baseHash, mustScheduleInputHash(t, changed))
 		})
 	}
+}
+
+func TestScheduleInputHashIgnoresSeparatelyTrackedNotifications(t *testing.T) {
+	base := scheduleInputTestTriggerRun()
+	changed := base.DeepCopy()
+	changed.Spec.Notifications = []*v2pb.Notification{{
+		NotificationType: v2pb.NOTIFICATION_TYPE_EMAIL,
+		Emails:           []string{"owner@example.com"},
+	}}
+
+	assert.Equal(t, mustScheduleInputHash(t, base), mustScheduleInputHash(t, changed))
+	assert.Equal(t, changed.Spec.Notifications, scheduleWorkflowInput(changed).Spec.Notifications,
+		"notifications must remain in the Temporal schedule workflow input")
 }
 
 func TestScheduleInputHashIgnoresReconciliationOnlyFields(t *testing.T) {

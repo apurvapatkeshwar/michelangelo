@@ -295,10 +295,12 @@ message TriggerRunStatus {
   // actual_schedule_input_hash is the SHA-256 hash of the normalized workflow input
   // that was last successfully applied to the recurring schedule. The controller uses
   // this value to detect changes to execution inputs such as parameters, concurrency,
-  // revision, actor, notifications, and relevant labels without updating the workflow
+  // revision, actor, and relevant labels without updating the workflow
   // engine on every periodic reconciliation.
   //
-  // The hash excludes status, volatile metadata, and one-shot action/kill fields.
+  // Notifications are excluded because actual_notifications independently tracks their
+  // drift and preserves the existing retry suppression for failed notification updates.
+  // The hash also excludes status, volatile metadata, and one-shot action/kill fields.
   // An empty value on an existing TriggerRun causes a one-time schedule input refresh.
   string actual_schedule_input_hash = 7;
 }
