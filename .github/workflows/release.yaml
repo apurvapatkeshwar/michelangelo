@@ -67,6 +67,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
           files: python/dist/*.whl
 
   build-go-binaries:
@@ -125,6 +126,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
           files: binaries/*
 
   helm-publish:
