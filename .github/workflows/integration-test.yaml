@@ -80,8 +80,32 @@ jobs:
           token: ${{ secrets.CR_PAT }}
           path: integration-test
 
+      - name: Check out michelangelo-examples repo
+        uses: actions/checkout@v4
+        with:
+          repository: michelangelo-ai/michelangelo-examples
+          ref: main
+          path: michelangelo-examples
+
       - name: Install integration test dependencies
         run: .venv/bin/pip install retrying pyyaml pymysql -q
+
+      - name: Install michelangelo-examples dependencies
+        # Installed into the same venv `ma` and pytest already use: `ma pipeline apply`
+        # runs a subprocess registration step that imports the pipeline's
+        # manifest.filePath module (e.g. michelangelo_examples.california_housing...)
+        # to discover the workflow function and build the uniflow tar, so
+        # michelangelo_examples must be importable from this venv, not just checked out.
+        # --no-deps: michelangelo-examples' own pyproject pins `michelangelo>=0.6.0`
+        # (a released-package constraint), which conflicts with this venv's locally
+        # editable-installed dev-tip `michelangelo` (version 0.3.0) and isn't on the
+        # index yet -- a plain `pip install` fails outright, or worse would silently
+        # replace the dev checkout under test with a released wheel if a matching
+        # version existed. The `-E example` install above already provides every other
+        # runtime dep pytorch_train/xgb_train need (torch, pytorch_lightning, xgboost,
+        # pyspark, ray, s3fs, etc.) -- only michelangelo_examples' own thin package needs
+        # installing here.
+        run: .venv/bin/pip install -q --no-deps "$GITHUB_WORKSPACE/michelangelo-examples"
 
       - name: Run API CRUD tests
         run: |
@@ -127,6 +151,17 @@ jobs:
           MA_API_SERVER: localhost:15566
           MA_NAMESPACE: ma-dev-test
           MICHELANGELO_PYTHON_DIR: ${{ github.workspace }}/python
+          PYTHONPATH: ${{ github.workspace }}/integration-test
+
+      - name: Run michelangelo-examples CLI e2e tests
+        run: |
+          $GITHUB_WORKSPACE/python/.venv/bin/pytest \
+            functional/cli/test_examples_repo_cli.py \
+            -v -m "cli"
+        working-directory: ${{ github.workspace }}/integration-test
+        env:
+          MA_API_SERVER: localhost:15566
+          MICHELANGELO_EXAMPLES_DIR: ${{ github.workspace }}/michelangelo-examples
           PYTHONPATH: ${{ github.workspace }}/integration-test
 
       # Infrastructure is intentionally kept running between CI runs.
