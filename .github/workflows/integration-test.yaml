@@ -80,8 +80,19 @@ jobs:
           token: ${{ secrets.CR_PAT }}
           path: integration-test
 
+      - name: Check out michelangelo-examples repo
+        uses: actions/checkout@v4
+        with:
+          repository: michelangelo-ai/michelangelo-examples
+          ref: main
+          path: michelangelo-examples
+
       - name: Install integration test dependencies
         run: .venv/bin/pip install retrying pyyaml pymysql -q
+
+      - name: Install michelangelo-examples dependencies
+        # only michelangelo_examples' own thin package needs installing here.
+        run: .venv/bin/pip install -q --no-deps "$GITHUB_WORKSPACE/michelangelo-examples"
 
       - name: Run API CRUD tests
         run: |
@@ -127,6 +138,17 @@ jobs:
           MA_API_SERVER: localhost:15566
           MA_NAMESPACE: ma-dev-test
           MICHELANGELO_PYTHON_DIR: ${{ github.workspace }}/python
+          PYTHONPATH: ${{ github.workspace }}/integration-test
+
+      - name: Run michelangelo-examples CLI e2e tests
+        run: |
+          $GITHUB_WORKSPACE/python/.venv/bin/pytest \
+            functional/cli/test_examples_repo_cli.py \
+            -v -m "cli"
+        working-directory: ${{ github.workspace }}/integration-test
+        env:
+          MA_API_SERVER: localhost:15566
+          MICHELANGELO_EXAMPLES_DIR: ${{ github.workspace }}/michelangelo-examples
           PYTHONPATH: ${{ github.workspace }}/integration-test
 
       # Infrastructure is intentionally kept running between CI runs.
