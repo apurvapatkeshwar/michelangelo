@@ -3,6 +3,7 @@
 [![codecov](https://codecov.io/gh/michelangelo-ai/michelangelo/graph/badge.svg?token=HKJDT0I6CW)](https://codecov.io/gh/michelangelo-ai/michelangelo)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11481/badge)](https://www.bestpractices.dev/projects/11481)
 [![Docs](https://img.shields.io/badge/docs-michelangelo--ai.org-blue)](https://michelangelo-ai.org)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/michelangelo-ai/michelangelo)
 
 # Michelangelo AI
 
