@@ -62,7 +62,7 @@ jobs:
           cache-dependency-path: head/go/go.sum
 
       - name: Install go-apidiff
-        run: go install golang.org/x/exp/cmd/apidiff@latest
+        run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260209203927-2842357ff358
 
       - name: Export base API
         working-directory: base/go
