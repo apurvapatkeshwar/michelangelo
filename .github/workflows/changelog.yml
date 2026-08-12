@@ -181,6 +181,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-rc') }}
           body_path: RELEASE_NOTES.md
           append_body: false
         env:
