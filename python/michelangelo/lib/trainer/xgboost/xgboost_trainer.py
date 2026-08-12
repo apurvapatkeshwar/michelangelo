@@ -32,13 +32,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import ray.data
 import ray.train
 from ray.train.xgboost import XGBoostTrainer as RayXGBoostTrainer
-
-if TYPE_CHECKING:
-    import ray.data
 
 _logger = logging.getLogger(__name__)
 
