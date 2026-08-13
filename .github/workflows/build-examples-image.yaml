@@ -77,7 +77,6 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        if: env.PUSH_OK == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ./python
@@ -88,19 +87,10 @@ jobs:
           # overwrite each other.
           cache-from: type=gha,scope=${{ env.PLATFORM_SLUG }}
           cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_SLUG }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
-
-      - name: Build without pushing (fork PR)
-        if: env.PUSH_OK != 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./python
-          file: ./python/examples/Dockerfile
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ env.PLATFORM_SLUG }}
-          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_SLUG }}
-          push: false
+          # push-by-digest is only consulted on the push path inside buildkit's
+          # image exporter, so with push=false it is inert and this builds
+          # without touching the registry.
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ env.PUSH_OK }}
 
       - name: Export digest
         if: env.PUSH_OK == 'true'
