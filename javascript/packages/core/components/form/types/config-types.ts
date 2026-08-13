@@ -65,6 +65,28 @@ export type BuiltinFieldConfig =
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface FieldConfigExtensions {}
 
+/**
+ * Declarative validation config that maps to the built-in validators in `validation/validators.ts`.
+ * Each key resolves to its corresponding validator factory via `resolveValidation`.
+ */
+export type BuiltinFieldValidation = {
+  regex?: { pattern: string | RegExp; errorMessage?: string };
+  min?: number;
+  max?: number;
+  minLength?: number;
+  maxLength?: number;
+  url?: { errorMessage?: string } | boolean;
+};
+
+/**
+ * Full validation config combining declarative rules with an optional custom validator.
+ * Declarative rules are resolved first; the custom `validate` function runs last.
+ */
+export type FieldValidation = BuiltinFieldValidation & {
+  /** Custom validator that runs after all declarative rules. */
+  validate?: (value: unknown) => string | undefined;
+};
+
 /** Enumerates the built-in field types available in the config-driven form system. */
 export enum FieldType {
   /**
