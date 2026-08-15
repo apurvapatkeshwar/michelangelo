@@ -119,7 +119,9 @@ The `kind` label is a stable dashboard/alerting **contract**: its value is alway
 
 ## Alerting Rules
 
-Add these rules to your Prometheus configuration:
+If you use the Prometheus Operator, the Helm chart installs these rules as a `PrometheusRule` resource when `monitoring.enabled=true` (on by default under the toggle; disable with `monitoring.prometheusRule.enabled=false`). The four alerts based on controller-manager metrics are always included; the two Envoy-based inference alerts are behind `monitoring.prometheusRule.envoyAlerts.enabled` because they require the Envoy admin interface and a scrape job for it (see [Envoy Proxy](#envoy-proxy) above).
+
+If you manage Prometheus configuration directly, add the rules yourself:
 
 ```yaml
 groups:
@@ -211,7 +213,9 @@ groups:
 
 ## Grafana Dashboard
 
-Create a Grafana dashboard with these panels to get operational visibility at a glance.
+If you run the [Grafana Operator](https://github.com/grafana/grafana-operator), the Helm chart ships two ready-made dashboards as `GrafanaDashboard` resources when `monitoring.enabled=true`: a control-plane view (pipeline results, reconcile health, work queues, cascade delete) and a pipeline-runs view (durations, failure reasons, step completions). Point `monitoring.grafanaDashboards.instanceSelector` at the labels on your `Grafana` CR — the default matches `dashboards: grafana`. Every panel queries metrics the controller manager exposes out of the box.
+
+To build a dashboard by hand instead, use these panels to get operational visibility at a glance.
 
 ### Overview row
 
