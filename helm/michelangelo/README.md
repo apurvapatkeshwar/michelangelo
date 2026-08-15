@@ -279,6 +279,10 @@ Top-level keys. See [`values.yaml`](./values.yaml) for the full annotated schema
 | `worker.replicas` | int | `1` | no | Scale horizontally for higher pipeline-run throughput. |
 | `controllermgr.enabled` | bool | `true` | no | |
 | `controllermgr.watchNamespace` | list | `[]` | no | Namespaces the controller watches. Empty = all namespaces (ClusterRole). Set to a list to scope down to namespaced Roles. |
+| `monitoring.enabled` | bool | `false` | no | Master toggle for chart-managed monitoring resources. All resources are CRD-gated: skipped when the owning operator's CRDs are absent, so enabling this is safe on any cluster. |
+| `monitoring.serviceMonitor.enabled` | bool | `true` | no | Create a `ServiceMonitor` for the controller manager's `/metrics` endpoint (requires the Prometheus Operator CRDs, `monitoring.coreos.com/v1`). |
+| `monitoring.serviceMonitor.interval` | string | `30s` | no | Scrape interval. |
+| `monitoring.serviceMonitor.additionalLabels` | object | `{}` | no | Extra labels on the `ServiceMonitor`, e.g. to match a Prometheus instance's `serviceMonitorSelector`. |
 | `serviceAccount.create` | bool | `true` | no | Create a ServiceAccount for the chart. |
 | `serviceAccount.name` | string | `""` | no | Override the generated ServiceAccount name. |
 | `podSecurityContext` | object | see values.yaml | no | Applied to every Pod. |

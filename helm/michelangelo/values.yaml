@@ -448,6 +448,29 @@ controllermgr:
   resources: {}
 
 # -----------------------------------------------------------------------------
+# Optional monitoring resources. Everything here is CRD-gated: resources are
+# only rendered when the owning operator's CRDs are installed in the cluster,
+# so enabling the toggle on a cluster without the Prometheus Operator is a
+# safe no-op.
+# -----------------------------------------------------------------------------
+monitoring:
+  # Master toggle for chart-managed monitoring resources.
+  enabled: false
+
+  serviceMonitor:
+    # Scrape the controller manager's /metrics endpoint (port
+    # controllermgr.metricsPort). Requires the Prometheus Operator CRDs
+    # (monitoring.coreos.com/v1); skipped when they are absent.
+    enabled: true
+
+    # Scrape interval.
+    interval: 30s
+
+    # Extra labels for the ServiceMonitor, e.g. to match a Prometheus
+    # instance's serviceMonitorSelector.
+    additionalLabels: {}
+
+# -----------------------------------------------------------------------------
 # ServiceAccount used by every chart-managed Pod.
 # -----------------------------------------------------------------------------
 serviceAccount:

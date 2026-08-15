@@ -14,7 +14,16 @@ Michelangelo AI components expose Prometheus metrics that integrate with a stand
 
 ### Controller Manager
 
-The controller manager exposes metrics on port `8091` (configured via `metricsBindAddress`). If you are using the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator), create a `ServiceMonitor`:
+The controller manager exposes metrics on port `8091` (configured via `metricsBindAddress`). If you are using the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator), the Helm chart can create the `ServiceMonitor` for you:
+
+```bash
+helm upgrade michelangelo ./helm/michelangelo --reuse-values \
+  --set monitoring.enabled=true
+```
+
+The resource is only rendered when the Prometheus Operator CRDs (`monitoring.coreos.com/v1`) are installed, so the toggle is a safe no-op on clusters without the operator. Scrape interval and extra labels (e.g. to match your Prometheus instance's `serviceMonitorSelector`) are configurable under `monitoring.serviceMonitor.*`.
+
+To create the `ServiceMonitor` yourself instead, select the controller manager Service by its chart labels:
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -22,12 +31,12 @@ kind: ServiceMonitor
 metadata:
   name: michelangelo-controllermgr
   namespace: ma-system
-  labels:
-    app: michelangelo-controllermgr
 spec:
   selector:
     matchLabels:
-      app: michelangelo-controllermgr
+      app.kubernetes.io/name: michelangelo
+      app.kubernetes.io/instance: michelangelo   # your Helm release name
+      app.kubernetes.io/component: controllermgr
   endpoints:
   - port: metrics          # Must match the Service port name for port 8091
     path: /metrics
@@ -36,12 +45,12 @@ spec:
 
 ### Health Probes
 
-The controller manager exposes health endpoints on port `8083` (configured via `healthProbeBindAddress`):
+The controller manager exposes health endpoints on port `8081` (configured via `healthProbeBindAddress`; the chart default is `controllermgr.healthPort: 8081`):
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET :8083/healthz` | Liveness — is the process alive? |
-| `GET :8083/readyz` | Readiness — is the controller ready to reconcile? |
+| `GET :8081/healthz` | Liveness — is the process alive? |
+| `GET :8081/readyz` | Readiness — is the controller ready to reconcile? |
 
 These are used by Kubernetes liveness and readiness probes, but you can also poll them from your monitoring stack for coarser-grained health checks.
 
