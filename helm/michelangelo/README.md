@@ -283,6 +283,9 @@ Top-level keys. See [`values.yaml`](./values.yaml) for the full annotated schema
 | `monitoring.serviceMonitor.enabled` | bool | `true` | no | Create a `ServiceMonitor` for the controller manager's `/metrics` endpoint (requires the Prometheus Operator CRDs, `monitoring.coreos.com/v1`). |
 | `monitoring.serviceMonitor.interval` | string | `30s` | no | Scrape interval. |
 | `monitoring.serviceMonitor.additionalLabels` | object | `{}` | no | Extra labels on the `ServiceMonitor`, e.g. to match a Prometheus instance's `serviceMonitorSelector`. |
+| `monitoring.prometheusRule.enabled` | bool | `true` | no | Create a `PrometheusRule` with starter alerts (pipeline-run failures/duration, reconcile errors, cascade drain timeouts). All default alerts use metrics exposed out of the box. |
+| `monitoring.prometheusRule.additionalLabels` | object | `{}` | no | Extra labels on the `PrometheusRule`, e.g. to match a Prometheus instance's `ruleSelector`. |
+| `monitoring.prometheusRule.envoyAlerts.enabled` | bool | `false` | no | Add inference latency/error alerts on Envoy upstream metrics. Requires the Envoy admin interface + a scrape job (not chart-managed). |
 | `serviceAccount.create` | bool | `true` | no | Create a ServiceAccount for the chart. |
 | `serviceAccount.name` | string | `""` | no | Override the generated ServiceAccount name. |
 | `podSecurityContext` | object | see values.yaml | no | Applied to every Pod. |

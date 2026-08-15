@@ -470,6 +470,26 @@ monitoring:
     # instance's serviceMonitorSelector.
     additionalLabels: {}
 
+  prometheusRule:
+    # Create a PrometheusRule with starter alerts for pipeline-run failures,
+    # long-running pipeline runs, controller reconcile errors, and cascade
+    # delete drain timeouts. All default alerts fire on metrics the
+    # controller manager exposes out of the box. Requires the Prometheus
+    # Operator CRDs (monitoring.coreos.com/v1); skipped when they are absent.
+    enabled: true
+
+    # Extra labels for the PrometheusRule, e.g. to match a Prometheus
+    # instance's ruleSelector.
+    additionalLabels: {}
+
+    envoyAlerts:
+      # Add inference latency/error-rate alerts on Envoy upstream metrics.
+      # Off by default because the Envoy admin interface (which exposes
+      # those metrics) is not enabled by the chart — enable it and add a
+      # scrape job first, or these alerts can never fire. See
+      # docs/operator-guides/operations/monitoring.md.
+      enabled: false
+
 # -----------------------------------------------------------------------------
 # ServiceAccount used by every chart-managed Pod.
 # -----------------------------------------------------------------------------
