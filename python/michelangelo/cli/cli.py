@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 
+from michelangelo.cli.importer import importer
 from michelangelo.cli.mactl import mactl
 from michelangelo.cli.sandbox import sandbox
 
@@ -32,6 +33,18 @@ def main(args=None):
         sandbox.init_arguments(sandbox_p)
         ns = p.parse_args(args=args)
         return sandbox.run(ns)
+
+    if entity == "import":
+        p = argparse.ArgumentParser(description=description)
+        sp = p.add_subparsers(dest="entity", required=True, help="Entity to operate on")
+        import_p = sp.add_parser(
+            "import",
+            description=importer.description,
+            help=importer.short_description,
+        )
+        importer.init_arguments(import_p)
+        ns = p.parse_args(args=args)
+        return importer.run(ns)
 
     # For all other entities, delegate to mactl
     return mactl.run()
