@@ -3,6 +3,7 @@ package temporalclient
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,8 +12,10 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	temporalEnumsV1 "go.temporal.io/api/enums/v1"
 	filterV1 "go.temporal.io/api/filter/v1"
+	"go.temporal.io/api/serviceerror"
 	workflowserviceV1 "go.temporal.io/api/workflowservice/v1"
 	temporalClient "go.temporal.io/sdk/client"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -40,6 +43,7 @@ func mapTemporalStatusToInterface(status temporalEnumsV1.WorkflowExecutionStatus
 
 type TemporalClient struct {
 	Client   temporalClient.Client
+	Logger   *zap.Logger
 	Provider string
 	Domain   string
 }
@@ -411,12 +415,39 @@ func (c *TemporalClient) DeleteTrigger(ctx context.Context, workflowID string, r
 	scheduleID := scheduleIDForWorkflow(workflowID)
 	handle := c.Client.ScheduleClient().GetHandle(ctx, scheduleID)
 	if err := handle.Delete(ctx); err != nil {
-		return err
+		if !isTemporalNotFound(err) {
+			return err
+		}
+		c.logger().Info("Temporal schedule already absent during trigger deletion",
+			zap.String("schedule_id", scheduleID))
 	}
 	if runID == "" {
 		return nil
 	}
-	return c.Client.TerminateWorkflow(ctx, workflowID, runID, "trigger killed")
+	if err := c.Client.TerminateWorkflow(ctx, workflowID, runID, "trigger killed"); err != nil {
+		if !isTemporalNotFound(err) {
+			return err
+		}
+		c.logger().Info("Temporal workflow already absent during trigger deletion",
+			zap.String("workflow_id", workflowID),
+			zap.String("run_id", runID))
+	}
+	return nil
+}
+
+func (c *TemporalClient) logger() *zap.Logger {
+	if c.Logger == nil {
+		return zap.NewNop()
+	}
+	return c.Logger
+}
+
+// isTemporalNotFound makes trigger deletion idempotent. Temporal reports both an
+// already-deleted schedule and an already-completed workflow as NotFound; neither
+// means there is remaining trigger work to drain.
+func isTemporalNotFound(err error) bool {
+	var notFound *serviceerror.NotFound
+	return errors.As(err, &notFound)
 }
 
 // UpdateTrigger updates the cron schedule, optionally the paused state, and optionally the
