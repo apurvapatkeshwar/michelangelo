@@ -8,9 +8,10 @@ are surfaced as warnings and TODO comments rather than silently dropped.
 """
 
 import math
-from dataclasses import dataclass
 
 import yaml
+
+from michelangelo.cli.importer.base import ConversionResult, ManifestError
 
 _KIND = "PyTorchJob"
 _API_GROUP = "kubeflow.org"
@@ -26,18 +27,6 @@ _UNMAPPED_POD_FIELDS = (
     "initContainers",
 )
 _UNMAPPED_CONTAINER_FIELDS = ("env", "envFrom", "volumeMounts", "ports")
-
-
-class ManifestError(ValueError):
-    """Raised when the input manifest cannot be converted."""
-
-
-@dataclass
-class ConversionResult:
-    """The generated pipeline scaffold plus everything that did not map."""
-
-    scaffold: str
-    warnings: list
 
 
 def convert_text(text: str) -> ConversionResult:

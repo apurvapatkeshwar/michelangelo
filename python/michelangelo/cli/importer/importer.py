@@ -1,24 +1,27 @@
-"""``ma import``: convert training-job manifests into Uniflow pipeline scaffolds."""
+"""``ma import``: convert job manifests from other systems into Michelangelo ones."""
 
 import sys
 from pathlib import Path
 
 import yaml
 
-from michelangelo.cli.importer import pytorchjob
+from michelangelo.cli.importer import base, pytorchjob, rayjob
 
-short_description = "Convert training-job manifests into pipeline scaffolds."
+short_description = "Convert job manifests from other systems."
 
 description = """
-Convert a Kubernetes training-job manifest into a Michelangelo pipeline
-scaffold. The generated file is a starting point, not a finished pipeline:
-cluster sizing is mapped for you, the training code itself is marked with
-TODOs. Currently supports Kubeflow Trainer PyTorchJob manifests.
+Convert a Kubernetes job manifest into its Michelangelo equivalent. The
+generated file is a starting point, not a finished artifact: what maps is
+mapped for you, the rest is marked with TODOs and warnings. Kubeflow Trainer
+PyTorchJobs become Uniflow pipeline scaffolds; KubeRay RayJobs become
+michelangelo.api/v2 RayJob (and, for inline cluster specs, RayCluster)
+manifests.
 """
 
 # kind -> converter entry point. Additional kinds plug in here.
 _CONVERTERS = {
     "PyTorchJob": pytorchjob.convert_text,
+    "RayJob": rayjob.convert_text,
 }
 
 
@@ -26,12 +29,12 @@ def init_arguments(parser):
     """Register ``ma import`` arguments on the given subparser."""
     parser.add_argument(
         "manifest",
-        help="Path to the training-job manifest to convert (YAML)",
+        help="Path to the job manifest to convert (YAML)",
     )
     parser.add_argument(
         "-o",
         "--output",
-        help="Write the generated pipeline to this file instead of stdout",
+        help="Write the generated file here instead of stdout",
     )
 
 
@@ -56,7 +59,7 @@ def run(ns) -> int:
 
     try:
         result = converter(text)
-    except pytorchjob.ManifestError as exc:
+    except base.ManifestError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
