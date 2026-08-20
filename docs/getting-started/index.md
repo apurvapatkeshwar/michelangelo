@@ -2,6 +2,8 @@
 
 Welcome to Michelangelo AI! Whether you're evaluating the platform or ready to build your first ML pipeline, you're in the right place.
 
+Want a single ordered path instead of a menu? The **[Learning Paths](./learning-paths.md)** page sequences the docs into three role-based tracks — ML Engineer, Operator, and Contributor — each with time estimates and a clear endpoint.
+
 ## Choose your path
 
 ### I want to understand what Michelangelo AI does

@@ -25,6 +25,8 @@ The platform is modular: adopt the full stack or integrate individual components
 
 ## Get started
 
+Prefer an ordered path over a menu? **[Learning Paths](./getting-started/learning-paths.md)** sequences the docs into three role-based tracks (ML Engineer, Operator, Contributor) with time estimates.
+
 ### I'm evaluating Michelangelo AI
 
 Understand what the platform does, how it compares to your current stack, and whether it fits your use case.
