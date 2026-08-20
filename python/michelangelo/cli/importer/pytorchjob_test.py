@@ -177,19 +177,3 @@ spec:
     assert any("no containers" in w for w in result.warnings)
     assert "# TODO: size the cluster for your workload." in result.scaffold
     assert "worker_instances=2," in result.scaffold
-
-
-@pytest.mark.parametrize(
-    ("quantity", "expected"),
-    [(None, None), ("500m", 1), ("1500m", 2), ("2", 2), (2, 2), ("2.5", 3), (0.1, 1)],
-)
-def test_cpu_quantities_round_up(quantity, expected):
-    """Cpu quantities round up."""
-    assert pytorchjob._cpu_count(quantity) == expected
-
-
-def test_gpu_quantities():
-    """Gpu quantities."""
-    assert pytorchjob._gpu_count(None) is None
-    assert pytorchjob._gpu_count("2") == 2
-    assert pytorchjob._gpu_count(1) == 1

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from michelangelo.cli.importer import base, pytorchjob, rayjob
+from michelangelo.cli.importer import base, pytorchjob, rayjob, trainjob
 
 short_description = "Convert job manifests from other systems."
 
@@ -13,8 +13,8 @@ description = """
 Convert a Kubernetes job manifest into its Michelangelo equivalent. The
 generated file is a starting point, not a finished artifact: what maps is
 mapped for you, the rest is marked with TODOs and warnings. Kubeflow Trainer
-PyTorchJobs become Uniflow pipeline scaffolds; KubeRay RayJobs become
-michelangelo.api/v2 RayJob (and, for inline cluster specs, RayCluster)
+PyTorchJobs and TrainJobs become Uniflow pipeline scaffolds; KubeRay RayJobs
+become michelangelo.api/v2 RayJob (and, for inline cluster specs, RayCluster)
 manifests.
 """
 
@@ -22,6 +22,7 @@ manifests.
 _CONVERTERS = {
     "PyTorchJob": pytorchjob.convert_text,
     "RayJob": rayjob.convert_text,
+    "TrainJob": trainjob.convert_text,
 }
 
 

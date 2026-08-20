@@ -80,7 +80,7 @@ def test_run_unsupported_kind_fails(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 1
     assert "unsupported manifest kind 'TFJob'" in captured.err
-    assert "supported: PyTorchJob, RayJob" in captured.err
+    assert "supported: PyTorchJob, RayJob, TrainJob" in captured.err
 
 
 def test_run_invalid_manifest_fails(tmp_path, capsys):
@@ -110,6 +110,24 @@ def test_run_dispatches_rayjob_kind(tmp_path, capsys):
     assert "kind: RayJob" in captured.out
     assert "michelangelo.api/v2" in captured.out
     assert "warning: KubeRay manifests carry no user identity" in captured.err
+
+
+def test_run_dispatches_trainjob_kind(tmp_path, capsys):
+    """Run dispatches trainjob kind."""
+    manifest = tmp_path / "job.yaml"
+    manifest.write_text(
+        "apiVersion: trainer.kubeflow.org/v1alpha1\n"
+        "kind: TrainJob\n"
+        "metadata: {name: tj}\n"
+        "spec:\n"
+        "  runtimeRef: {name: torch-distributed}\n"
+        "  trainer: {numNodes: 2}\n"
+    )
+    rc = importer.run(_parse([str(manifest)]))
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "generated from TrainJob 'tj'" in captured.out
+    assert "num_workers=2," in captured.out
 
 
 @pytest.mark.parametrize(

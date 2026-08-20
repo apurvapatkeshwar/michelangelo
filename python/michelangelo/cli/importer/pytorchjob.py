@@ -7,10 +7,9 @@ Fields with no equivalent here (images, commands, volumes, scheduling hints)
 are surfaced as warnings and TODO comments rather than silently dropped.
 """
 
-import math
-
 import yaml
 
+from michelangelo.cli.importer import scaffold
 from michelangelo.cli.importer.base import ConversionResult, ManifestError
 
 _KIND = "PyTorchJob"
@@ -99,29 +98,26 @@ def convert(manifest: dict) -> ConversionResult:
 
     ray_task_fields = [
         ("head_cpu", head_cpu),
-        ("head_memory", _quote(head_memory)),
+        ("head_memory", scaffold.quote(head_memory)),
         ("head_gpu", head_gpu or None),
         ("worker_cpu", worker_cpu),
-        ("worker_memory", _quote(worker_memory)),
+        ("worker_memory", scaffold.quote(worker_memory)),
         ("worker_gpu", worker_gpu or None),
         ("worker_instances", worker_replicas),
     ]
-    ray_task_lines = [f"        {k}={v}," for k, v in ray_task_fields if v is not None]
-    if len(ray_task_lines) == 1:
-        ray_task_lines.insert(0, "        # TODO: size the cluster for your workload.")
 
-    entrypoint = _entrypoint_comment(worker_container or master_container)
-    use_gpu = bool(worker_gpu)
-
-    scaffold = _SCAFFOLD_TEMPLATE.format(
+    text = scaffold.TEMPLATE.format(
+        source_kind=_KIND,
         source_name=name,
-        ray_task_fields="\n".join(ray_task_lines),
-        entrypoint=entrypoint,
+        ray_task_fields=scaffold.ray_task_lines(ray_task_fields),
+        entrypoint=scaffold.entrypoint_comment(
+            worker_container or master_container, _KIND
+        ),
         run_name=name,
         num_workers=worker_replicas,
-        use_gpu=use_gpu,
+        use_gpu=bool(worker_gpu),
     )
-    return ConversionResult(scaffold=scaffold, warnings=warnings)
+    return ConversionResult(scaffold=text, warnings=warnings)
 
 
 def _first_container(replica_spec, role, warnings):
@@ -157,29 +153,7 @@ def _container_resources(container):
     """Extract (cpu, memory, gpu) from a container, preferring requests."""
     if container is None:
         return None, None, None
-    resources = container.get("resources") or {}
-    requests = resources.get("requests") or {}
-    limits = resources.get("limits") or {}
-    cpu = _cpu_count(requests.get("cpu", limits.get("cpu")))
-    memory = requests.get("memory", limits.get("memory"))
-    gpu = _gpu_count(limits.get("nvidia.com/gpu", requests.get("nvidia.com/gpu")))
-    return cpu, memory, gpu
-
-
-def _cpu_count(quantity):
-    """Round a Kubernetes CPU quantity ("500m", "2", 2.5) up to whole CPUs."""
-    if quantity is None:
-        return None
-    text = str(quantity)
-    if text.endswith("m"):
-        return math.ceil(int(text[:-1]) / 1000)
-    return math.ceil(float(text))
-
-
-def _gpu_count(quantity):
-    if quantity is None:
-        return None
-    return int(str(quantity))
+    return scaffold.resources_from(container.get("resources"))
 
 
 def _warn_unmapped_runtime(container, role, warnings):
@@ -191,69 +165,3 @@ def _warn_unmapped_runtime(container, role, warnings):
                 f"{role} container {container_field} has no pipeline equivalent"
                 " and was not converted"
             )
-
-
-def _entrypoint_comment(container):
-    """Describe the container entrypoint the user must port into the task body."""
-    lines = [
-        "    # TODO: port the training code from your PyTorchJob image into this task."
-    ]
-    if container:
-        if container.get("image"):
-            lines.append(f"    #   image:   {container['image']}")
-        command = list(container.get("command") or []) + list(
-            container.get("args") or []
-        )
-        if command:
-            lines.append(f"    #   command: {' '.join(str(part) for part in command)}")
-    return "\n".join(lines)
-
-
-def _quote(value):
-    return None if value is None else repr(str(value))
-
-
-_SCAFFOLD_TEMPLATE = '''"""Pipeline scaffold generated from PyTorchJob {source_name!r}.
-
-Review every TODO before running: the converter maps cluster sizing, not
-training code. See docs/user-guides/migration/migrate-from-kubeflow-trainer.md
-for the full field mapping.
-"""
-
-import michelangelo.uniflow.core as uniflow
-import ray.train
-from michelangelo.lib.trainer.torch.pytorch_lightning import (
-    LightningTrainer,
-    LightningTrainerParam,
-)
-from michelangelo.uniflow.plugins.ray import RayTask
-
-
-@uniflow.task(
-    config=RayTask(
-{ray_task_fields}
-    )
-)
-def train(data_path: str):
-{entrypoint}
-    trainer = LightningTrainer(
-        trainer_param=LightningTrainerParam(
-            create_model_fn=create_model,  # TODO: your LightningModule factory
-            create_model_fn_kwargs={{}},
-            train_data=load_train(data_path),  # TODO: training Ray Dataset
-            val_data=load_val(data_path),  # TODO: validation Ray Dataset
-            batch_size=256,  # TODO: per-worker batch size
-        ),
-        run_config=ray.train.RunConfig(name={run_name!r}),
-        scaling_config=ray.train.ScalingConfig(
-            num_workers={num_workers},
-            use_gpu={use_gpu},
-        ),
-    )
-    return trainer.train()
-
-
-@uniflow.workflow()
-def training_pipeline(data_path: str):
-    return train(data_path)
-'''
