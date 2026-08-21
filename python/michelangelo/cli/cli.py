@@ -1,3 +1,5 @@
+"""Entry point for the ``ma`` command-line interface."""
+
 import argparse
 import logging
 import sys
@@ -7,11 +9,13 @@ from michelangelo.cli.mactl import mactl
 from michelangelo.cli.sandbox import sandbox
 
 description = """
-Michelangelo CLI is a command-line interface that enables seamless access to Michelangelo services directly from your terminal.
+Michelangelo CLI is a command-line interface that enables seamless access to
+Michelangelo services directly from your terminal.
 """
 
 
 def main(args=None):
+    """Dispatch to the ``ma`` subcommand named by ``args`` or ``sys.argv``."""
     logging.basicConfig(level=logging.INFO)
 
     # Determine entity from args or sys.argv
