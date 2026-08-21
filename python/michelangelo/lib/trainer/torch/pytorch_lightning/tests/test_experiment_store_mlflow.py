@@ -11,17 +11,20 @@ protocol.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 # Importing the store pulls in the package ``__init__`` which eagerly imports the
 # Ray/Lightning-backed trainer. Skip cleanly if those heavy deps are missing.
+# mlflow itself is NOT required: the store imports it lazily inside ``_client``
+# and these tests substitute a fake ``mlflow.tracking`` module, so they run in
+# environments (like CI) where the ``trainer-mlflow`` extra is not installed.
 pytest.importorskip("ray")
 pytest.importorskip("torch")
 pytest.importorskip("pytorch_lightning")
-pytest.importorskip("mlflow")
 
 from michelangelo.lib.trainer.torch.pytorch_lightning.experiment_store_mlflow import (
     _TAG_EXPERIMENT_PATH,
@@ -86,12 +89,29 @@ class _FakeMlflowClient:
         return list(reversed(self.runs))[:max_results]
 
 
+def _install_mlflow_stub(monkeypatch, constructor):
+    """Plant stub ``mlflow``/``mlflow.tracking`` modules exposing ``constructor``.
+
+    The store imports mlflow lazily (``from mlflow.tracking import
+    MlflowClient`` inside ``_client``), so seeding ``sys.modules`` makes that
+    import resolve to the stub whether or not real mlflow is installed —
+    letting these tests run in environments without the ``trainer-mlflow``
+    extra (like CI).
+    """
+    tracking = ModuleType("mlflow.tracking")
+    tracking.MlflowClient = constructor
+    mlflow_stub = ModuleType("mlflow")
+    mlflow_stub.tracking = tracking
+    monkeypatch.setitem(sys.modules, "mlflow", mlflow_stub)
+    monkeypatch.setitem(sys.modules, "mlflow.tracking", tracking)
+
+
 @pytest.fixture()
-def fake_client():
-    """A fresh fake client, patched in as the ``MlflowClient`` constructor."""
+def fake_client(monkeypatch):
+    """A fresh fake client, installed as the ``MlflowClient`` constructor."""
     client = _FakeMlflowClient()
-    with patch("mlflow.tracking.MlflowClient", return_value=client):
-        yield client
+    _install_mlflow_stub(monkeypatch, MagicMock(return_value=client))
+    yield client
 
 
 class TestProtocolConformance:
@@ -236,21 +256,21 @@ class TestNothingToResume:
         )
         assert store.locate_resumable(storage_path="/root", run_name="run1") is None
 
-    def test_locate_swallows_client_errors(self):
+    def test_locate_swallows_client_errors(self, monkeypatch):
         """An unreachable server is swallowed; ``locate`` returns ``None``."""
         store = MlflowExperimentStore()
         raising = MagicMock()
         raising.get_experiment_by_name.side_effect = ConnectionError("boom")
-        with patch("mlflow.tracking.MlflowClient", return_value=raising):
-            assert store.locate_resumable(storage_path="/root", run_name="run1") is None
+        _install_mlflow_stub(monkeypatch, MagicMock(return_value=raising))
+        assert store.locate_resumable(storage_path="/root", run_name="run1") is None
 
-    def test_empty_identity_returns_none_without_client(self):
+    def test_empty_identity_returns_none_without_client(self, monkeypatch):
         """Empty ``storage_path``/``run_name`` short-circuits before any client use."""
         store = MlflowExperimentStore()
         constructor = MagicMock()
-        with patch("mlflow.tracking.MlflowClient", constructor):
-            assert store.locate_resumable(storage_path="", run_name="run1") is None
-            assert store.locate_resumable(storage_path="/root", run_name="") is None
+        _install_mlflow_stub(monkeypatch, constructor)
+        assert store.locate_resumable(storage_path="", run_name="run1") is None
+        assert store.locate_resumable(storage_path="/root", run_name="") is None
         constructor.assert_not_called()
 
 
@@ -259,8 +279,6 @@ class TestMlflowNotInstalled:
 
     def test_track_and_locate_degrade_gracefully(self, monkeypatch):
         """With mlflow unimportable, ``track`` swallows and ``locate`` returns None."""
-        import sys
-
         store = MlflowExperimentStore()
         # Making the module entry None causes ``from mlflow.tracking import
         # MlflowClient`` to raise ImportError, simulating a missing extra.
@@ -270,8 +288,6 @@ class TestMlflowNotInstalled:
 
     def test_client_import_error_message_names_the_extra(self, monkeypatch):
         """The ImportError tells the user which extra to install."""
-        import sys
-
         store = MlflowExperimentStore()
         monkeypatch.setitem(sys.modules, "mlflow.tracking", None)
         with pytest.raises(ImportError, match="trainer-mlflow"):
@@ -281,29 +297,25 @@ class TestMlflowNotInstalled:
 class TestTrackNeverRaises:
     """``track`` is best-effort: a failure must never propagate."""
 
-    def test_track_swallows_lost_race_with_vanishing_experiment(self):
+    def test_track_swallows_lost_race_with_vanishing_experiment(self, monkeypatch):
         """Create fails and the re-read still misses → swallowed, no run created."""
         store = MlflowExperimentStore()
         client = MagicMock()
         client.get_experiment_by_name.return_value = None
         client.create_experiment.side_effect = RuntimeError("server hiccup")
-        with patch("mlflow.tracking.MlflowClient", return_value=client):
-            # Must not raise, even though _ensure_experiment re-raises internally.
-            store.track(
-                storage_path="/root", run_name="run1", experiment_path="/exp/dir"
-            )
+        _install_mlflow_stub(monkeypatch, MagicMock(return_value=client))
+        # Must not raise, even though _ensure_experiment re-raises internally.
+        store.track(storage_path="/root", run_name="run1", experiment_path="/exp/dir")
         client.create_run.assert_not_called()
 
-    def test_track_swallows_client_errors(self):
+    def test_track_swallows_client_errors(self, monkeypatch):
         """An unreachable server during ``track`` does not propagate."""
         store = MlflowExperimentStore()
         raising = MagicMock()
         raising.get_experiment_by_name.side_effect = ConnectionError("boom")
-        with patch("mlflow.tracking.MlflowClient", return_value=raising):
-            # Must not raise.
-            store.track(
-                storage_path="/root", run_name="run1", experiment_path="/exp/dir"
-            )
+        _install_mlflow_stub(monkeypatch, MagicMock(return_value=raising))
+        # Must not raise.
+        store.track(storage_path="/root", run_name="run1", experiment_path="/exp/dir")
 
     def test_track_with_empty_identity_writes_nothing(self, fake_client):
         """Empty ``storage_path``/``run_name`` short-circuits: no run created."""
@@ -312,7 +324,7 @@ class TestTrackNeverRaises:
         store.track(storage_path="/root", run_name="", experiment_path="/exp")
         assert fake_client.runs == []
 
-    def test_track_survives_experiment_creation_race(self):
+    def test_track_survives_experiment_creation_race(self, monkeypatch):
         """Losing the create-experiment race falls back to the winner's id."""
         store = MlflowExperimentStore()
         client = MagicMock()
@@ -324,10 +336,8 @@ class TestTrackNeverRaises:
             info=SimpleNamespace(run_id="run-1"),
             data=SimpleNamespace(tags={}),
         )
-        with patch("mlflow.tracking.MlflowClient", return_value=client):
-            store.track(
-                storage_path="/root", run_name="run1", experiment_path="/exp/dir"
-            )
+        _install_mlflow_stub(monkeypatch, MagicMock(return_value=client))
+        store.track(storage_path="/root", run_name="run1", experiment_path="/exp/dir")
         client.create_run.assert_called_once()
         assert client.create_run.call_args.args[0] == "exp-9"
 
@@ -335,13 +345,13 @@ class TestTrackNeverRaises:
 class TestConstruction:
     """Constructor arguments flow through; the store stays picklable."""
 
-    def test_tracking_uri_forwarded(self):
+    def test_tracking_uri_forwarded(self, monkeypatch):
         """The ``tracking_uri`` reaches the ``MlflowClient`` constructor."""
         store = MlflowExperimentStore(tracking_uri="http://mlflow.example.com")
         constructor = MagicMock()
         constructor.return_value.get_experiment_by_name.return_value = None
-        with patch("mlflow.tracking.MlflowClient", constructor):
-            store.locate_resumable(storage_path="/root", run_name="run1")
+        _install_mlflow_stub(monkeypatch, constructor)
+        store.locate_resumable(storage_path="/root", run_name="run1")
         constructor.assert_called_once_with(tracking_uri="http://mlflow.example.com")
 
     def test_store_is_picklable(self):
