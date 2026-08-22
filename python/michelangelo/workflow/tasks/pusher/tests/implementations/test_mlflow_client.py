@@ -3,29 +3,21 @@
 No live MLflow server: the ``MlflowClient`` constructor is patched with an
 in-memory fake that mimics the registry semantics the client relies on
 (duplicate-name error on ``create_registered_model``, monotonically
-increasing version numbers, name-scoped search). MLflow itself must be
-importable (for its exception types); the module under test only imports it
-lazily, which ``TestMlflowNotInstalled`` covers by patching it away.
+increasing version numbers, name-scoped search). MLflow itself does not
+need to be installed: when it is absent, minimal stand-in modules exposing
+``MlflowException`` and the error-code constants are planted in
+``sys.modules`` for the duration of this module, so the suite runs the
+same everywhere (the module under test only imports mlflow lazily, which
+``TestMlflowNotInstalled`` covers by patching it away).
 """
 
 from __future__ import annotations
 
 import re
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
-
-import pytest
-
-pytest.importorskip("mlflow")
-
-from mlflow.exceptions import MlflowException
-from mlflow.protos.databricks_pb2 import (
-    INTERNAL_ERROR,
-    INVALID_PARAMETER_VALUE,
-    RESOURCE_ALREADY_EXISTS,
-    RESOURCE_DOES_NOT_EXIST,
-)
 
 from michelangelo.lib.model_manager.registry.client import (
     ModelRegistryClient,
@@ -37,6 +29,95 @@ from michelangelo.workflow.tasks.pusher.implementations.mlflow_client import (
     _TAG_METADATA,
     MLflowRegistryClient,
 )
+
+try:
+    from mlflow.exceptions import MlflowException
+    from mlflow.protos.databricks_pb2 import (
+        INTERNAL_ERROR,
+        INVALID_PARAMETER_VALUE,
+        RESOURCE_ALREADY_EXISTS,
+        RESOURCE_DOES_NOT_EXIST,
+    )
+
+    _MLFLOW_STUBBED = False
+except ImportError:
+    # mlflow is optional (the ``pusher-mlflow`` extra) and not installed in
+    # the default CI environment. Mirror the pieces the tests and the module
+    # under test touch: the proto error-code values and an exception whose
+    # ``error_code`` attribute is the code's string name, exactly like the
+    # real ``MlflowException``.
+    INTERNAL_ERROR = 1
+    INVALID_PARAMETER_VALUE = 1000
+    RESOURCE_ALREADY_EXISTS = 3001
+    RESOURCE_DOES_NOT_EXIST = 3002
+    _ERROR_CODE_NAMES = {
+        INTERNAL_ERROR: "INTERNAL_ERROR",
+        INVALID_PARAMETER_VALUE: "INVALID_PARAMETER_VALUE",
+        RESOURCE_ALREADY_EXISTS: "RESOURCE_ALREADY_EXISTS",
+        RESOURCE_DOES_NOT_EXIST: "RESOURCE_DOES_NOT_EXIST",
+    }
+
+    class MlflowException(Exception):  # noqa: N818 - mirrors the real name
+        """Stand-in matching the real exception's ``error_code`` contract."""
+
+        def __init__(self, message, error_code=None):
+            """Store the code's string name on ``error_code``."""
+            super().__init__(message)
+            self.error_code = _ERROR_CODE_NAMES.get(error_code, error_code)
+
+    _MLFLOW_STUBBED = True
+
+_STUB_MODULE_NAMES = (
+    "mlflow",
+    "mlflow.tracking",
+    "mlflow.exceptions",
+    "mlflow.protos",
+    "mlflow.protos.databricks_pb2",
+)
+
+
+def _unpatched_client(*args, **kwargs):
+    raise AssertionError("tests must patch mlflow.tracking.MlflowClient before use")
+
+
+def setUpModule():
+    """Plant stub mlflow modules when the real package is not installed.
+
+    ``patch("mlflow.tracking.MlflowClient", ...)`` needs the module to exist
+    in ``sys.modules``, and the module under test lazily imports
+    ``MlflowException`` from ``mlflow.exceptions`` at call time. Scoped to
+    this module so other tests' ``importorskip("mlflow")`` behavior is
+    unaffected.
+    """
+    if not _MLFLOW_STUBBED:
+        return
+    tracking = ModuleType("mlflow.tracking")
+    tracking.MlflowClient = _unpatched_client
+    exceptions = ModuleType("mlflow.exceptions")
+    exceptions.MlflowException = MlflowException
+    databricks_pb2 = ModuleType("mlflow.protos.databricks_pb2")
+    for code, name in _ERROR_CODE_NAMES.items():
+        setattr(databricks_pb2, name, code)
+    protos = ModuleType("mlflow.protos")
+    protos.databricks_pb2 = databricks_pb2
+    mlflow_stub = ModuleType("mlflow")
+    mlflow_stub.tracking = tracking
+    mlflow_stub.exceptions = exceptions
+    mlflow_stub.protos = protos
+    for name, module in zip(
+        _STUB_MODULE_NAMES,
+        (mlflow_stub, tracking, exceptions, protos, databricks_pb2),
+    ):
+        sys.modules[name] = module
+
+
+def tearDownModule():
+    """Remove the stub modules so nothing outlives this module's tests."""
+    if not _MLFLOW_STUBBED:
+        return
+    for name in _STUB_MODULE_NAMES:
+        sys.modules.pop(name, None)
+
 
 _FILTER_RE = re.compile(r"""name = (?:'([^']*)'|"([^"]*)")""")
 
