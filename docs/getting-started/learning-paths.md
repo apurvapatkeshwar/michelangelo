@@ -6,7 +6,7 @@ description: Ordered tracks through the existing docs — pick the one that matc
 
 # Learning Paths
 
-The docs cover a lot of ground. These three tracks sequence the existing pages into an ordered path for the three most common roles, so you always know what to read next. Each step links to a page that already exists — the tracks add order, not new material.
+The docs cover a lot of ground. These three tracks sequence the existing pages into an ordered path for the three most common roles, so you always know what to read next.
 
 Pick the track that matches what you want to do:
 
@@ -27,7 +27,7 @@ From zero to a trained, deployed model.
 5. **[Prepare Your Data](../user-guides/getting-started/prepare-your-data.md)** — load, clean, and split datasets with Ray and Spark
 6. **[Train and Register a Model](../user-guides/train-and-deploy-models/train-and-register-a-model.md)** — train at scale and register artifacts
 7. **[Deploy a Model](../user-guides/train-and-deploy-models/deploy-a-model.md)** — bind a registered model to an inference server
-8. **[Example Projects](../user-guides/examples/index.md)** — nine end-to-end workflows to adapt to your own use case
+8. **[Example Projects](../user-guides/examples/index.md)** — ten end-to-end workflows to adapt to your own use case
 
 **You're done when:** you've run a pipeline that trains a model, registered it, deployed it, and know which example is closest to your real workload.
 
