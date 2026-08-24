@@ -52,6 +52,10 @@ type KueueConfig struct {
 	// LocalQueueOverrides maps a project name to an explicit LocalQueue
 	// name, winning over LocalQueueTemplate.
 	LocalQueueOverrides map[string]string `yaml:"localQueueOverrides"`
+	// APIVersion is the kueue.x-k8s.io API version used when talking to
+	// Kueue on compute clusters. Defaults to "v1beta2" (Kueue v0.15+); set
+	// "v1beta1" for older Kueue installations.
+	APIVersion string `yaml:"apiVersion"`
 }
 
 // SchedulerConfig selects and configures the job scheduler backend.
@@ -81,6 +85,9 @@ type Result struct {
 // Module load config.Provider based on the environment context.
 var Module = fx.Module("config",
 	fx.Provide(New),
+	// SchedulerConfig is consumed by both the k8s engine mapper and the
+	// scheduler module, so it is provided once here.
+	fx.Provide(GetSchedulerConfig),
 )
 
 // New exports functionality similar to Module, but allows the caller to wrap
