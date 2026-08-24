@@ -164,13 +164,7 @@ def task(
         cluster_image = get_task_image(task_name)
         print("ray | create cluster:", "ns:", cluster_namespace, "image:", cluster_image, "task_name:", task_name)
 
-        # Forward any non-empty disk value. The shipped default is now the
-        # empty string ("no explicit request"), which matches the historical
-        # behavior where the old 512Gi default never reached the pod spec --
-        # and it lets a user explicitly request any value, 512Gi included
-        # (the old default-equality guard silently dropped exactly that one
-        # value). A RAY_DEFAULT_*_DISK environment override now also reaches
-        # the pod spec, which is what setting it asks for.
+        # Forward any non-empty disk value; empty means no explicit request.
         _head_disk_request = _head_disk if _head_disk else None
         _worker_disk_request = _worker_disk if _worker_disk else None
 
