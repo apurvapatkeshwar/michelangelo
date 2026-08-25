@@ -1354,13 +1354,13 @@ def _kube_apply(path: Path):
 
 
 def _apply_model_sync(is_name: str, context: Optional[str] = None):
-    """Apply the model-sync ConfigMap (Python script) and Deployment for one IS.
+    """Apply the model-sync ConfigMap (Python script) and DaemonSet for one IS.
 
     Two-step apply:
     - (1) idempotently load resources/sync-models.py into the
     `model-sync-script` ConfigMap,
-    - (2) render IS_NAME into model-sync.yaml.tmpl and apply the resulting Deployment.
-    Waits for the resulting Deployment to roll out.
+    - (2) render IS_NAME into model-sync.yaml.tmpl and apply the resulting DaemonSet.
+    Waits for the resulting DaemonSet to roll out.
     """
     script_path = _dir / "resources" / "sync-models.py"
     template_path = _dir / "resources" / "model-sync.yaml.tmpl"
@@ -1408,7 +1408,7 @@ def _apply_model_sync(is_name: str, context: Optional[str] = None):
             *base_kubectl,
             "rollout",
             "status",
-            "deployment/model-sync",
+            "daemonset/model-sync",
             "-n",
             "default",
             "--timeout=120s",
@@ -1416,9 +1416,9 @@ def _apply_model_sync(is_name: str, context: Optional[str] = None):
         )
     except subprocess.CalledProcessError:
         _err_exit(
-            "Model-sync Deployment failed to become ready.\n"
+            "Model-sync DaemonSet failed to become ready.\n"
             f"Check logs: kubectl {' '.join(base_kubectl[1:])} "
-            "logs deployment/model-sync -n default"
+            "logs daemonset/model-sync -n default"
         )
 
 
@@ -2093,6 +2093,21 @@ def _setup_inference_server_secrets():
     print(f"Created inference server credentials for cluster '{cluster_name}'")
 
 
+def _apply_demo_model(demo_dir: Path):
+    """Register the demo's Model CR in the sandbox (control-plane) cluster.
+
+    The deployment controller resolves `spec.desiredRevision` to this CR and reads the
+    artifact location from `spec.deployableArtifactUri`, so the Model has to exist
+    before a Deployment referencing it is applied.
+    """
+    model_path = demo_dir / "model.yaml"
+    if not model_path.exists():
+        _err_exit(f"❌ Model CR not found at {model_path}, exiting...")
+
+    print("✅ Registering demo Model...")
+    _kube_apply(model_path)
+
+
 def _create_inference_demo_crs():
     """Create an inference server for the sandbox cluster for demo purposes."""
     print("🚀 Setting up Michelangelo AI Inference Demo...")
@@ -2106,6 +2121,8 @@ def _create_inference_demo_crs():
     _setup_inference_server_secrets()
 
     inference_demo_dir = _dir / "demo" / "inference"
+    _apply_demo_model(inference_demo_dir)
+
     # Create inference server CR
     inference_server_path = inference_demo_dir / "inferenceserver.yaml"
     if not inference_server_path.exists():
@@ -2225,6 +2242,8 @@ def _create_inference_multicluster_demo_crs():
         _setup_inference_server_remote_secrets(cluster_name)
 
     inference_demo_dir = _dir / "demo" / "inference-multicluster"
+    _apply_demo_model(inference_demo_dir)
+
     inference_server_path = inference_demo_dir / "inferenceserver.yaml"
     if not inference_server_path.exists():
         _err_exit(
@@ -2281,7 +2300,7 @@ def _create_inference_multicluster_demo_crs():
     print("  • Istio + Gateway API on every cluster")
     print("  • inference-server-manager RBAC + bearer-token Secrets per target")
     print("  • Multi-cluster Triton InferenceServer (per-cluster Tritons)")
-    print("  • model-sync Deployment in every target cluster")
+    print("  • model-sync DaemonSet in every target cluster")
     print(
         f"\n🌐 Endpoint (sandbox-side fanout): "
         f"http://localhost:8880/{inference_server_name}/<deployment-name>/infer"
