@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc/status"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -65,6 +66,14 @@ const (
 	// whose label is genuinely absent when read — that fallback means "could
 	// not be determined"; this one means "no default was configured."
 	UnspecifiedEnvironment = "unspecified"
+
+	// SourcePipelineTypeLabelName is the Kubernetes label key that identifies the
+	// pipeline type (e.g. PIPELINE_TYPE_TRAIN).
+	SourcePipelineTypeLabelName = "michelangelo/SourcePipelineType"
+
+	// SourcePipelineManifestTypeLabelName is the Kubernetes label key that identifies
+	// the pipeline manifest type (e.g. PIPELINE_MANIFEST_TYPE_ASL).
+	SourcePipelineManifestTypeLabelName = "pipeline.michelangelo/PipelineManifestType"
 )
 
 // DefaultContextTimeout defines the default timeout for the context
@@ -138,4 +147,20 @@ func Validate(obj interface{}) error {
 		return v.Validate("")
 	}
 	return nil
+}
+
+// StampSourcePipelineTypeLabelOnCreate stamps pipelineType (e.g.
+// "PIPELINE_TYPE_TRAIN") onto child under
+// SourcePipelineTypeLabelName. No-op if pipelineType is empty.
+func StampSourcePipelineTypeLabelOnCreate(child client.Object, pipelineType string) {
+	if pipelineType == "" {
+		return
+	}
+
+	labels := child.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[SourcePipelineTypeLabelName] = pipelineType
+	child.SetLabels(labels)
 }
