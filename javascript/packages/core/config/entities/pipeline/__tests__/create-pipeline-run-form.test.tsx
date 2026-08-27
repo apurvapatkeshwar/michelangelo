@@ -3,6 +3,11 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { CreatePipelineRunForm } from '#core/config/entities/pipeline/create-pipeline-run-form';
+import {
+  NotificationEventType,
+  NotificationResourceType,
+  NotificationType,
+} from '#core/config/entities/run/types';
 import { buildWrapper } from '#core/test/wrappers/build-wrapper';
 import { getBaseProviderWrapper } from '#core/test/wrappers/get-base-provider-wrapper';
 import { getErrorProviderWrapper } from '#core/test/wrappers/get-error-provider-wrapper';
@@ -73,6 +78,180 @@ describe('CreatePipelineRunForm', () => {
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('leaves notifications empty when the toggle is left off', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          spec: expect.objectContaining({ notifications: [] }) as Record<string, unknown>,
+        }),
+        {}
+      );
+    });
+  });
+
+  it('submits an email notification covering every event type once opted in', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'Do you want to receive notifications when pipeline run completed?',
+      })
+    );
+    await user.type(
+      within(dialog).getByPlaceholderText('e.g., name@example.com'),
+      'oncall@example.com'
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            notifications: [
+              {
+                notificationType: NotificationType.EMAIL,
+                eventTypes: [
+                  NotificationEventType.PIPELINE_RUN_STATE_STARTED,
+                  NotificationEventType.PIPELINE_RUN_STATE_SUCCEEDED,
+                  NotificationEventType.PIPELINE_RUN_STATE_FAILED,
+                  NotificationEventType.PIPELINE_RUN_STATE_KILLED,
+                  NotificationEventType.PIPELINE_RUN_STATE_SKIPPED,
+                ],
+                resourceType: NotificationResourceType.PIPELINE_RUN,
+                emails: ['oncall@example.com'],
+                slackDestinations: [],
+              },
+            ],
+          }) as Record<string, unknown>,
+        }),
+        {}
+      );
+    });
+  });
+
+  it('submits both an email and a Slack notification when both are filled in', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'Do you want to receive notifications when pipeline run completed?',
+      })
+    );
+    await user.type(
+      within(dialog).getByPlaceholderText('e.g., name@example.com'),
+      'oncall@example.com'
+    );
+    await user.type(within(dialog).getByPlaceholderText('e.g., #channel or @user'), '#ml-oncall');
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            notifications: [
+              expect.objectContaining({
+                notificationType: NotificationType.EMAIL,
+                emails: ['oncall@example.com'],
+              }) as Record<string, unknown>,
+              expect.objectContaining({
+                notificationType: NotificationType.SLACK,
+                slackDestinations: ['#ml-oncall'],
+              }) as Record<string, unknown>,
+            ],
+          }) as Record<string, unknown>,
+        }),
+        {}
+      );
+    });
+  });
+
+  it('omits a destination type left blank even when the toggle is on', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'Do you want to receive notifications when pipeline run completed?',
+      })
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          spec: expect.objectContaining({ notifications: [] }) as Record<string, unknown>,
+        }),
+        {}
+      );
     });
   });
 

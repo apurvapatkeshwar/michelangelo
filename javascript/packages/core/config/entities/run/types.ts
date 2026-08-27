@@ -1,3 +1,48 @@
+/**
+ * Mirrors proto Notification.NotificationType enum (notification.proto).
+ *
+ * Numeric values matter here, not just the names: requests are built via `create()` from
+ * `@bufbuild/protobuf`, which serializes enum fields by their proto number, not by name.
+ */
+export enum NotificationType {
+  EMAIL = 1,
+  SLACK = 2,
+}
+
+/**
+ * Mirrors proto Notification.EventType enum (notification.proto), restricted to the events a
+ * pipeline run notification can fire on. See {@link NotificationType} for why the numbers matter.
+ */
+export enum NotificationEventType {
+  PIPELINE_RUN_STATE_SUCCEEDED = 1,
+  PIPELINE_RUN_STATE_KILLED = 2,
+  PIPELINE_RUN_STATE_FAILED = 3,
+  PIPELINE_RUN_STATE_SKIPPED = 4,
+  PIPELINE_RUN_STATE_STARTED = 11,
+}
+
+/**
+ * Mirrors proto Notification.ResourceType enum (notification.proto).
+ */
+export enum NotificationResourceType {
+  PIPELINE_RUN = 1,
+}
+
+/**
+ * Mirrors proto message Notification (notification.proto).
+ *
+ * Field names must match the generated protobuf-es message's camelCase `localName`s exactly:
+ * `create()` looks fields up by that name, and silently drops anything that doesn't match
+ * (rather than erroring), so a wrong name here fails silently instead of at compile time.
+ */
+export type PipelineRunNotification = {
+  notificationType: NotificationType;
+  eventTypes: NotificationEventType[];
+  resourceType: NotificationResourceType;
+  emails: string[];
+  slackDestinations: string[];
+};
+
 export type PipelineRun = {
   metadata: {
     name: string;
@@ -24,6 +69,7 @@ export type PipelineRun = {
     resume?: Resume;
     /** Inline pipeline spec for dev runs; regular runs reference a Pipeline instead. */
     pipelineSpec?: PipelineSnapshotSpec;
+    notifications?: PipelineRunNotification[];
   };
   status?: {
     /** Snapshot of the pipeline this run executes, captured when the run starts. */
