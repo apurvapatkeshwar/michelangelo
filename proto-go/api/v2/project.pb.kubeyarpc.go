@@ -19,10 +19,11 @@ import (
 type FxProjectServiceHandlerParams struct {
 	fx.In
 
-	Handler      api.Handler
-	MetricsScope tally.Scope
-	Auth         authapi.Auth
-	AuditLog     logging.AuditLog
+	Handler       api.Handler
+	MetricsScope  tally.Scope
+	Authenticator authapi.TokenAuthenticator
+	Authorizer    authapi.Authorizer
+	AuditLog      logging.AuditLog
 }
 
 var projectApiHooks []ProjectAPIHook
@@ -46,7 +47,8 @@ func NewProjectServiceHandler(params FxProjectServiceHandlerParams) ProjectServi
 	return &projectServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		auth:            params.Auth,
+		authenticator:   params.Authenticator,
+		authorizer:      params.Authorizer,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -54,7 +56,8 @@ func NewProjectServiceHandler(params FxProjectServiceHandlerParams) ProjectServi
 type projectServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	auth            authapi.Auth
+	authenticator   authapi.TokenAuthenticator
+	authorizer      authapi.Authorizer
 	auditLogEmitter logging.AuditLog
 }
 
@@ -192,8 +195,8 @@ func (c projectServiceHandler) CreateProject(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -201,9 +204,7 @@ func (c projectServiceHandler) CreateProject(
 
 	// Authorization
 	projectName := request.Project.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "Project")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "Project"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -264,8 +265,8 @@ func (c projectServiceHandler) GetProject(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -273,9 +274,7 @@ func (c projectServiceHandler) GetProject(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Get, "Project")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "Project"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -341,8 +340,8 @@ func (c projectServiceHandler) UpdateProject(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -350,9 +349,7 @@ func (c projectServiceHandler) UpdateProject(
 
 	// Authorization
 	projectName := request.Project.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "Project")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "Project"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -413,8 +410,8 @@ func (c projectServiceHandler) DeleteProject(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -422,9 +419,7 @@ func (c projectServiceHandler) DeleteProject(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "Project")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "Project"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -486,8 +481,8 @@ func (c projectServiceHandler) DeleteProjectCollection(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -495,9 +490,7 @@ func (c projectServiceHandler) DeleteProjectCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "Project")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "Project"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -562,8 +555,8 @@ func (c projectServiceHandler) ListProject(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -571,9 +564,7 @@ func (c projectServiceHandler) ListProject(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.List, "Project")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "Project"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err

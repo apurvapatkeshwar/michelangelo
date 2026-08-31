@@ -114,10 +114,10 @@ func TestCrdSvcHandlerAuthEnforcement(t *testing.T) {
 	for _, h := range handlers {
 		body := handlerBody(t, code, h.method)
 
-		authnIdx := strings.Index(body, "c.auth.UserAuthenticated(ctx)")
+		authnIdx := strings.Index(body, "authapi.Authenticate(ctx, c.authenticator)")
 		assert.GreaterOrEqual(t, authnIdx, 0, "%s must authenticate the caller", h.method)
 
-		authzCall := `c.auth.UserAuthorized(ctx, projectName, ` + h.action + `, "TestName")`
+		authzCall := `authapi.Authorize(ctx, c.authorizer, userInfo, projectName, ` + h.action + `, "TestName")`
 		assert.Contains(t, body, authzCall, "%s must authorize %s", h.method, h.action)
 
 		auditIdx := strings.Index(body, "defer c.auditLogEmitter.Emit(")

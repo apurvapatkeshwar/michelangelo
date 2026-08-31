@@ -3,7 +3,8 @@ type Fx{{.KindName}}ServiceHandlerParams struct {
 
 	Handler      api.Handler
 	MetricsScope tally.Scope
-	Auth         authapi.Auth
+	Authenticator authapi.TokenAuthenticator
+	Authorizer    authapi.Authorizer
 	AuditLog     logging.AuditLog
 }
 
@@ -28,7 +29,8 @@ func New{{.KindName}}ServiceHandler(params Fx{{.KindName}}ServiceHandlerParams) 
 	return &{{.LowerKindName}}ServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		auth:            params.Auth,
+		authenticator:   params.Authenticator,
+		authorizer:      params.Authorizer,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -36,7 +38,8 @@ func New{{.KindName}}ServiceHandler(params Fx{{.KindName}}ServiceHandlerParams) 
 type {{.LowerKindName}}ServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	auth            authapi.Auth
+	authenticator   authapi.TokenAuthenticator
+	authorizer      authapi.Authorizer
 	auditLogEmitter logging.AuditLog
 }
 
@@ -173,8 +176,8 @@ func (c {{.LowerKindName}}ServiceHandler) Create{{.KindName}}(
 				)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -182,9 +185,7 @@ func (c {{.LowerKindName}}ServiceHandler) Create{{.KindName}}(
 
 	// Authorization
 	projectName := request.{{.KindName}}.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "{{.KindName}}")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "{{.KindName}}"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -245,8 +246,8 @@ func (c {{.LowerKindName}}ServiceHandler) Get{{.KindName}}(
 				)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -254,9 +255,7 @@ func (c {{.LowerKindName}}ServiceHandler) Get{{.KindName}}(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Get, "{{.KindName}}")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "{{.KindName}}"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -322,8 +321,8 @@ func (c {{.LowerKindName}}ServiceHandler) Update{{.KindName}}(
 				)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -331,9 +330,7 @@ func (c {{.LowerKindName}}ServiceHandler) Update{{.KindName}}(
 
 	// Authorization
 	projectName := request.{{.KindName}}.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "{{.KindName}}")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "{{.KindName}}"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -394,8 +391,8 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}(
 				)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -403,9 +400,7 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "{{.KindName}}")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "{{.KindName}}"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -467,8 +462,8 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}Collection(
 				)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -476,9 +471,7 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}Collection(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "{{.KindName}}")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "{{.KindName}}"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -543,8 +536,8 @@ func (c {{.LowerKindName}}ServiceHandler) List{{.KindName}}(
 				)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -552,9 +545,7 @@ func (c {{.LowerKindName}}ServiceHandler) List{{.KindName}}(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.List, "{{.KindName}}")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "{{.KindName}}"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err

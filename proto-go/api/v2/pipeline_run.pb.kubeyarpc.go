@@ -19,10 +19,11 @@ import (
 type FxPipelineRunServiceHandlerParams struct {
 	fx.In
 
-	Handler      api.Handler
-	MetricsScope tally.Scope
-	Auth         authapi.Auth
-	AuditLog     logging.AuditLog
+	Handler       api.Handler
+	MetricsScope  tally.Scope
+	Authenticator authapi.TokenAuthenticator
+	Authorizer    authapi.Authorizer
+	AuditLog      logging.AuditLog
 }
 
 var pipelineRunApiHooks []PipelineRunAPIHook
@@ -46,7 +47,8 @@ func NewPipelineRunServiceHandler(params FxPipelineRunServiceHandlerParams) Pipe
 	return &pipelineRunServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		auth:            params.Auth,
+		authenticator:   params.Authenticator,
+		authorizer:      params.Authorizer,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -54,7 +56,8 @@ func NewPipelineRunServiceHandler(params FxPipelineRunServiceHandlerParams) Pipe
 type pipelineRunServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	auth            authapi.Auth
+	authenticator   authapi.TokenAuthenticator
+	authorizer      authapi.Authorizer
 	auditLogEmitter logging.AuditLog
 }
 
@@ -192,8 +195,8 @@ func (c pipelineRunServiceHandler) CreatePipelineRun(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -201,9 +204,7 @@ func (c pipelineRunServiceHandler) CreatePipelineRun(
 
 	// Authorization
 	projectName := request.PipelineRun.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "PipelineRun")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "PipelineRun"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -264,8 +265,8 @@ func (c pipelineRunServiceHandler) GetPipelineRun(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -273,9 +274,7 @@ func (c pipelineRunServiceHandler) GetPipelineRun(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Get, "PipelineRun")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "PipelineRun"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -341,8 +340,8 @@ func (c pipelineRunServiceHandler) UpdatePipelineRun(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -350,9 +349,7 @@ func (c pipelineRunServiceHandler) UpdatePipelineRun(
 
 	// Authorization
 	projectName := request.PipelineRun.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "PipelineRun")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "PipelineRun"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -413,8 +410,8 @@ func (c pipelineRunServiceHandler) DeletePipelineRun(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -422,9 +419,7 @@ func (c pipelineRunServiceHandler) DeletePipelineRun(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "PipelineRun")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "PipelineRun"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -486,8 +481,8 @@ func (c pipelineRunServiceHandler) DeletePipelineRunCollection(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -495,9 +490,7 @@ func (c pipelineRunServiceHandler) DeletePipelineRunCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "PipelineRun")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "PipelineRun"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -562,8 +555,8 @@ func (c pipelineRunServiceHandler) ListPipelineRun(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -571,9 +564,7 @@ func (c pipelineRunServiceHandler) ListPipelineRun(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.List, "PipelineRun")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "PipelineRun"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err

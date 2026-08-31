@@ -19,10 +19,11 @@ import (
 type FxInferenceServerServiceHandlerParams struct {
 	fx.In
 
-	Handler      api.Handler
-	MetricsScope tally.Scope
-	Auth         authapi.Auth
-	AuditLog     logging.AuditLog
+	Handler       api.Handler
+	MetricsScope  tally.Scope
+	Authenticator authapi.TokenAuthenticator
+	Authorizer    authapi.Authorizer
+	AuditLog      logging.AuditLog
 }
 
 var inferenceServerApiHooks []InferenceServerAPIHook
@@ -46,7 +47,8 @@ func NewInferenceServerServiceHandler(params FxInferenceServerServiceHandlerPara
 	return &inferenceServerServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		auth:            params.Auth,
+		authenticator:   params.Authenticator,
+		authorizer:      params.Authorizer,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -54,7 +56,8 @@ func NewInferenceServerServiceHandler(params FxInferenceServerServiceHandlerPara
 type inferenceServerServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	auth            authapi.Auth
+	authenticator   authapi.TokenAuthenticator
+	authorizer      authapi.Authorizer
 	auditLogEmitter logging.AuditLog
 }
 
@@ -192,8 +195,8 @@ func (c inferenceServerServiceHandler) CreateInferenceServer(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -201,9 +204,7 @@ func (c inferenceServerServiceHandler) CreateInferenceServer(
 
 	// Authorization
 	projectName := request.InferenceServer.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "InferenceServer")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "InferenceServer"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -264,8 +265,8 @@ func (c inferenceServerServiceHandler) GetInferenceServer(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -273,9 +274,7 @@ func (c inferenceServerServiceHandler) GetInferenceServer(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Get, "InferenceServer")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "InferenceServer"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -341,8 +340,8 @@ func (c inferenceServerServiceHandler) UpdateInferenceServer(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -350,9 +349,7 @@ func (c inferenceServerServiceHandler) UpdateInferenceServer(
 
 	// Authorization
 	projectName := request.InferenceServer.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "InferenceServer")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "InferenceServer"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -413,8 +410,8 @@ func (c inferenceServerServiceHandler) DeleteInferenceServer(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -422,9 +419,7 @@ func (c inferenceServerServiceHandler) DeleteInferenceServer(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "InferenceServer")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "InferenceServer"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -486,8 +481,8 @@ func (c inferenceServerServiceHandler) DeleteInferenceServerCollection(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -495,9 +490,7 @@ func (c inferenceServerServiceHandler) DeleteInferenceServerCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "InferenceServer")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "InferenceServer"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -562,8 +555,8 @@ func (c inferenceServerServiceHandler) ListInferenceServer(
 	)
 
 	// Authentication
-	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
-	if !userAuthenticated {
+	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
+	if err != nil {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -571,9 +564,7 @@ func (c inferenceServerServiceHandler) ListInferenceServer(
 
 	// Authorization
 	projectName := request.Namespace
-	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.List, "InferenceServer")
-
-	if !userAuthorized {
+	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "InferenceServer"); err != nil {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
