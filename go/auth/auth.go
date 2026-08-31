@@ -73,12 +73,6 @@ func NewAllowAllBundle() AuthBundle {
 	}
 }
 
-// AuthModule provides the authenticator and authorizer used by the API
-// server's generated handlers.
-var AuthModule = fx.Options(
-	fx.Provide(NewAllowAllBundle),
-)
-
 // Authenticate extracts the bearer token from the inbound YARPC call (an
 // absent token is passed through as empty -- the authenticator decides) and
 // resolves the caller's identity. Errors are gRPC status errors, returned
