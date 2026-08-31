@@ -21,31 +21,39 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/config"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/client-go/rest"
 )
 
-// TestAuthModule pins the permissive default: with no bearer token on the
-// context, every action on every kind is authenticated and allowed --
-// exactly the retired DummyAuth behavior.
+// TestAuthModule pins the permissive default: with the auth key absent
+// from the configuration and no bearer token on the context, every action
+// on every kind is authenticated and allowed -- exactly the retired
+// DummyAuth behavior.
 func TestAuthModule(t *testing.T) {
 	var executed = false
-	app := fxtest.New(t, AuthModule, fx.Invoke(func(tokenAuthenticator TokenAuthenticator, resourceAuthorizer Authorizer) {
-		userInfo, err := Authenticate(context.Background(), tokenAuthenticator)
-		require.NoError(t, err)
-		require.NotNil(t, userInfo)
-		for action := range verbForAction {
-			for kind := range resourceForKind {
-				assert.NoError(t, Authorize(context.Background(), resourceAuthorizer, userInfo, "namespace", action, kind))
+	app := fxtest.New(t,
+		AuthModule,
+		fx.Supply(&rest.Config{Host: "https://127.0.0.1:1"}, zap.NewNop()),
+		fx.Provide(func() config.Provider { return newTestProvider(t, "apiserver: {}") }),
+		fx.Invoke(func(tokenAuthenticator TokenAuthenticator, resourceAuthorizer Authorizer) {
+			userInfo, err := Authenticate(context.Background(), tokenAuthenticator)
+			require.NoError(t, err)
+			require.NotNil(t, userInfo)
+			for action := range verbForAction {
+				for kind := range resourceForKind {
+					assert.NoError(t, Authorize(context.Background(), resourceAuthorizer, userInfo, "namespace", action, kind))
+				}
 			}
-		}
-		executed = true
-	}))
+			executed = true
+		}))
 	app.RequireStart()
 	app.RequireStop()
 	assert.True(t, executed)
