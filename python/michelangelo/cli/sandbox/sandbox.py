@@ -1256,7 +1256,12 @@ def _assert_sandbox_cluster_running():
 def _create_demo_crs(ns: argparse.Namespace):
     """Create demo Custom Resources (CRs) for the sandbox environment."""
     assert ns
-    if ns.demo_action not in ("pipeline", "inference", "kueue"):
+    if ns.demo_action not in (
+        "pipeline",
+        "inference",
+        "inference-multicluster",
+        "kueue",
+    ):
         raise ValueError(f"Unsupported demo action: {ns.demo_action}")
 
     _assert_sandbox_cluster_running()
