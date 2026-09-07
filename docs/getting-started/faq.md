@@ -53,7 +53,7 @@ A: Multiple sources:
 
 **Q: Can I use feature stores with Michelangelo AI?**
 
-A: Yes, Michelangelo AI integrates with feature stores or you can manage features within the platform using the data prep pipelines and inference.
+A: Not yet. A feature store (online and offline) is on the [roadmap](./roadmap.md). Today you prepare features with the data prep pipelines and reference existing datasets in the data catalog.
 
 **Q: What data formats are supported?**
 
@@ -78,7 +78,7 @@ A: Deployment time varies:
 
 **Q: Can I do A/B testing?**
 
-A: Yes. Deploy multiple model versions to the same endpoint with traffic splitting. Monitor metrics per variant and gradually shift traffic to the winner.
+A: Not yet for automatic traffic splitting (on the [roadmap](./roadmap.md)). Today you can deploy multiple model versions and route to a specific one by deployment name; compare metrics per deployment manually.
 
 **Q: What happens if my model training fails?**
 
