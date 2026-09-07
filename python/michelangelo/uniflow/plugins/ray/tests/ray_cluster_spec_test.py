@@ -32,6 +32,31 @@ def _load_star_functions(*names: str, extra_globals: dict | None = None):
     return tuple(globals_[name] for name in names)
 
 
+def _load_star_constants(*names: str, environ: dict | None = None):
+    """Load the named task.star module-level constants against a real os.environ.
+
+    Unlike _load_star_functions, which extracts only function bodies, this
+    execs the matching top-level Assign statements so the os.environ.get(...)
+    calls that define these constants actually run.
+    """
+    task_path = Path(__file__).resolve().parents[1] / "task.star"
+    tree = ast.parse(task_path.read_text(), filename=str(task_path))
+    assigns = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id in names
+            for target in node.targets
+        )
+    ]
+    assert len(assigns) == len(names), f"missing one of {names} in task.star"
+    module = ast.fix_missing_locations(ast.Module(body=assigns, type_ignores=[]))
+    globals_ = {"os": SimpleNamespace(environ=dict(environ or {}))}
+    exec(compile(module, str(task_path), "exec"), globals_)
+    return tuple(globals_[name] for name in names)
+
+
 class TestContainerResources(TestCase):
     """Tests for container_resources()."""
 
@@ -285,3 +310,35 @@ class TestTaskResourcePlumbing(TestCase):
         head, _ = self._containers(cluster)
         self.assertEqual(head["resources"]["requests"]["nvidia.com/gpu"], 2)
         self.assertEqual(head["resources"]["limits"], {"nvidia.com/gpu": 2})
+
+
+class TestDiskDefaultConstants(TestCase):
+    """Tests for the RAY_DEFAULT_*_DISK module constants themselves.
+
+    TestTaskResourcePlumbing's _run_task stubs these names directly, so its
+    tests never execute the os.environ.get(...) lines that actually define
+    them. These tests load just those two Assign statements instead.
+    """
+
+    def test_defaults_to_empty_when_unset(self):
+        """No RAY_DEFAULT_*_DISK env var means no explicit disk request."""
+        head, worker = _load_star_constants(
+            "RAY_DEFAULT_HEAD_DISK", "RAY_DEFAULT_WORKER_DISK"
+        )
+
+        self.assertEqual(head, "")
+        self.assertEqual(worker, "")
+
+    def test_reads_from_environment_when_set(self):
+        """A deployment-level RAY_DEFAULT_*_DISK env var is picked up."""
+        head, worker = _load_star_constants(
+            "RAY_DEFAULT_HEAD_DISK",
+            "RAY_DEFAULT_WORKER_DISK",
+            environ={
+                "RAY_DEFAULT_HEAD_DISK": "256Gi",
+                "RAY_DEFAULT_WORKER_DISK": "1Ti",
+            },
+        )
+
+        self.assertEqual(head, "256Gi")
+        self.assertEqual(worker, "1Ti")
