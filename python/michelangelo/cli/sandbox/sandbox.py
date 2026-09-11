@@ -30,6 +30,17 @@ _michelangelo_sandbox_kube_cluster_name = "michelangelo-sandbox"
 _cadence_domain = "default"
 _default_compute_kube_cluster_name = "michelangelo-compute-0"
 
+# Hosts that `k3d kubeconfig get` may return but that are not reachable from
+# inside pods (host-side loopback/docker-gateway addresses).
+_unroutable_cluster_hosts = {
+    "0.0.0.0",
+    "127.0.0.1",
+    "localhost",
+    "host.docker.internal",
+}
+# Port the k3d server container listens on within the shared docker network.
+_k3d_server_port = "6443"
+
 # Path to the Michelangelo Helm chart (relative to this file)
 _chart_dir = Path(__file__).parent.parent.parent.parent.parent / "helm" / "michelangelo"
 
@@ -1957,11 +1968,10 @@ def _cluster_endpoint_for_crd(cluster_name: str, server_url: str) -> tuple[str, 
         )
     host, port = match.groups()
 
-    unroutable = {"0.0.0.0", "127.0.0.1", "localhost", "host.docker.internal"}
-    if host.removeprefix("https://") in unroutable:
+    if host.removeprefix("https://") in _unroutable_cluster_hosts:
         # Another k3d cluster on the shared docker network: its server
         # container name resolves from pods and its port is stable.
-        return f"https://k3d-{cluster_name}-server-0", "6443"
+        return f"https://k3d-{cluster_name}-server-0", _k3d_server_port
     return host, port
 
 
