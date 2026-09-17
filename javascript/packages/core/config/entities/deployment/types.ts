@@ -6,8 +6,7 @@ export type DeploymentCreateInput = {
     namespace: string;
   };
   spec: {
-    /** UI-only: filters the Model dropdown by family. Stripped before submission in handleCreate. */
-    modelFamilyName?: string;
+    modelFamily: { name: string; namespace?: string };
     desiredRevision: { name: string; namespace?: string };
     target: {
       case: 'inferenceServer';
@@ -61,6 +60,7 @@ export type DeploymentRecord = {
     strategy?: { rolloutStrategy?: { case?: string } };
     target?: { case?: string; value?: ResourceRef };
     desiredRevision?: ResourceRef;
+    modelFamily?: ResourceRef;
     resourceLinks?: Record<string, string>;
   };
   status?: {
