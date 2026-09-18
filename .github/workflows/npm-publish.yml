@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 2
@@ -48,7 +48,7 @@ jobs:
 
       - name: Setup Node.js
         if: steps.check.outputs.changed == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24.18.0
           registry-url: 'https://registry.npmjs.org'

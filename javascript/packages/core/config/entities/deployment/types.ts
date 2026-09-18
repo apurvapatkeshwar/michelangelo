@@ -1,7 +1,53 @@
 export type ResourceRef = { name?: string; namespace?: string };
 
+export type DeploymentCreateInput = {
+  metadata: {
+    name: string;
+    namespace: string;
+  };
+  spec: {
+    modelFamily: { name: string; namespace?: string };
+    desiredRevision: { name: string; namespace?: string };
+    target: {
+      case: 'inferenceServer';
+      value: { name: string; namespace?: string };
+    };
+    strategy: {
+      rolloutStrategy: {
+        case: 'rolling';
+        value: { incrementPercentage: number };
+      };
+    };
+    definition: { type: number };
+  };
+};
+
+export type DeploymentUpdateInput = {
+  metadata: { name: string };
+  spec: { desiredRevision?: ResourceRef; target?: { case?: string; value?: ResourceRef } };
+};
+
+export type InferenceServerListResult = {
+  inferenceServerList: {
+    items: Array<{ metadata: { name: string } }>;
+  };
+};
+
+export type ModelFamilyListResult = {
+  modelFamilyList: {
+    items: Array<{ metadata: { name: string }; spec: { name: string } }>;
+  };
+};
+
+export type ModelListResult = {
+  modelList: {
+    items: Array<{ metadata: { name: string } }>;
+  };
+};
+
 export type DeploymentRecord = {
   metadata?: {
+    name?: string;
     labels?: Record<string, string>;
     annotations?: Record<string, string>;
   };
@@ -14,6 +60,7 @@ export type DeploymentRecord = {
     strategy?: { rolloutStrategy?: { case?: string } };
     target?: { case?: string; value?: ResourceRef };
     desiredRevision?: ResourceRef;
+    modelFamily?: ResourceRef;
     resourceLinks?: Record<string, string>;
   };
   status?: {

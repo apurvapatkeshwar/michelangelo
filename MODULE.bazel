@@ -4,20 +4,20 @@ module(name = "michelangelo")
 ############ Bazel modules ################
 ###########################################
 bazel_dep(name = "rules_python", version = "0.40.0")
-bazel_dep(name = "rules_go", version = "0.57.0", repo_name = "io_bazel_rules_go")
-bazel_dep(name = "gazelle", version = "0.52.2", repo_name = "bazel_gazelle")
+bazel_dep(name = "rules_go", version = "0.63.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "gazelle", version = "0.54.0", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_python_gazelle_plugin", version = "0.40.0")
 bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "rules_oci", version = "2.0.1")
 bazel_dep(name = "rules_proto", version = "7.0.2")
-bazel_dep(name = "protobuf", version = "29.0-rc3", repo_name = "com_google_protobuf")
+bazel_dep(name = "protobuf", version = "29.0", repo_name = "com_google_protobuf")
 
 ###########################################
 ########### Toolchain Registrations #######
 ###########################################
 go_sdk = use_extension("@io_bazel_rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(
-    version = "1.26.3",
+    version = "1.26.8",
 )
 go_sdk.nogo(
     includes = ["@//:__subpackages__"],
@@ -41,6 +41,15 @@ use_repo(oci, "distroless_base", "distroless_base_linux_amd64", "distroless_base
 
 go_deps = use_extension("@bazel_gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//go:go.mod")
+
+# golang.org/x/tools >= v0.30 makes cmd/goimports depend on
+# golang.org/x/telemetry, which module graph pruning keeps out of go/go.mod.
+# Declare it explicitly so the dirty-check goimports build can resolve it.
+go_deps.module(
+    path = "golang.org/x/telemetry",
+    sum = "h1:HjU6IWBiAgRIdAJ9/y1rwCn+UELEmwV+VsTLzj/W4sE=",
+    version = "v0.0.0-20260508192327-42602be52be6",
+)
 use_repo(
     go_deps,
     "com_github_cadence_workflow_starlark_worker",
@@ -68,6 +77,7 @@ use_repo(
     "com_github_tidwall_sjson",
     "com_github_uber_go_tally",
     "com_github_uber_go_tally_v4",
+    "com_google_cloud_go_storage",
     "io_k8s_api",
     "io_k8s_apiextensions_apiserver",
     "io_k8s_apimachinery",
@@ -80,9 +90,11 @@ use_repo(
     "io_temporal_go_sdk",
     "io_temporal_go_sdk_contrib_tally",
     "net_starlark_go",
+    "org_golang_google_api",
     "org_golang_google_genproto",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
+    "org_golang_x_telemetry",
     "org_golang_x_tools",
     "org_uber_go_cadence",
     "org_uber_go_config",

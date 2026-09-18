@@ -7,6 +7,7 @@ import { Icon } from '#core/components/icon/icon';
 import { Link } from '#core/components/link/link';
 import { TAG_COLOR, TAG_SIZE } from '#core/components/tag/constants';
 import { Tag } from '#core/components/tag/tag';
+import { formatEntityName } from '#core/utils/string-utils';
 
 import type { PhaseConfig } from '#core/types/common/studio-types';
 
@@ -22,7 +23,7 @@ export function PhaseCard(props: PhaseConfig & { projectId: string }) {
     <Box
       overrides={{
         BoxContainer: {
-          style: { minHeight: '220px' },
+          style: { backgroundColor: theme.colors.backgroundAccentLight, minHeight: '220px' },
         },
       }}
       title={
@@ -30,7 +31,7 @@ export function PhaseCard(props: PhaseConfig & { projectId: string }) {
           <Icon name={icon} size={theme.sizing.scale500} />
           {name}
           {isComingSoon && (
-            <Tag color={TAG_COLOR.blue} size={TAG_SIZE.xSmall} closeable={false}>
+            <Tag color={TAG_COLOR.gray} size={TAG_SIZE.xSmall} closeable={false}>
               Coming soon
             </Tag>
           )}
@@ -55,6 +56,8 @@ export function PhaseCard(props: PhaseConfig & { projectId: string }) {
         )
       }
     >
+      {/* Entity names here are clickable links that navigate to an entity —
+          wayfinding chrome, not prose — so they get `nav` (Title Case). */}
       <div className={css({ display: 'flex', flexDirection: 'column' })}>
         {entities.map((entity) => {
           const isEntityDisabled = isPhaseDisabled || entity.state === 'disabled';
@@ -69,7 +72,7 @@ export function PhaseCard(props: PhaseConfig & { projectId: string }) {
                   color: theme.colors.contentTertiary,
                 })}
               >
-                {entity.name}
+                {formatEntityName(entity.name, 'nav')}
               </span>
             );
           }
@@ -80,7 +83,7 @@ export function PhaseCard(props: PhaseConfig & { projectId: string }) {
               href={`/${projectId}/${id}/${entity.id}`}
               overrides={{ Link: { style: theme.typography.ParagraphSmall } }}
             >
-              {entity.name}
+              {formatEntityName(entity.name, 'nav')}
             </Link>
           );
         })}
@@ -95,9 +98,17 @@ export function PhaseCard(props: PhaseConfig & { projectId: string }) {
             navigate(`/${projectId}/${id}/${firstActiveEntity.id}`);
           }}
           shape={SHAPE.circle}
-          overrides={{ BaseButton: { style: { marginTop: 'auto' } } }}
+          overrides={{
+            BaseButton: {
+              style: {
+                marginTop: 'auto',
+                backgroundColor: theme.colors.accent,
+                ':hover': { backgroundColor: theme.colors.accent600 },
+              },
+            },
+          }}
         >
-          <Icon name="chevronRight" size={theme.sizing.scale700} />
+          <Icon name="chevronRight" size={theme.sizing.scale700} color={theme.colors.white} />
         </Button>
       )}
     </Box>

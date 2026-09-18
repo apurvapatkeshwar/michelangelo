@@ -20,6 +20,29 @@ export const CONDITION_STATUS = {
   FALSE: 2,
 } as const;
 
+export const TENANCY_TYPE = {
+  INVALID: 0,
+  DEDICATED: 1,
+  MULTI_TENANT: 2,
+} as const;
+
+export const BACKEND_TYPE = {
+  INVALID: 0,
+  TRITON: 1,
+  LLM_D: 2,
+  DYNAMO: 3,
+  TORCHSERVE: 4,
+} as const;
+
+export const BACKEND_TYPE_OPTIONS = [{ id: BACKEND_TYPE.TRITON, label: 'Triton' }];
+
+/** Namespace where platform operators register compute clusters as `Cluster` CRs. */
+export const CLUSTER_REGISTRY_NAMESPACE = 'ma-system';
+
+export const CONTAINER_BUILD_TEMPLATE = {
+  DEFAULT_TRITON: 'default_triton',
+} as const;
+
 export const INFERENCE_SERVER_STATE_CELL: Cell = {
   id: 'status.state',
   label: 'State',

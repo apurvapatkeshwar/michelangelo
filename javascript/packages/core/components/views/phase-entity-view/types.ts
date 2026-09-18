@@ -1,4 +1,10 @@
-import type { ListViewConfig, TableConfig, ViewConfig } from '#core/components/views/types';
+import type { ReactNode } from 'react';
+import type {
+  ListViewConfig,
+  ListViewVariant,
+  TableConfig,
+  ViewConfig,
+} from '#core/components/views/types';
 import type { PhaseConfig, PhaseEntityConfig } from '#core/types/common/studio-types';
 import type { QueryConfig } from '#core/types/query-types';
 
@@ -30,4 +36,11 @@ export interface EntityTableProps<T extends object = object> {
   tableSettingsId: string;
   /** Pipeline types the owning phase restricts this entity's data to, if any */
   pipelineTypes?: string[];
+  /** Rendered in the trailing section of the table's search/filter action bar */
+  trailingActions?: ReactNode;
+  /**
+   * Alternate data sources selectable from the action bar. When provided, the active
+   * variant (the first by default) overrides `service` and `tableConfig`.
+   */
+  variants?: ListViewVariant<T>[];
 }
