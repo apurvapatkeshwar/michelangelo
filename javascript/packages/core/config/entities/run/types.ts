@@ -47,6 +47,7 @@ export type PipelineRun = {
   metadata: {
     name: string;
     namespace: string;
+    labels?: Record<string, string>;
   };
   spec: {
     /** Populated server-side from the `x-user-name` request header, not set by the client. */
@@ -73,11 +74,13 @@ export type PipelineRun = {
   };
   status?: {
     /** Snapshot of the pipeline this run executes, captured when the run starts. */
-    sourcePipeline?: {
-      pipeline?: { spec?: PipelineSnapshotSpec };
-      draftPipeline?: { spec?: PipelineSnapshotSpec };
-    };
+    sourcePipeline?: SourcePipelineSnapshot;
   };
+};
+
+export type SourcePipelineSnapshot = {
+  pipeline?: { spec?: PipelineSnapshotSpec };
+  draftPipeline?: { spec?: PipelineSnapshotSpec };
 };
 
 export type PipelineSnapshotSpec = {
@@ -142,31 +145,42 @@ type StepTimestamp = {
   seconds?: string;
 };
 
-/** The subset of `PipelineRunStepInfo` the resume step picker reads. */
+/** The subset of `PipelineRunStepInfo` the resume step picker and information tab read. */
 export type PipelineRunStepInfo = {
   name?: string;
   displayName?: string;
   state?: number;
   startTime?: StepTimestamp;
   endTime?: StepTimestamp;
+  logUrl?: string;
   subSteps?: PipelineRunStepInfo[];
 };
 
-/** The subset of a PipelineRun the resume fields read from list and get responses. */
+/** The subset of a PipelineRun the resume fields and information tab read from list and get responses. */
 export type PipelineRunSummary = {
   metadata?: {
     name?: string;
     namespace?: string;
     creationTimestamp?: StepTimestamp;
+    labels?: Record<string, string>;
   };
   spec?: {
     pipeline?: {
       name?: string;
     };
+    resume?: {
+      pipelineRun?: {
+        name?: string;
+      };
+    };
+    input?: unknown;
+    pipelineSpec?: PipelineSnapshotSpec;
   };
   status?: {
     state?: number;
     steps?: PipelineRunStepInfo[];
+    errorMessage?: string;
+    sourcePipeline?: SourcePipelineSnapshot;
   };
 };
 
@@ -178,4 +192,12 @@ export type ListPipelineRunResponse = {
 
 export type GetPipelineRunResponse = {
   pipelineRun?: PipelineRunSummary;
+};
+
+/** A label/value pair rendered as a read-only text box on the Information tab. */
+export type ReadOnlyField = { id: string; label: string; value: string };
+
+export type RunWithManifest = {
+  spec?: { pipelineSpec?: PipelineSnapshotSpec };
+  status?: { sourcePipeline?: SourcePipelineSnapshot };
 };
