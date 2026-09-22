@@ -5,6 +5,7 @@ import { PIPELINE_ENTITY_CONFIG } from '#core/config/entities/pipeline/pipeline'
 import {
   CRITERION_OPERATOR_EQUAL,
   PIPELINE_RUN_PIPELINE_NAME_FIELD,
+  PIPELINE_RUN_REVISION_NAME_FIELD,
 } from '#core/config/entities/pipeline/shared';
 import { PipelineRunState } from '#core/config/entities/run/types';
 import { TRIGGER_ENTITY_CONFIG } from '#core/config/entities/trigger/trigger';
@@ -391,6 +392,78 @@ describe('PIPELINE_ENTITY_CONFIG: Run trigger action', () => {
   });
 });
 
+describe('PIPELINE_ENTITY_CONFIG: actions on a revision snapshot', () => {
+  describe('pipeline detail page', () => {
+    function renderRevisionDetail(mockRequest: ReturnType<typeof createQueryMockRouter>) {
+      render(
+        <EntityDetailRoute
+          phases={{
+            train: {
+              id: 'train',
+              icon: 'train',
+              name: 'Train',
+              state: 'active',
+              entities: [PIPELINE_ENTITY_CONFIG, TRIGGER_ENTITY_CONFIG],
+            },
+          }}
+        />,
+        buildWrapper([
+          getBaseProviderWrapper(),
+          getErrorProviderWrapper(),
+          getIconProviderWrapper(),
+          getInterpolationProviderWrapper(),
+          getRouterWrapper({
+            location:
+              '/ma-dev-test/train/pipelines/eval-pipeline/runs?revisionId=3f2a1b9c0d4e5f6a7b8c',
+          }),
+          getServiceProviderWrapper({ request: mockRequest }),
+          getSnackbarProviderWrapper(),
+        ])
+      );
+    }
+
+    it('keeps Run, Run trigger, and Delete actions available for a pipeline revision', async () => {
+      const user = userEvent.setup();
+      const mockRequest = createQueryMockRouter({
+        GetRevision: {
+          revision: {
+            metadata: { name: 'pipeline-eval-pipeline-3f2a1b9c0d4e' },
+            spec: {
+              content: {
+                metadata: { name: 'eval-pipeline', namespace: 'ma-dev-test' },
+                spec: {
+                  owner: { name: 'me' },
+                  manifest: {
+                    triggerMap: {
+                      nightly: {
+                        triggerType: { case: 'cronSchedule', value: { cron: '0 2 * * *' } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        ListPipelineRun: { pipelineRunList: { items: [] } },
+      });
+
+      renderRevisionDetail(mockRequest);
+
+      const runButton = await screen.findByRole('button', { name: 'Run' });
+      expect(runButton).toBeEnabled();
+
+      const runTriggerButton = screen.getByRole('button', { name: 'Run trigger' });
+      expect(runTriggerButton).toBeEnabled();
+
+      await user.click(await screen.findByRole('button', { name: 'Actions' }));
+      const deleteOption = await screen.findByRole('option', { name: 'Delete' });
+      await user.click(deleteOption);
+      expect(await screen.findByRole('dialog', { name: 'Delete Pipeline' })).toBeInTheDocument();
+    });
+  });
+});
+
 describe('PIPELINE_DETAIL_CONFIG: runs tab', () => {
   it('filters runs by pipeline name via listOptionsExt criterion', async () => {
     const mockRequest = createQueryMockRouter({
@@ -455,6 +528,83 @@ describe('PIPELINE_DETAIL_CONFIG: runs tab', () => {
       'href',
       '/ma-dev-test/train/runs/eval-pipeline-run-1'
     );
+  });
+
+  it('filters runs by the Revision name', async () => {
+    const mockRequest = createQueryMockRouter({
+      GetRevision: {
+        revision: {
+          metadata: { name: 'pipeline-eval-pipeline-3f2a1b9c0d4e', namespace: 'ma-dev-test' },
+          spec: {
+            revisionId: '3f2a1b9c0d4e5f6a7b8c',
+            content: { metadata: { name: 'eval-pipeline', namespace: 'ma-dev-test' } },
+          },
+        },
+      },
+      ListPipelineRun: {
+        pipelineRunList: {
+          items: [
+            {
+              metadata: { name: 'eval-pipeline-run-2', creationTimestamp: { seconds: 1700000000 } },
+              spec: {
+                pipeline: { name: 'eval-pipeline' },
+                revision: { name: 'pipeline-eval-pipeline-3f2a1b9c0d4e' },
+                actor: { name: 'me' },
+              },
+              status: { state: PipelineRunState.SUCCEEDED },
+            },
+          ],
+        },
+      },
+    });
+
+    render(
+      <EntityDetailRoute
+        phases={{
+          train: {
+            id: 'train',
+            icon: 'train',
+            name: 'Train',
+            state: 'active',
+            entities: [PIPELINE_ENTITY_CONFIG, TRIGGER_ENTITY_CONFIG],
+          },
+        }}
+      />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getErrorProviderWrapper(),
+        getIconProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({
+          location:
+            '/ma-dev-test/train/pipelines/eval-pipeline/runs?revisionId=3f2a1b9c0d4e5f6a7b8c',
+        }),
+        getServiceProviderWrapper({ request: mockRequest }),
+        getSnackbarProviderWrapper(),
+      ])
+    );
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'ListPipelineRun',
+        expect.objectContaining({
+          listOptionsExt: {
+            operation: {
+              criterion: [
+                {
+                  fieldName: PIPELINE_RUN_REVISION_NAME_FIELD,
+                  operator: CRITERION_OPERATOR_EQUAL,
+                  matchValue: 'pipeline-eval-pipeline-3f2a1b9c0d4e',
+                },
+              ],
+            },
+          },
+        }),
+        {}
+      );
+    });
+
+    expect(await screen.findByRole('link', { name: 'eval-pipeline-run-2' })).toBeInTheDocument();
   });
 });
 
