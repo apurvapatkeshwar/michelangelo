@@ -36,6 +36,7 @@ async function createHandlers() {
   const services = await getServices();
 
   return {
+    ListCluster: unary(services.ClusterService.listCluster),
     ListDeployment: unary(services.DeploymentService.listDeployment),
     GetDeployment: unary(services.DeploymentService.getDeployment),
     CreateDeployment: (record: Deployment, headers?: Record<string, string>) => {
@@ -45,6 +46,14 @@ async function createHandlers() {
       }
       return services.DeploymentService.createDeployment({ deployment: record }, headers);
     },
+    UpdateDeployment: (record: Deployment, headers?: Record<string, string>) => {
+      const actorName = headers?.['x-user-name'];
+      if (actorName && record.spec) {
+        record.spec.owner = create(UserInfoSchema, { name: actorName });
+      }
+      return services.DeploymentService.updateDeployment({ deployment: record }, headers);
+    },
+    DeleteDeployment: deleteCrd(services.DeploymentService.deleteDeployment),
     ListInferenceServer: unary(services.InferenceServerService.listInferenceServer),
     GetInferenceServer: unary(services.InferenceServerService.getInferenceServer),
     CreateInferenceServer: (record: InferenceServer, headers?: Record<string, string>) =>
@@ -58,6 +67,13 @@ async function createHandlers() {
     GetPipelineRun: unary(services.PipelineRunService.getPipelineRun),
     ListTriggerRun: unary(services.TriggerRunService.listTriggerRun),
     GetTriggerRun: unary(services.TriggerRunService.getTriggerRun),
+    CreateTriggerRun: (record: TriggerRun, headers?: Record<string, string>) => {
+      const actorName = headers?.['x-user-name'];
+      if (actorName && record.spec) {
+        record.spec.actor = create(UserInfoSchema, { name: actorName });
+      }
+      return services.TriggerRunService.createTriggerRun({ triggerRun: record }, headers);
+    },
     UpdateTriggerRun: (record: TriggerRun, headers?: Record<string, string>) =>
       services.TriggerRunService.updateTriggerRun({ triggerRun: record }, headers),
     CreatePipelineRun: (record: PipelineRun, headers?: Record<string, string>) => {
@@ -72,6 +88,8 @@ async function createHandlers() {
     ListModel: unary(services.ModelService.listModel),
     GetModel: unary(services.ModelService.getModel),
     ListModelFamily: unary(services.ModelFamilyService.listModelFamily),
+    ListRevision: unary(services.RevisionService.listRevision),
+    GetRevision: unary(services.RevisionService.getRevision),
   } as const;
 }
 
