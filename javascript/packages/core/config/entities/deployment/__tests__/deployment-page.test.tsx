@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
 import { InterpolatableActionsPopover } from '#core/components/actions/interpolatable-actions-popover';
+import { CreateDeploymentForm } from '#core/config/entities/deployment/create-deployment-form';
 import { DEPLOYMENT_ENTITY_CONFIG } from '#core/config/entities/deployment/deployment';
 import {
   DEPLOYMENT_CONDITION_STATUS,
@@ -25,6 +26,7 @@ import {
 import { getSnackbarProviderWrapper } from '#core/test/wrappers/get-snackbar-provider-wrapper';
 
 import type { ActionConfigSchema, Data } from '#core/components/actions/types';
+import type { DeploymentUpdateInput } from '#core/config/entities/deployment/types';
 
 describe('Deployment list page', () => {
   it('renders the Deployments tab', () => {
@@ -86,20 +88,6 @@ describe('Deployment list page', () => {
 
 describe('Deployment detail page', () => {
   describe('header', () => {
-    const buildDeployment = (overrides = {}) => ({
-      metadata: {
-        name: 'sentiment-deployment',
-        creationTimestamp: { seconds: 1746000000 },
-        labels: { 'michelangelo/owner': 'user-example' },
-      },
-      status: {
-        state: DEPLOYMENT_STATE.HEALTHY,
-        stage: DEPLOYMENT_STAGE.ROLLOUT_COMPLETE,
-        conditions: [] as object[],
-      },
-      ...overrides,
-    });
-
     it('renders details for deployment', async () => {
       render(
         <EntityDetailRoute phases={{ deploy: DEPLOY_PHASE }} />,
@@ -110,12 +98,15 @@ describe('Deployment detail page', () => {
           }),
           getServiceProviderWrapper({
             request: createQueryMockRouter({
-              GetDeployment: { deployment: buildDeployment() },
+              GetDeployment: {
+                deployment: {},
+              },
             }),
           }),
         ])
       );
 
+      // The header title comes from the route's entity ID, not deployment.metadata.name.
       expect(screen.getByText('sentiment-deployment')).toBeInTheDocument();
       expect(await screen.findByText('Created')).toBeInTheDocument();
       expect(screen.getByText('Owner')).toBeInTheDocument();
@@ -125,42 +116,6 @@ describe('Deployment detail page', () => {
   });
 
   describe('information tab', () => {
-    const buildDeployment = () => ({
-      metadata: {
-        name: 'sentiment-deployment',
-        creationTimestamp: { seconds: 1746000000 },
-        labels: { 'michelangelo/owner': 'user-example' },
-      },
-      spec: {
-        definition: { type: 1 },
-        strategy: { rolloutStrategy: { case: 'rolling', value: {} } },
-        target: { case: 'inferenceServer', value: { name: 'triton-server' } },
-        desiredRevision: { name: 'sentiment-model-rev-3' },
-        resourceLinks: { Dashboard: 'https://grafana.example.com/d/abc' },
-      },
-      status: {
-        state: DEPLOYMENT_STATE.HEALTHY,
-        stage: DEPLOYMENT_STAGE.ROLLOUT_COMPLETE,
-        message: 'Rollout completed successfully.',
-        currentRevision: { name: 'sentiment-model-rev-2' },
-        conditions: [] as object[],
-      },
-    });
-
-    const buildModel = () => ({
-      metadata: { creationTimestamp: { seconds: 1746000000 } },
-      spec: {
-        owner: { name: 'model-owner' },
-        kind: 2,
-        sourcePipelineRun: { name: 'run-20260825-080000' },
-      },
-    });
-
-    const infoTabResponses = () => ({
-      GetDeployment: { deployment: buildDeployment() },
-      GetModel: { model: buildModel() },
-    });
-
     it('renders the configuration details', async () => {
       render(
         <EntityDetailRoute phases={{ deploy: DEPLOY_PHASE }} />,
@@ -169,7 +124,15 @@ describe('Deployment detail page', () => {
           getRouterWrapper({
             location: '/myproject/deploy/deployments/sentiment-deployment/info',
           }),
-          getServiceProviderWrapper({ request: createQueryMockRouter(infoTabResponses()) }),
+          getServiceProviderWrapper({
+            request: createQueryMockRouter({
+              GetDeployment: {
+                deployment: {
+                  spec: { definition: { type: 1 } },
+                },
+              },
+            }),
+          }),
         ])
       );
 
@@ -185,7 +148,17 @@ describe('Deployment detail page', () => {
           getRouterWrapper({
             location: '/myproject/deploy/deployments/sentiment-deployment/info',
           }),
-          getServiceProviderWrapper({ request: createQueryMockRouter(infoTabResponses()) }),
+          getServiceProviderWrapper({
+            request: createQueryMockRouter({
+              GetDeployment: {
+                deployment: {
+                  spec: {
+                    target: { case: 'inferenceServer', value: { name: 'triton-server' } },
+                  },
+                },
+              },
+            }),
+          }),
         ])
       );
 
@@ -223,7 +196,26 @@ describe('Deployment detail page', () => {
           getRouterWrapper({
             location: '/myproject/deploy/deployments/sentiment-deployment/info',
           }),
-          getServiceProviderWrapper({ request: createQueryMockRouter(infoTabResponses()) }),
+          getServiceProviderWrapper({
+            request: createQueryMockRouter({
+              GetDeployment: {
+                deployment: {
+                  spec: { desiredRevision: { name: 'sentiment-model-rev-3' } },
+                  status: { currentRevision: { name: 'sentiment-model-rev-2' } },
+                },
+              },
+              GetModel: {
+                model: {
+                  metadata: { creationTimestamp: { seconds: 1746000000 } },
+                  spec: {
+                    owner: { name: 'model-owner' },
+                    kind: 2,
+                    sourcePipelineRun: { name: 'run-20260825-080000' },
+                  },
+                },
+              },
+            }),
+          }),
         ])
       );
 
@@ -244,7 +236,12 @@ describe('Deployment detail page', () => {
           }),
           getServiceProviderWrapper({
             request: createQueryMockRouter({
-              GetDeployment: { deployment: buildDeployment() },
+              GetDeployment: {
+                deployment: {
+                  spec: { desiredRevision: { name: 'sentiment-model-rev-3' } },
+                  status: { currentRevision: { name: 'sentiment-model-rev-2' } },
+                },
+              },
               GetModel: {},
             }),
           }),
@@ -273,11 +270,7 @@ describe('Deployment detail page', () => {
           getServiceProviderWrapper({
             request: createQueryMockRouter({
               GetDeployment: {
-                deployment: {
-                  metadata: { name: 'sentiment-deployment' },
-                  spec: { definition: { type: 1 } },
-                  status: { state: DEPLOYMENT_STATE.EMPTY, stage: DEPLOYMENT_STAGE.INVALID },
-                },
+                deployment: {},
               },
             }),
           }),
@@ -292,11 +285,6 @@ describe('Deployment detail page', () => {
 
   describe('ongoing operations tab', () => {
     const buildDeployment = (overrides = {}) => ({
-      metadata: {
-        name: 'sentiment-deployment',
-        creationTimestamp: { seconds: 1746000000 },
-        labels: { 'michelangelo/owner': 'user-example' },
-      },
       status: {
         state: DEPLOYMENT_STATE.HEALTHY,
         stage: DEPLOYMENT_STAGE.ROLLOUT_COMPLETE,
@@ -454,14 +442,6 @@ describe('Deployment retire action', () => {
     };
   }
 
-  function buildRetireMockRequest() {
-    return createQueryMockRouter({
-      UpdateDeployment: {
-        deployment: { metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE } },
-      },
-    });
-  }
-
   async function openRetireDialog(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole('button', { name: 'Actions' }));
     await user.click(await screen.findByRole('option', { name: 'Retire' }));
@@ -470,13 +450,13 @@ describe('Deployment retire action', () => {
     });
   }
 
-  function findUpdateDeploymentCall(request: ReturnType<typeof createQueryMockRouter>) {
-    return vi.mocked(request).mock.calls.find(([name]) => name === 'UpdateDeployment');
-  }
-
   it('confirms the retire in a dialog, submits the spec with desiredRevision removed, and toasts', async () => {
     const user = userEvent.setup();
-    const request = buildRetireMockRequest();
+    const request = createQueryMockRouter({
+      UpdateDeployment: {
+        deployment: { metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE } },
+      },
+    });
 
     render(
       <InterpolatableActionsPopover actions={RETIRE_ACTIONS} record={buildDeployedRecord()} />,
@@ -497,12 +477,10 @@ describe('Deployment retire action', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Yes, retire' }));
 
-    await waitFor(() => expect(findUpdateDeploymentCall(request)).toBeDefined());
+    await waitFor(() => expect(request.getCall('UpdateDeployment')).toBeDefined());
 
-    const payload = findUpdateDeploymentCall(request)?.[1] as {
-      metadata: { name: string };
-      spec: { desiredRevision?: unknown; target?: unknown };
-    };
+    // cast: recorded call args are `unknown`; DeploymentUpdateInput is what this test's request actually sends
+    const payload = request.getCall('UpdateDeployment')!.args as DeploymentUpdateInput;
     // The absent desiredRevision is what tells the backend to run cleanup; the rest of
     // the spec must be sent through intact.
     expect(payload.spec.desiredRevision).toBeUndefined();
@@ -519,7 +497,11 @@ describe('Deployment retire action', () => {
 
   it('disables retire with a tooltip when the deployment has no revision to retire', async () => {
     const user = userEvent.setup();
-    const request = buildRetireMockRequest();
+    const request = createQueryMockRouter({
+      UpdateDeployment: {
+        deployment: { metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE } },
+      },
+    });
 
     const record = buildDeployedRecord({
       spec: { target: { case: 'inferenceServer', value: { name: 'inference-server-example' } } },
@@ -552,7 +534,11 @@ describe('Deployment retire action', () => {
 
   it('stays enabled while a candidate revision is still rolling out', async () => {
     const user = userEvent.setup();
-    const request = buildRetireMockRequest();
+    const request = createQueryMockRouter({
+      UpdateDeployment: {
+        deployment: { metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE } },
+      },
+    });
 
     // desiredRevision already cleared but a candidate is mid-rollout — retiring must
     // still be possible to abort the rollout, matching the backend's cleanup trigger.
@@ -577,6 +563,312 @@ describe('Deployment retire action', () => {
     const dialog = await openRetireDialog(user);
     await user.click(within(dialog).getByRole('button', { name: 'Yes, retire' }));
 
-    await waitFor(() => expect(findUpdateDeploymentCall(request)).toBeDefined());
+    await waitFor(() => expect(request.getCall('UpdateDeployment')).toBeDefined());
+  });
+});
+
+describe('Deployment delete action', () => {
+  const DEPLOYMENT_ACTIONS = DEPLOYMENT_ENTITY_CONFIG.actions as ActionConfigSchema<Data>[];
+
+  const DEPLOYMENT_NAME = 'test-delete-action';
+  const NAMESPACE = 'ma-dev-test';
+
+  async function openDeleteDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    await user.click(await screen.findByRole('option', { name: 'Delete' }));
+    return screen.findByRole('dialog', {
+      name: `Are you sure you want to delete “${DEPLOYMENT_NAME}” ?`,
+    });
+  }
+
+  function findDeleteDeploymentCall(request: ReturnType<typeof createQueryMockRouter>) {
+    return vi.mocked(request).mock.calls.find(([name]) => name === 'DeleteDeployment');
+  }
+
+  it('warns in the dialog, sends nothing on cancel, then deletes the record and toasts on confirm', async () => {
+    const user = userEvent.setup();
+    const request = createQueryMockRouter({ DeleteDeployment: {} });
+    const record = {
+      metadata: {
+        name: DEPLOYMENT_NAME,
+        namespace: NAMESPACE,
+        creationTimestamp: { seconds: 1757019547 },
+      },
+      spec: {
+        desiredRevision: { name: 'bert-cola-37', namespace: NAMESPACE },
+        target: { case: 'inferenceServer', value: { name: 'inference-server-example' } },
+      },
+      status: {},
+    };
+
+    render(
+      <InterpolatableActionsPopover actions={DEPLOYMENT_ACTIONS} record={record} />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getErrorProviderWrapper(),
+        getIconProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: `/${NAMESPACE}/deploy/deployments/${DEPLOYMENT_NAME}` }),
+        getServiceProviderWrapper({ request }),
+        getSnackbarProviderWrapper(),
+      ])
+    );
+
+    let dialog = await openDeleteDialog(user);
+    expect(
+      within(dialog).getByText(
+        'We will perform retirement process first and then the deployment will be deleted. This process will take few minutes to complete.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        'If there are any online existing prediction requests or offline pipeline runs in this deployment this call will fail.'
+      )
+    ).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(findDeleteDeploymentCall(request)).toBeUndefined();
+
+    dialog = await openDeleteDialog(user);
+    await user.click(within(dialog).getByRole('button', { name: 'Yes, delete' }));
+
+    await waitFor(() => expect(findDeleteDeploymentCall(request)).toBeDefined());
+
+    // The handler reshapes the record into { name, namespace }; the action itself
+    // submits the record unchanged.
+    const payload = findDeleteDeploymentCall(request)?.[1] as {
+      metadata: { name: string; namespace: string };
+    };
+    expect(payload.metadata.name).toBe(DEPLOYMENT_NAME);
+    expect(payload.metadata.namespace).toBe(NAMESPACE);
+
+    expect(
+      await screen.findByText('Deployment has been deleted. This process may take a few seconds.')
+    ).toBeInTheDocument();
+  });
+});
+
+describe('Deployment update action', () => {
+  const DEPLOYMENT_ACTIONS = DEPLOYMENT_ENTITY_CONFIG.actions as ActionConfigSchema<Data>[];
+
+  const DEPLOYMENT_NAME = 'test-update-action';
+  const NAMESPACE = 'ma-dev-test';
+
+  async function openUpdateDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    await user.click(await screen.findByRole('option', { name: 'Update deployment' }));
+    return screen.findByRole('dialog', { name: 'Update deployment' });
+  }
+
+  /** Finds the payload sent in the (single) UpdateDeployment call. */
+  function getUpdateDeploymentPayload(request: ReturnType<typeof createQueryMockRouter>) {
+    const updateCall = vi.mocked(request).mock.calls.find(([name]) => name === 'UpdateDeployment');
+    expect(updateCall).toBeDefined();
+    return updateCall![1] as {
+      metadata: { name: string };
+      spec: {
+        desiredRevision?: { name?: string };
+        strategy?: { rolloutStrategy?: { case?: string } };
+        target?: { value?: { name?: string } };
+        modelFamily?: { name?: string };
+      };
+      status?: unknown;
+    };
+  }
+
+  it('opens prefilled with name, inference server, and model family read-only', async () => {
+    const user = userEvent.setup();
+    const request = createQueryMockRouter({
+      ListInferenceServer: {
+        inferenceServerList: { items: [{ metadata: { name: 'inference-server-example' } }] },
+      },
+      ListModelFamily: {
+        modelFamilyList: {
+          items: [{ metadata: { name: 'bert-cola' }, spec: { name: 'bert-cola' } }],
+        },
+      },
+      ListModel: {
+        modelList: {
+          items: [{ metadata: { name: 'bert-cola-37' } }, { metadata: { name: 'bert-cola-38' } }],
+        },
+      },
+    });
+
+    render(
+      <InterpolatableActionsPopover
+        actions={DEPLOYMENT_ACTIONS}
+        record={{
+          metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE },
+          spec: {
+            desiredRevision: { name: 'bert-cola-37', namespace: NAMESPACE },
+            target: { case: 'inferenceServer', value: { name: 'inference-server-example' } },
+            modelFamily: { name: 'bert-cola', namespace: NAMESPACE },
+          },
+        }}
+      />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getErrorProviderWrapper(),
+        getIconProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: `/${NAMESPACE}/deploy/deployments/${DEPLOYMENT_NAME}` }),
+        getServiceProviderWrapper({ request }),
+        getSnackbarProviderWrapper(),
+      ])
+    );
+
+    const dialog = await openUpdateDialog(user);
+
+    const nameInput = within(dialog).getByRole('textbox', { name: 'Name *' });
+    expect(nameInput).toHaveValue(DEPLOYMENT_NAME);
+    expect(nameInput).toHaveAttribute('readonly');
+
+    // Prefilled selects' accessible names are their selected values.
+    const serverSelect = await within(dialog).findByRole('combobox', {
+      name: /Selected inference-server-example\./,
+    });
+    expect(serverSelect).toHaveAttribute('readonly');
+
+    // The family comes from record.spec.modelFamily and is locked in update mode.
+    const familySelect = await within(dialog).findByRole('combobox', {
+      name: /Selected bert-cola\./,
+    });
+    expect(familySelect).toHaveAttribute('readonly');
+
+    expect(await within(dialog).findByText('bert-cola-37')).toBeInTheDocument();
+  });
+
+  it('submits the full record with the newly selected model as desiredRevision', async () => {
+    const user = userEvent.setup();
+    const request = createQueryMockRouter({
+      UpdateDeployment: {
+        deployment: { metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE } },
+      },
+      ListInferenceServer: {
+        inferenceServerList: { items: [{ metadata: { name: 'inference-server-example' } }] },
+      },
+      ListModelFamily: {
+        modelFamilyList: {
+          items: [{ metadata: { name: 'bert-cola' }, spec: { name: 'bert-cola' } }],
+        },
+      },
+      ListModel: {
+        modelList: {
+          items: [{ metadata: { name: 'bert-cola-37' } }, { metadata: { name: 'bert-cola-38' } }],
+        },
+      },
+    });
+
+    render(
+      <InterpolatableActionsPopover
+        actions={DEPLOYMENT_ACTIONS}
+        record={{
+          metadata: { name: DEPLOYMENT_NAME, namespace: NAMESPACE },
+          spec: {
+            desiredRevision: { name: 'bert-cola-37', namespace: NAMESPACE },
+            target: { case: 'inferenceServer', value: { name: 'inference-server-example' } },
+            strategy: { rolloutStrategy: { case: 'rolling', value: { incrementPercentage: 10 } } },
+            definition: { type: 1 },
+            modelFamily: { name: 'bert-cola', namespace: NAMESPACE },
+          },
+          status: { currentRevision: { name: 'bert-cola-37', namespace: NAMESPACE } },
+        }}
+      />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getErrorProviderWrapper(),
+        getIconProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: `/${NAMESPACE}/deploy/deployments/${DEPLOYMENT_NAME}` }),
+        getServiceProviderWrapper({ request }),
+        getSnackbarProviderWrapper(),
+      ])
+    );
+
+    const dialog = await openUpdateDialog(user);
+
+    // The prefilled Model select's accessible name is its selected value.
+    await user.click(within(dialog).getByRole('combobox', { name: /Selected bert-cola-37/ }));
+    await user.click(await screen.findByRole('option', { name: 'bert-cola-38' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Update' }));
+
+    const payload = await waitFor(() => getUpdateDeploymentPayload(request));
+
+    expect(payload.spec.desiredRevision?.name).toBe('bert-cola-38');
+    // Everything else on the record rides along unchanged.
+    expect(payload.metadata.name).toBe(DEPLOYMENT_NAME);
+    expect(payload.spec.target?.value?.name).toBe('inference-server-example');
+    expect(payload.spec.strategy?.rolloutStrategy?.case).toBe('rolling');
+    expect(payload.spec.modelFamily?.name).toBe('bert-cola');
+    expect(payload.status).toBeDefined();
+  });
+});
+
+describe('Deployment create action', () => {
+  it('fills in every field, submits the deployment, and toasts', async () => {
+    const user = userEvent.setup();
+    const request = createQueryMockRouter({
+      CreateDeployment: { deployment: { metadata: { name: 'new-deployment' } } },
+      ListInferenceServer: {
+        inferenceServerList: { items: [{ metadata: { name: 'inference-server-example' } }] },
+      },
+      ListModelFamily: {
+        modelFamilyList: {
+          items: [{ metadata: { name: 'bert-cola' }, spec: { name: 'bert-cola' } }],
+        },
+      },
+      ListModel: {
+        modelList: { items: [{ metadata: { name: 'bert-cola-40' } }] },
+      },
+    });
+
+    render(
+      <CreateDeploymentForm onClose={vi.fn()} />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getErrorProviderWrapper(),
+        getIconProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/deploy/deployments' }),
+        getServiceProviderWrapper({ request }),
+        getSnackbarProviderWrapper(),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Create deployment' });
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name *' }), 'new-deployment');
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Inference server *' }));
+    await user.click(await screen.findByRole('option', { name: 'inference-server-example' }));
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Model family' }));
+    await user.click(await screen.findByRole('option', { name: 'bert-cola' }));
+
+    await user.click(await within(dialog).findByRole('combobox', { name: 'Model *' }));
+    await user.click(await screen.findByRole('option', { name: 'bert-cola-40' }));
+
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(request).toHaveBeenCalledWith(
+        'CreateDeployment',
+        {
+          metadata: { name: 'new-deployment', namespace: 'ma-dev-test' },
+          spec: {
+            modelFamily: { name: 'bert-cola', namespace: 'ma-dev-test' },
+            desiredRevision: { name: 'bert-cola-40', namespace: 'ma-dev-test' },
+            target: {
+              case: 'inferenceServer',
+              value: { name: 'inference-server-example', namespace: 'ma-dev-test' },
+            },
+            strategy: { rolloutStrategy: { case: 'rolling', value: { incrementPercentage: 0 } } },
+            definition: { type: 1 },
+          },
+        },
+        {}
+      );
+    });
+
+    expect(await screen.findByText('Deployment created')).toBeInTheDocument();
   });
 });

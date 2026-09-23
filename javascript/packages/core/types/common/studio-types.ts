@@ -103,6 +103,11 @@ export interface PhaseEntityConfig<T extends object = object> {
   service: QueryConfig['service'];
   /** State controlling whether this entity is interactive */
   state: PhaseEntityState;
+  /**
+   * Whether the entity is snapshotted into Revision CRs. When set, the detail view honors a
+   * `?revisionId=` query param by loading that Revision's `spec.content` in place of the record.
+   */
+  revisioned?: boolean;
   /** List of view configurations for this entity */
   views: ViewConfig<T>[];
   /**
