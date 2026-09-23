@@ -50,6 +50,10 @@ func (m Mapper) mapRay(rayJob *v2pb.RayJob, jobClusterObject runtime.Object, clu
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rayJob.Name,
 			Namespace: RayLocalNamespace,
+			// RayJobs target an existing RayCluster via ClusterSelector, so
+			// they are never Kueue-queued themselves (Kueue admits the
+			// cluster); no queue label is resolved here.
+			Labels: mapLabels(rayJob.GetLabels(), ""),
 		},
 		Spec: rayv1.RayJobSpec{
 			ClusterSelector: map[string]string{
@@ -127,7 +131,7 @@ func buildSubmitterPodTemplate(head corev1.PodTemplateSpec) *corev1.PodTemplateS
 	}
 }
 
-func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, error) {
+func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster, cluster *v2pb.Cluster) (runtime.Object, error) {
 	workerGroupSpecs := getWorkerGroupSpecs(rayCluster.GetName(), rayCluster.GetSpec().Workers)
 	headGroupSpec := getHeadGroupSpec(rayCluster.GetSpec().Head)
 
@@ -138,6 +142,11 @@ func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, erro
 		}
 	}
 
+	queueName, err := m.kueueQueueName(rayCluster.GetLabels(), rayCluster.GetNamespace(), cluster)
+	if err != nil {
+		return nil, err
+	}
+
 	rayV1Cluster := &rayv1.RayCluster{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       RayClusterKind,
@@ -146,6 +155,7 @@ func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, erro
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rayCluster.Name,
 			Namespace: RayLocalNamespace,
+			Labels:    mapLabels(rayCluster.GetLabels(), queueName),
 		},
 		Spec: rayv1.RayClusterSpec{
 			HeadGroupSpec:    headGroupSpec,
@@ -156,10 +166,28 @@ func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, erro
 	return rayV1Cluster, nil
 }
 
+// nonNilRayStartParams returns params unchanged when non-nil, otherwise an
+// empty (non-nil) map. KubeRay's HeadGroupSpec/WorkerGroupSpec.RayStartParams
+// field has no `omitempty`, so a nil map serializes to JSON `null` — and the
+// RayCluster CRD rejects `null` ("rayStartParams in body must be of type
+// object"). Michelangelo's v2 API omits rayStartParams by default (and proto3
+// drops empty maps on the wire, so callers cannot force `{}` from the request),
+// which leaves this field nil here. The bug stays latent until an admission
+// webhook re-serializes the RayCluster on create — notably Kueue's mutating
+// webhook, which decodes the object and marshals it whole, turning the omitted
+// map into an explicit `null` that the CRD then rejects. Emitting `{}` instead
+// is always valid and is the equivalent of "no extra ray start params".
+func nonNilRayStartParams(params map[string]string) map[string]string {
+	if params == nil {
+		return map[string]string{}
+	}
+	return params
+}
+
 func getHeadGroupSpec(head *v2pb.RayHeadSpec) rayv1.HeadGroupSpec {
 	return rayv1.HeadGroupSpec{
 		ServiceType:    corev1.ServiceType(head.GetServiceType()),
-		RayStartParams: head.GetRayStartParams(),
+		RayStartParams: nonNilRayStartParams(head.GetRayStartParams()),
 		Template:       k8sptr.Deref(head.GetPod(), corev1.PodTemplateSpec{}),
 	}
 }
@@ -172,7 +200,7 @@ func getWorkerGroupSpecs(clusterName string, workers []*v2pb.RayWorkerSpec) []ra
 			Replicas:       &workerGroup.MinInstances,
 			MinReplicas:    &workerGroup.MinInstances,
 			MaxReplicas:    &workerGroup.MaxInstances,
-			RayStartParams: workerGroup.RayStartParams,
+			RayStartParams: nonNilRayStartParams(workerGroup.GetRayStartParams()),
 			Template:       k8sptr.Deref(workerGroup.Pod, corev1.PodTemplateSpec{}),
 		}
 		workerGroupSpecsJSON[i] = wg
