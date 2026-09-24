@@ -172,6 +172,27 @@ describe('EntityDetailRoute', () => {
         },
       },
     };
+    const revisionList = {
+      revisionList: {
+        items: [
+          {
+            metadata: {
+              name: 'pipeline-my-pipeline-aaaaaaaaaaaa',
+              creationTimestamp: { seconds: '1700000000' },
+            },
+            spec: { revisionId: 'aaaaaaaaaaaa0000', gitCommit: { branch: 'main' } },
+          },
+          {
+            metadata: {
+              name: 'pipeline-my-pipeline-3f2a1b9c0d4e',
+              creationTimestamp: { seconds: '1600000000' },
+            },
+            spec: { revisionId: '3f2a1b9c0d4e5f6a7b8c', gitCommit: { branch: 'topic/y' } },
+          },
+        ],
+      },
+    };
+
     test('loads the revision snapshot when revisionId is in the query string', async () => {
       const testPhases = {
         train: buildPhase({ id: 'train', entities: [revisionedEntity] }),
@@ -179,6 +200,7 @@ describe('EntityDetailRoute', () => {
       const mockRequest = createQueryMockRouter({
         GetPipeline: livePipeline,
         GetRevision: revision,
+        ListRevision: revisionList,
       });
 
       render(
@@ -198,8 +220,11 @@ describe('EntityDetailRoute', () => {
       expect(screen.getByText('Page for My-Pipeline')).toBeInTheDocument();
       expect(screen.queryByText('live-owner')).not.toBeInTheDocument();
 
-      // Header keeps the pipeline title.
+      // Header keeps the pipeline title and labels the revision.
       expect(screen.getByText('My-Pipeline')).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /Select revision/ })).toHaveTextContent(
+        'Revision 3f2a1b9c0d4e'
+      );
 
       expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
 
@@ -257,6 +282,7 @@ describe('EntityDetailRoute', () => {
       const mockRequest = createQueryMockRouter({
         GetPipeline: livePipeline,
         GetRevision: revision,
+        ListRevision: revisionList,
       });
 
       render(
@@ -276,6 +302,67 @@ describe('EntityDetailRoute', () => {
         expect.anything(),
         expect.anything()
       );
+    });
+
+    test('picking a revision from the header dropdown navigates to ?revisionId', async () => {
+      const user = userEvent.setup();
+      const testPhases = {
+        train: buildPhase({ id: 'train', entities: [revisionedEntity] }),
+      };
+      const mockRequest = createQueryMockRouter({
+        // status.latestRevision must be set here — unlike the "no revision" test below,
+        // this one exercises the dropdown against an entity that already has a revision.
+        GetPipeline: {
+          pipeline: {
+            ...livePipeline.pipeline,
+            status: { latestRevision: { name: 'pipeline-my-pipeline-aaaaaaaaaaaa' } },
+          },
+        },
+        GetRevision: revision,
+        ListRevision: revisionList,
+      });
+
+      render(
+        <EntityDetailRoute phases={testPhases} />,
+        buildWrapper([
+          getErrorProviderWrapper(),
+          getRouterWrapper({ location: '/myproject/train/pipelines/My-Pipeline/overview' }),
+          getServiceProviderWrapper({ request: mockRequest }),
+        ])
+      );
+
+      await user.click(await screen.findByRole('button', { name: /Select revision/ }));
+      const listbox = await screen.findByRole('listbox', { name: 'Revisions' });
+      expect(listbox).toHaveTextContent('Revision aaaaaaaaaaaa');
+      expect(listbox).toHaveTextContent('topic/y');
+
+      await user.click(screen.getByRole('option', { name: /Revision 3f2a1b9c0d4e/ }));
+
+      // The snapshot replaces the live record and the selection sticks to the trigger.
+      expect(await screen.findByText('snapshot-owner')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Select revision/ })).toHaveTextContent(
+        'Revision 3f2a1b9c0d4e'
+      );
+      // getCall returns the first match; the mount also fires a GetRevision for
+      // status.latestRevision, so the picked revision's call is the last one instead.
+      const getRevisionCalls = vi
+        .mocked(mockRequest)
+        .mock.calls.filter(([name]) => name === 'GetRevision');
+      expect(getRevisionCalls.at(-1)?.[1]).toEqual({
+        namespace: 'myproject',
+        name: 'pipeline-my-pipeline-3f2a1b9c0d4e',
+      });
+      expect(mockRequest.getCall('ListRevision')?.args).toMatchObject({
+        namespace: 'myproject',
+        listOptionsExt: {
+          operation: {
+            criterion: [
+              { fieldName: 'revision.base_type', operator: 1, matchValue: 'Pipeline' },
+              { fieldName: 'revision.base_resource_name', operator: 1, matchValue: 'My-Pipeline' },
+            ],
+          },
+        },
+      });
     });
 
     test('ignores revisionId for an entity that is not revisioned', async () => {
@@ -303,6 +390,7 @@ describe('EntityDetailRoute', () => {
       const mockRequest = createQueryMockRouter({
         GetPipeline: livePipeline,
         GetRevision: revision,
+        ListRevision: revisionList,
       });
 
       render(
