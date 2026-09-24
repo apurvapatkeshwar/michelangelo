@@ -23,6 +23,7 @@ from michelangelo.lib.model_manager.registry.client import (
     ModelRegistryClient,
     RegisteredModel,
 )
+from michelangelo.lib.shared.pipeline_run import SourcePipelineRun
 from michelangelo.workflow.tasks.pusher.implementations.mlflow_client import (
     _TAG_DEPLOYABLE_ARTIFACT_URI,
     _TAG_KIND,
@@ -293,6 +294,24 @@ class TestRegisterModel(_FakeClientTestCase):
         """Passing a schema neither raises nor adds a tag, per the ABC contract."""
         self.client.register_model(
             name="m", artifact_uri="s3://b/raw", schema={"inputs": []}
+        )
+        self.assertEqual(self.fake.create_version_kwargs[-1]["tags"], {})
+
+    def test_source_pipeline_run_is_silently_ignored(self):
+        """Passing source_pipeline_run neither raises nor adds a tag.
+
+        Regression test: ModelPusherPlugin always passes this as a keyword
+        argument on every real push() call (model_plugin.py). Before this
+        registry client accepted the parameter, that call raised
+        ``TypeError: register_model() got an unexpected keyword argument
+        'source_pipeline_run'`` for any real invocation through the plugin
+        -- the direct-call tests in this file never caught it because none
+        of them set the argument.
+        """
+        self.client.register_model(
+            name="m",
+            artifact_uri="s3://b/raw",
+            source_pipeline_run=SourcePipelineRun(name="run-1", namespace="ns"),
         )
         self.assertEqual(self.fake.create_version_kwargs[-1]["tags"], {})
 

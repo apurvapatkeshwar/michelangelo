@@ -27,6 +27,8 @@ from michelangelo.lib.model_manager.registry.client import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from michelangelo.lib.shared.pipeline_run import SourcePipelineRun
+
 # Model-version tag keys carrying the registration fields MLflow has no
 # native column for. Prefixed so they cannot collide with user ``labels``
 # (which map to plain MLflow tags); on collision the reserved value wins.
@@ -140,14 +142,16 @@ class MLflowRegistryClient(ModelRegistryClient):
         schema: dict[str, Any] | None = None,
         labels: Mapping[str, str] | None = None,
         metadata: Mapping[str, Any] | None = None,
+        source_pipeline_run: SourcePipelineRun | None = None,
     ) -> MichelangeloModel:
         """Register a new model version in the MLflow Model Registry.
 
         Creates the registered model (version group) if it does not exist
         yet, then creates a model version with ``artifact_uri`` as its
-        ``source``. ``schema`` is silently ignored — MLflow has no native
-        schema field. ``metadata`` values must be JSON-serializable, per the
-        ``ModelRegistryClient`` contract.
+        ``source``. ``schema`` and ``source_pipeline_run`` are silently
+        ignored — MLflow has no native schema field or pipeline-run
+        provenance field. ``metadata`` values must be JSON-serializable, per
+        the ``ModelRegistryClient`` contract.
 
         Raises:
             ValueError: If ``name`` (or another argument) is rejected by
@@ -157,6 +161,7 @@ class MLflowRegistryClient(ModelRegistryClient):
         from mlflow.exceptions import MlflowException
 
         del schema  # No native schema field in MLflow; ignored per contract.
+        del source_pipeline_run  # No native provenance field; ignored per contract.
 
         try:
             client.create_registered_model(name)
