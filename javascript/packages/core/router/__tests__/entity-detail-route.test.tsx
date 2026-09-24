@@ -135,17 +135,19 @@ describe('EntityDetailRoute', () => {
         {
           type: 'detail',
           metadata: [
-            { id: 'spec.owner.name', label: 'Owner', type: CellType.TEXT },
-            { id: 'spec.commit.branch', label: 'Branch', type: CellType.TEXT },
+            { id: 'spec.content.spec.owner.name', label: 'Owner', type: CellType.TEXT },
+            { id: 'spec.content.spec.commit.branch', label: 'Branch', type: CellType.TEXT },
           ],
           pages: [
             {
               id: 'overview',
               label: 'Overview',
               type: 'custom',
-              component: ({ data }: { data: { metadata?: { name?: string } } | undefined }) => (
-                <div>Page for {data?.metadata?.name}</div>
-              ),
+              component: ({
+                data,
+              }: {
+                data: { spec?: { content?: { metadata?: { name?: string } } } } | undefined;
+              }) => <div>Page for {data?.spec?.content?.metadata?.name}</div>,
             } as CustomDetailPageConfig,
           ],
         },
@@ -213,11 +215,89 @@ describe('EntityDetailRoute', () => {
       );
     });
 
+    test('renders the latest revision for a bare entity URL', async () => {
+      const testPhases = {
+        train: buildPhase({ id: 'train', entities: [revisionedEntity] }),
+      };
+      const mockRequest = createQueryMockRouter({
+        GetPipeline: {
+          pipeline: {
+            ...livePipeline.pipeline,
+            status: { latestRevision: { name: 'pipeline-my-pipeline-3f2a1b9c0d4e' } },
+          },
+        },
+        GetRevision: revision,
+      });
+
+      render(
+        <EntityDetailRoute phases={testPhases} />,
+        buildWrapper([
+          getErrorProviderWrapper(),
+          getRouterWrapper({ location: '/myproject/train/pipelines/My-Pipeline/overview' }),
+          getServiceProviderWrapper({ request: mockRequest }),
+        ])
+      );
+
+      // The latest Revision is resolved by the name status.latestRevision points at and rendered
+      // in place.
+      expect(await screen.findByText('snapshot-owner')).toBeInTheDocument();
+      expect(screen.queryByText('live-owner')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+      expect(mockRequest.getCall('GetRevision')?.args).toEqual({
+        namespace: 'myproject',
+        name: 'pipeline-my-pipeline-3f2a1b9c0d4e',
+      });
+      expect(screen.queryByText(/revisionId=/)).not.toBeInTheDocument();
+    });
+
+    test('shows not found when a revisioned entity has no revision', async () => {
+      const testPhases = {
+        train: buildPhase({ id: 'train', entities: [revisionedEntity] }),
+      };
+      const mockRequest = createQueryMockRouter({
+        GetPipeline: livePipeline,
+        GetRevision: revision,
+      });
+
+      render(
+        <EntityDetailRoute phases={testPhases} />,
+        buildWrapper([
+          getErrorProviderWrapper(),
+          getRouterWrapper({ location: '/myproject/train/pipelines/My-Pipeline' }),
+          getServiceProviderWrapper({ request: mockRequest }),
+        ])
+      );
+
+      expect(await screen.findByText('Entity not found')).toBeInTheDocument();
+      expect(screen.getByText(/No revision found\./)).toBeInTheDocument();
+      expect(screen.queryByText('live-owner')).not.toBeInTheDocument();
+      expect(mockRequest).not.toHaveBeenCalledWith(
+        'GetRevision',
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
     test('ignores revisionId for an entity that is not revisioned', async () => {
+      // A non-revisioned entity's record is the live entity itself, with no `spec.content`
+      // wrapper — so its config (unlike `revisionedEntity`'s) reads fields unprefixed.
+      const nonRevisionedEntity = buildEntity({
+        id: 'pipelines',
+        name: 'pipelines',
+        service: 'pipeline',
+        revisioned: false,
+        views: [
+          {
+            type: 'detail',
+            metadata: [{ id: 'spec.owner.name', label: 'Owner', type: CellType.TEXT }],
+            pages: [],
+          },
+        ],
+      });
       const testPhases = {
         train: buildPhase({
           id: 'train',
-          entities: [{ ...revisionedEntity, revisioned: false }],
+          entities: [nonRevisionedEntity],
         }),
       };
       const mockRequest = createQueryMockRouter({

@@ -11,10 +11,8 @@ import { DetailViewPages } from '#core/components/views/detail-view/components/d
 import { DetailView } from '#core/components/views/detail-view/detail-view';
 import { PHASES } from '#core/config/phases/phases';
 import { useStudioParams } from '#core/hooks/routing/use-studio-params/use-studio-params';
-import { useStudioQuery } from '#core/hooks/use-studio-query';
 import { useInterpolationResolver } from '#core/interpolation/use-interpolation-resolver';
-import { buildRevisionName } from '#core/utils/revision-utils';
-import { capitalizeFirstLetter } from '#core/utils/string-utils';
+import { useEntityRecord } from './use-entity-record';
 
 import type { PhaseConfig } from '#core/types/common/studio-types';
 
@@ -24,8 +22,8 @@ import type { PhaseConfig } from '#core/types/common/studio-types';
  * Maps URL parameters to specific entity detail pages and handles:
  * - Entity not found scenarios
  * - Navigation back to entity list
- * - Revision snapshots: for a `revisioned` entity, `?revisionId=` swaps the entity for the
- *   matching Revision's `spec.content`, rendered through the same detail view config
+ * - Revisioned entities, which render a Revision snapshot through the same detail config (see
+ *   {@link useEntityRecord})
  *
  * @param phases - Phase configuration override for testing. Defaults to {@link PHASES}.
  */
@@ -37,18 +35,12 @@ export function EntityDetailRoute({ phases = PHASES }: { phases?: Record<string,
   const entityConfig = phases[phase].entities.find((e) => e.id === entity);
   const resolver = useInterpolationResolver();
 
-  const service = entityConfig?.service ?? '';
-  const isRevisionView = !!revisionId && !!entityConfig?.revisioned;
-
-  const { data, isLoading, error } = useStudioQuery<Record<string, unknown>>({
-    queryName: isRevisionView ? 'GetRevision' : `Get${capitalizeFirstLetter(service)}`,
-    serviceOptions: {
-      namespace: projectId,
-      name: isRevisionView ? buildRevisionName(service, entityId, revisionId) : entityId,
-    },
-    clientOptions: {
-      enabled: !!service && !!entityId,
-    },
+  const { record, loading, errorMessage } = useEntityRecord({
+    service: entityConfig?.service ?? '',
+    revisioned: !!entityConfig?.revisioned,
+    projectId,
+    entityId,
+    revisionId,
   });
 
   // Tabs live in the path; the query string (e.g. `?revisionId=`) must survive tab changes.
@@ -68,7 +60,7 @@ export function EntityDetailRoute({ phases = PHASES }: { phases?: Record<string,
     (entityConfig?.views ?? []).find((view) => view.type === 'detail') ?? undefined;
 
   React.useEffect(() => {
-    if (error || isLoading) return;
+    if (errorMessage || loading) return;
 
     if (!entityId || !detailViewConfig?.pages?.length) return;
 
@@ -82,13 +74,13 @@ export function EntityDetailRoute({ phases = PHASES }: { phases?: Record<string,
       // Invalid tab - redirect to first tab
       handleTabNavigation(firstTabId, { replace: true });
     }
-  }, [entityTab, detailViewConfig, isLoading, error, handleTabNavigation]);
+  }, [entityTab, detailViewConfig, loading, errorMessage, handleTabNavigation]);
 
-  if (error) {
+  if (errorMessage) {
     return (
       <Signpost
         title="Entity not found"
-        description={`Could not load ${entity} "${entityId}". ${error.message}`}
+        description={`Could not load ${entity} "${entityId}". ${errorMessage}`}
         illustration={
           <CircleExclamationMark
             kind={CircleExclamationMarkKind.ERROR}
@@ -104,33 +96,24 @@ export function EntityDetailRoute({ phases = PHASES }: { phases?: Record<string,
     );
   }
 
-  // cast: the Revision response is untyped here; the route only reads the wrapped entity at
-  // spec.content, which the RPC layer unpacks into a plain object; see #1425
-  const revision = data?.revision as { spec?: { content?: Record<string, unknown> } } | undefined;
-  // cast: PhaseEntityConfig carries no entity type generic, so the runtime-selected service key's
-  // value is assumed to be the entity object; related to #1425. In a revision view the snapshot
-  // is the same entity shape, so the same detail config reads from it unchanged.
-  const entityData = (isRevisionView ? revision?.spec?.content : data?.[service]) as
-    | Record<string, unknown>
-    | undefined;
-  const resolvedDetailViewConfig = resolver(detailViewConfig, { page: entityData });
+  const resolvedDetailViewConfig = resolver(detailViewConfig, { page: record });
   return (
     <DetailView
       subtitle={entityConfig!.name}
       title={entityId}
       onGoBack={handleReturnToEntityList}
       actions={entityConfig!.actions}
-      record={entityData}
-      loading={isLoading}
+      record={record}
+      loading={loading}
       headerContent={
-        <Row items={resolvedDetailViewConfig!.metadata} record={entityData} loading={isLoading} />
+        <Row items={resolvedDetailViewConfig!.metadata} record={record} loading={loading} />
       }
     >
       <DetailViewPages
         tabs={resolvedDetailViewConfig!.pages.map((page) => ({
           id: page.id,
           label: page.label,
-          content: <DetailViewPageRenderer page={page} data={entityData} isLoading={isLoading} />,
+          content: <DetailViewPageRenderer page={page} data={record} isLoading={loading} />,
         }))}
         activeTabId={entityTab}
         onTabSelect={handleTabNavigation}
