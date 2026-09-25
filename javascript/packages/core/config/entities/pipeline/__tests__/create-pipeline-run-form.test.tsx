@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { vi } from 'vitest';
 
 import { CreatePipelineRunForm } from '#core/config/entities/pipeline/create-pipeline-run-form';
 import {
@@ -34,6 +35,15 @@ describe('CreatePipelineRunForm', () => {
     return <CreatePipelineRunForm record={data} onClose={() => setMounted(false)} />;
   }
 
+  /** Environment is required, so every submit-path test must pick one first. */
+  async function selectEnvironment(
+    user: ReturnType<typeof userEvent.setup>,
+    dialog: HTMLElement,
+    label: 'Development' | 'Production'
+  ) {
+    await user.click(within(dialog).getByRole('radio', { name: label }));
+  }
+
   it('submits pipeline run with correct data structure and closes dialog', async () => {
     const user = userEvent.setup();
     const mockResponse = { pipelineRun: { metadata: { name: 'created-run' } } };
@@ -54,6 +64,7 @@ describe('CreatePipelineRunForm', () => {
     );
 
     const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+    await selectEnvironment(user, dialog, 'Development');
     const submitButton = within(dialog).getByRole('button', { name: 'Run' });
     await user.click(submitButton);
 
@@ -64,6 +75,7 @@ describe('CreatePipelineRunForm', () => {
           metadata: expect.objectContaining({
             name: expect.stringMatching(/^run-\d{8}-\d{6}-.+$/) as string,
             namespace: 'ma-dev-test',
+            labels: { 'michelangelo/environment': 'development' },
           }) as Record<string, unknown>,
           spec: expect.objectContaining({
             pipeline: {
@@ -78,6 +90,97 @@ describe('CreatePipelineRunForm', () => {
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('uses the run to the record when it is the Revision being viewed', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+    const record = {
+      metadata: { name: 'pipeline-test-pipeline-3f2a1b9c0d4e', namespace: 'ma-dev-test' },
+      spec: {
+        baseResource: { name: 'test-pipeline', namespace: 'ma-dev-test' },
+        revisionId: '3f2a1b9c0d4e5f6a7b8c',
+        owner: { name: 'test-owner' },
+      },
+    };
+
+    render(
+      <CreatePipelineRunForm record={record} onClose={vi.fn()} />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines/test-pipeline/runs' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+    expect(within(dialog).getByRole('textbox', { name: 'Revision ID' })).toHaveValue(
+      'pipeline-test-pipeline-3f2a1b9c0d4e'
+    );
+    await selectEnvironment(user, dialog, 'Development');
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            pipeline: { name: 'test-pipeline', namespace: 'ma-dev-test' },
+            revision: { name: 'pipeline-test-pipeline-3f2a1b9c0d4e', namespace: 'ma-dev-test' },
+          }) as Record<string, unknown>,
+        }),
+        {}
+      );
+    });
+  });
+
+  it('uses the latest revision when the URL names none', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+    const latestRevision = {
+      name: 'pipeline-test-pipeline-9a8b7c6d5e4f',
+      namespace: 'ma-dev-test',
+    };
+    const record = {
+      metadata: { name: 'test-pipeline', namespace: 'ma-dev-test' },
+      spec: { owner: { name: 'test-owner' } },
+      status: { latestRevision },
+    };
+
+    render(
+      <CreatePipelineRunForm record={record} onClose={vi.fn()} />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+    expect(within(dialog).getByRole('textbox', { name: 'Revision ID' })).toHaveValue(
+      latestRevision.name
+    );
+    await selectEnvironment(user, dialog, 'Development');
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            pipeline: { name: 'test-pipeline', namespace: 'ma-dev-test' },
+            revision: latestRevision,
+          }) as Record<string, unknown>,
+        }),
+        {}
+      );
     });
   });
 
@@ -98,6 +201,7 @@ describe('CreatePipelineRunForm', () => {
     );
 
     const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+    await selectEnvironment(user, dialog, 'Development');
     await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
     await waitFor(() => {
@@ -135,9 +239,10 @@ describe('CreatePipelineRunForm', () => {
       })
     );
     await user.type(
-      within(dialog).getByPlaceholderText('e.g., name@example.com'),
+      within(dialog).getByPlaceholderText('e.g. name@example.com'),
       'oncall@example.com'
     );
+    await selectEnvironment(user, dialog, 'Development');
     await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
     await waitFor(() => {
@@ -191,10 +296,11 @@ describe('CreatePipelineRunForm', () => {
       })
     );
     await user.type(
-      within(dialog).getByPlaceholderText('e.g., name@example.com'),
+      within(dialog).getByPlaceholderText('e.g. name@example.com'),
       'oncall@example.com'
     );
-    await user.type(within(dialog).getByPlaceholderText('e.g., #channel or @user'), '#ml-oncall');
+    await user.type(within(dialog).getByPlaceholderText('e.g. #channel or @user'), '#ml-oncall');
+    await selectEnvironment(user, dialog, 'Development');
     await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
     await waitFor(() => {
@@ -242,6 +348,7 @@ describe('CreatePipelineRunForm', () => {
         name: 'Do you want to receive notifications when pipeline run completed?',
       })
     );
+    await selectEnvironment(user, dialog, 'Development');
     await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
     await waitFor(() => {
@@ -275,6 +382,7 @@ describe('CreatePipelineRunForm', () => {
     );
 
     const dialog = await screen.findByRole('dialog');
+    await selectEnvironment(user, dialog, 'Development');
     const submitButton = within(dialog).getByRole('button', { name: 'Run' });
     await user.click(submitButton);
 
@@ -303,6 +411,7 @@ describe('CreatePipelineRunForm', () => {
       screen.getByRole('textbox', { name: /description/i }),
       'nightly evaluation run'
     );
+    await selectEnvironment(user, dialog, 'Development');
     await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
     await waitFor(() => {
@@ -311,6 +420,77 @@ describe('CreatePipelineRunForm', () => {
         expect.objectContaining({
           spec: expect.objectContaining({
             description: 'nightly evaluation run',
+          }) as Record<string, unknown>,
+        }),
+        {}
+      );
+    });
+  });
+
+  it('renders both Development and Production environment options', async () => {
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: createQueryMockRouter({ CreatePipelineRun: {} }) }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+
+    expect(within(dialog).getByRole('radio', { name: 'Development' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Production' })).toBeInTheDocument();
+  });
+
+  it('defaults the Environment field to Development', async () => {
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: createQueryMockRouter({ CreatePipelineRun: {} }) }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+
+    expect(within(dialog).getByRole('radio', { name: 'Development' })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: 'Production' })).not.toBeChecked();
+  });
+
+  it('submits the selected environment as a metadata label', async () => {
+    const user = userEvent.setup();
+    const mockRequest = createQueryMockRouter({ CreatePipelineRun: {} });
+
+    render(
+      <FormWrapper />,
+      buildWrapper([
+        getBaseProviderWrapper(),
+        getIconProviderWrapper(),
+        getErrorProviderWrapper(),
+        getInterpolationProviderWrapper(),
+        getRouterWrapper({ location: '/ma-dev-test/train/pipelines' }),
+        getServiceProviderWrapper({ request: mockRequest }),
+      ])
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
+    await selectEnvironment(user, dialog, 'Production');
+    await user.click(within(dialog).getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith(
+        'CreatePipelineRun',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            labels: { 'michelangelo/environment': 'production' },
           }) as Record<string, unknown>,
         }),
         {}
@@ -395,14 +575,6 @@ describe('CreatePipelineRunForm', () => {
       );
     }
 
-    function buildRequest() {
-      return createQueryMockRouter({
-        CreatePipelineRun: {},
-        ListPipelineRun: runListResponse,
-        GetPipelineRun: sourceRunResponse,
-      });
-    }
-
     async function openResumeGroup(user: ReturnType<typeof userEvent.setup>) {
       await user.click(screen.getByText('Select run to resume from'));
     }
@@ -414,7 +586,13 @@ describe('CreatePipelineRunForm', () => {
 
     it('offers only finished runs of this pipeline', async () => {
       const user = userEvent.setup();
-      renderForm(buildRequest());
+      renderForm(
+        createQueryMockRouter({
+          CreatePipelineRun: {},
+          ListPipelineRun: runListResponse,
+          GetPipelineRun: sourceRunResponse,
+        })
+      );
 
       await screen.findByRole('dialog', { name: 'Start new pipeline run' });
       await openResumeGroup(user);
@@ -428,7 +606,13 @@ describe('CreatePipelineRunForm', () => {
 
     it('populates the step picker from Execute Workflow sub-steps once a run is chosen', async () => {
       const user = userEvent.setup();
-      renderForm(buildRequest());
+      renderForm(
+        createQueryMockRouter({
+          CreatePipelineRun: {},
+          ListPipelineRun: runListResponse,
+          GetPipelineRun: sourceRunResponse,
+        })
+      );
 
       await screen.findByRole('dialog', { name: 'Start new pipeline run' });
       await openResumeGroup(user);
@@ -450,7 +634,11 @@ describe('CreatePipelineRunForm', () => {
 
     it('submits resumeFrom using step displayName, not the task path', async () => {
       const user = userEvent.setup();
-      const mockRequest = buildRequest();
+      const mockRequest = createQueryMockRouter({
+        CreatePipelineRun: {},
+        ListPipelineRun: runListResponse,
+        GetPipelineRun: sourceRunResponse,
+      });
       renderForm(mockRequest);
 
       const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
@@ -462,6 +650,7 @@ describe('CreatePipelineRunForm', () => {
       await user.click(stepPicker);
       await user.click(await screen.findByText('feature_gen'));
 
+      await selectEnvironment(user, dialog, 'Development');
       await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
       await waitFor(() => {
@@ -482,12 +671,17 @@ describe('CreatePipelineRunForm', () => {
 
     it('submits resume without resumeFrom when no step is picked', async () => {
       const user = userEvent.setup();
-      const mockRequest = buildRequest();
+      const mockRequest = createQueryMockRouter({
+        CreatePipelineRun: {},
+        ListPipelineRun: runListResponse,
+        GetPipelineRun: sourceRunResponse,
+      });
       renderForm(mockRequest);
 
       const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
       await openResumeGroup(user);
       await selectSourceRun(user);
+      await selectEnvironment(user, dialog, 'Development');
       await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
       await waitFor(() => {
@@ -505,22 +699,30 @@ describe('CreatePipelineRunForm', () => {
 
     it('omits the resume spec entirely when the group is opened but nothing is chosen', async () => {
       const user = userEvent.setup();
-      const router = buildRequest();
+      const router = createQueryMockRouter({
+        CreatePipelineRun: {},
+        ListPipelineRun: runListResponse,
+        GetPipelineRun: sourceRunResponse,
+      });
 
       // Captures the payload so the assertion can check for the *absence* of a key,
       // which call matchers express poorly.
       const submitted: PipelineRun[] = [];
-      const request: typeof router = (queryName, args, headers) => {
-        if (queryName === 'CreatePipelineRun') {
-          submitted.push(args as PipelineRun);
-        }
-        return router(queryName, args, headers);
-      };
+      const request: typeof router = Object.assign(
+        (queryName: string, args: object, headers?: Record<string, string>) => {
+          if (queryName === 'CreatePipelineRun') {
+            submitted.push(args as PipelineRun);
+          }
+          return router(queryName, args, headers);
+        },
+        { getCall: router.getCall }
+      );
 
       renderForm(request);
 
       const dialog = await screen.findByRole('dialog', { name: 'Start new pipeline run' });
       await openResumeGroup(user);
+      await selectEnvironment(user, dialog, 'Development');
       await user.click(within(dialog).getByRole('button', { name: 'Run' }));
 
       await waitFor(() => {

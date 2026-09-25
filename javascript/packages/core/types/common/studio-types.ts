@@ -2,6 +2,9 @@ import type { ActionConfigSchema, CreateActionConfig } from '#core/components/ac
 import type { ViewConfig } from '#core/components/views/types';
 import type { QueryConfig } from '#core/types/query-types';
 
+/** Reference to a Revision CR. */
+export type RevisionRef = { name: string; namespace: string };
+
 /**
  * Represents the different phases in the Michelangelo Studio workflow.
  * Each phase corresponds to a specific stage in the machine learning lifecycle.
@@ -64,14 +67,16 @@ export enum Phase {
 
 export interface PhaseEntityConfig<T extends object = object> {
   /**
-   * Name of the entity as it appears within MA Studio. Should be plural, lower case
-   * version of the name.
+   * Name of the entity as it appears within MA Studio. Plural, lower case, and
+   * not pre-cased — nav call sites apply Title Case via `formatEntityName` at
+   * render time. Acronyms (e.g. "AI") should still be capitalized in the name
+   * itself.
    *
    * @example
    * trained models
    * pipelines
-   * feature consistency (intentionally not pluralized since this entity is never referred
-   *  to as "feature consistencies")
+   * feature consistency (not pluralized — never referred to as "feature consistencies")
+   * AI agents
    */
   name: string;
   /**
@@ -101,6 +106,13 @@ export interface PhaseEntityConfig<T extends object = object> {
   service: QueryConfig['service'];
   /** State controlling whether this entity is interactive */
   state: PhaseEntityState;
+  /**
+   * Opts the entity into rendering its detail view with a Revision: the one `?revisionId=` names,
+   * or on a bare URL the one the entity's `status.latestRevision` points at. Setting this
+   * requires the entity to carry that pointer. Entities that have Revisions but should render
+   * live leave it unset.
+   */
+  revisioned?: boolean;
   /** List of view configurations for this entity */
   views: ViewConfig<T>[];
   /**

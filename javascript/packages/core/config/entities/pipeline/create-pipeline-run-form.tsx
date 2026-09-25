@@ -2,6 +2,7 @@ import { Field } from 'react-final-form';
 
 import { FormDialog } from '#core/components/form/components/form-dialog/form-dialog';
 import { BooleanField } from '#core/components/form/fields/boolean/boolean-field';
+import { InlineRadioField } from '#core/components/form/fields/radio/inline-radio-field';
 import { StringField } from '#core/components/form/fields/string/string-field';
 import { TextareaField } from '#core/components/form/fields/textarea/textarea-field';
 import { FormGroup } from '#core/components/form/layout/form-group/form-group';
@@ -13,11 +14,18 @@ import {
 } from '#core/config/entities/run/types';
 import { useStudioParams } from '#core/hooks/routing/use-studio-params/use-studio-params';
 import { useStudioMutation } from '#core/hooks/use-studio-mutation/use-studio-mutation';
+import { ENVIRONMENT_LABEL_KEY } from '#core/utils/environment-utils';
 import { generateSuffix } from '#core/utils/name-utils';
 import { ResumeRunFields } from './resume-run-fields';
+import { isPipelineRevision } from './types';
+import { useTargetRevision } from './use-target-revision';
 
 import type { ActionComponentProps } from '#core/components/actions/types';
-import type { Pipeline, PipelineRunFormValues } from '#core/config/entities/pipeline/types';
+import type {
+  Pipeline,
+  PipelineRevision,
+  PipelineRunFormValues,
+} from '#core/config/entities/pipeline/types';
 import type { PipelineRun, PipelineRunNotification } from '#core/config/entities/run/types';
 
 /**
@@ -33,9 +41,15 @@ export const ALL_PIPELINE_RUN_EVENT_TYPES: NotificationEventType[] = [
   NotificationEventType.PIPELINE_RUN_STATE_SKIPPED,
 ];
 
-export const CreatePipelineRunForm = ({ record, onClose }: ActionComponentProps<Pipeline>) => {
+export const CreatePipelineRunForm = ({
+  record,
+  onClose,
+}: ActionComponentProps<Pipeline | PipelineRevision>) => {
   const { projectId } = useStudioParams('base');
-  const pipelineName = record?.metadata?.name ?? '';
+  const pipelineName = isPipelineRevision(record)
+    ? record.spec.baseResource.name
+    : (record?.metadata?.name ?? '');
+  const revision = useTargetRevision(record);
 
   const createPipelineRunMutation = useStudioMutation<PipelineRun, PipelineRun>({
     mutationName: 'CreatePipelineRun',
@@ -66,6 +80,7 @@ export const CreatePipelineRunForm = ({ record, onClose }: ActionComponentProps<
         name: pipelineName,
         namespace: projectId,
       },
+      revision,
     },
   };
 
@@ -79,15 +94,27 @@ export const CreatePipelineRunForm = ({ record, onClose }: ActionComponentProps<
       initialValues={initialValues}
     >
       <StringField name="spec.pipeline.name" label="Pipeline to run" readOnly />
+      <StringField name="spec.revision.name" label="Revision ID" readOnly />
 
-      <ResumeRunFields pipelineName={pipelineName} />
+      {/* TODO: #2155 "Production" is not currently restricted based on the pipeline's source branch. */}
+      <InlineRadioField
+        name={`metadata.labels.${ENVIRONMENT_LABEL_KEY}`}
+        label="Which environment do you want to use?"
+        required
+        initialValue="development"
+        options={[
+          { value: 'development', label: 'Development' },
+          { value: 'production', label: 'Production' },
+        ]}
+      />
 
       <TextareaField
         name="spec.description"
         label="Description"
-        placeholder="Enter a description for this run…"
         description="Optional. Helps identify this run in the pipeline run list."
       />
+
+      <ResumeRunFields pipelineName={pipelineName} />
 
       <FormGroup title="Set Up Notifications (Optional)">
         <BooleanField
@@ -105,14 +132,14 @@ export const CreatePipelineRunForm = ({ record, onClose }: ActionComponentProps<
                   label="Emails"
                   multi
                   validate={validateEmails}
-                  placeholder="e.g., name@example.com"
+                  placeholder="e.g. name@example.com"
                 />
 
                 <StringField
                   name="notificationSlackDestinations"
                   label="Slack Channels or Users"
                   multi
-                  placeholder="e.g., #channel or @user"
+                  placeholder="e.g. #channel or @user"
                 />
               </>
             ) : null

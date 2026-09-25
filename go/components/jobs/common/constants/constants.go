@@ -19,11 +19,15 @@ const (
 
 // These are valid condition types of all Jobs
 const (
-	EnqueuedCondition             string = "Enqueued"
-	KillingCondition              string = "Killing"
-	KilledCondition               string = "Killed"
-	LaunchedCondition             string = "Launched"
-	PendingCondition              string = "Pending"
+	EnqueuedCondition string = "Enqueued"
+	KillingCondition  string = "Killing"
+	KilledCondition   string = "Killed"
+	LaunchedCondition string = "Launched"
+	PendingCondition  string = "Pending"
+	// QueuedCondition is true while a dispatched job waits for admission on
+	// its target cluster (e.g. a Kueue-managed cluster holding the workload
+	// suspended until quota is available).
+	QueuedCondition               string = "Queued"
 	ScheduledCondition            string = "Scheduled"
 	MetricsConfigCreatedCondition string = "MetricsConfigCreated"
 	SecretCreatedCondition        string = "SecretCreated"
