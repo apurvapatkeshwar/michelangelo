@@ -19,11 +19,10 @@ import (
 type FxTriggerRunServiceHandlerParams struct {
 	fx.In
 
-	Handler       api.Handler
-	MetricsScope  tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
-	AuditLog      logging.AuditLog
+	Handler      api.Handler
+	MetricsScope tally.Scope
+	Auth         authapi.Auth
+	AuditLog     logging.AuditLog
 }
 
 var triggerRunApiHooks []TriggerRunAPIHook
@@ -47,8 +46,7 @@ func NewTriggerRunServiceHandler(params FxTriggerRunServiceHandlerParams) Trigge
 	return &triggerRunServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -56,8 +54,7 @@ func NewTriggerRunServiceHandler(params FxTriggerRunServiceHandlerParams) Trigge
 type triggerRunServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -175,15 +172,11 @@ func (c triggerRunServiceHandler) CreateTriggerRun(
 	ctx context.Context, request *CreateTriggerRunRequest) (resp *CreateTriggerRunResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.TriggerRun.ObjectMeta.Namespace, "name", request.TriggerRun.ObjectMeta.Name)
 	logger.Info("CreateTriggerRun Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "CreateTriggerRun",
-		logging.NamespaceTag:    request.TriggerRun.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.TriggerRun.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForCreate(
@@ -195,8 +188,8 @@ func (c triggerRunServiceHandler) CreateTriggerRun(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -204,7 +197,9 @@ func (c triggerRunServiceHandler) CreateTriggerRun(
 
 	// Authorization
 	projectName := request.TriggerRun.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "TriggerRun"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "TriggerRun")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -245,40 +240,12 @@ func (c triggerRunServiceHandler) CreateTriggerRun(
 func (c triggerRunServiceHandler) GetTriggerRun(
 	ctx context.Context, request *GetTriggerRunRequest) (resp *GetTriggerRunResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("GetTriggerRun Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "GetTriggerRun",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForGet(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "TriggerRun"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -287,6 +254,14 @@ func (c triggerRunServiceHandler) GetTriggerRun(
 
 	result := &TriggerRun{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForGet(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "Cannot get TriggerRun request info from k8s/ETCD", "error", err, "api_msg_tag", "GetTriggerRun")
@@ -320,15 +295,11 @@ func (c triggerRunServiceHandler) GetTriggerRun(
 func (c triggerRunServiceHandler) UpdateTriggerRun(
 	ctx context.Context, request *UpdateTriggerRunRequest) (resp *UpdateTriggerRunResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.TriggerRun.ObjectMeta.Namespace, "name", request.TriggerRun.ObjectMeta.Name)
 	logger.Info("UpdateTriggerRun Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "UpdateTriggerRun",
-		logging.NamespaceTag:    request.TriggerRun.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.TriggerRun.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForUpdate(
@@ -340,8 +311,8 @@ func (c triggerRunServiceHandler) UpdateTriggerRun(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -349,7 +320,9 @@ func (c triggerRunServiceHandler) UpdateTriggerRun(
 
 	// Authorization
 	projectName := request.TriggerRun.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "TriggerRun"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "TriggerRun")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -390,15 +363,11 @@ func (c triggerRunServiceHandler) UpdateTriggerRun(
 func (c triggerRunServiceHandler) DeleteTriggerRun(
 	ctx context.Context, request *DeleteTriggerRunRequest) (resp *DeleteTriggerRunResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("DeleteTriggerRun Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteTriggerRun",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForDelete(
@@ -410,8 +379,8 @@ func (c triggerRunServiceHandler) DeleteTriggerRun(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -419,7 +388,9 @@ func (c triggerRunServiceHandler) DeleteTriggerRun(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "TriggerRun"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "TriggerRun")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -462,14 +433,11 @@ func (c triggerRunServiceHandler) DeleteTriggerRun(
 func (c triggerRunServiceHandler) DeleteTriggerRunCollection(
 	ctx context.Context, request *DeleteTriggerRunCollectionRequest) (resp *DeleteTriggerRunCollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("DeleteTriggerRunCollection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteTriggerRunCollection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForDeleteCollection(
@@ -481,8 +449,8 @@ func (c triggerRunServiceHandler) DeleteTriggerRunCollection(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -490,7 +458,9 @@ func (c triggerRunServiceHandler) DeleteTriggerRunCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "TriggerRun"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "TriggerRun")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -536,39 +506,12 @@ func (c triggerRunServiceHandler) ListTriggerRun(
 	ctx context.Context, request *ListTriggerRunRequest) (resp *ListTriggerRunResponse, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("ListTriggerRun Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "ListTriggerRun",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForList(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "TriggerRun"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &TriggerRunList{}
 	listOptions := &metav1.ListOptions{}
@@ -580,6 +523,14 @@ func (c triggerRunServiceHandler) ListTriggerRun(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildTriggerRunAuditLogEventForList(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List TriggerRun", "error", err, "api_msg_tag", "ListTriggerRun")

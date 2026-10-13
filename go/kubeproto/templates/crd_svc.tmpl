@@ -3,8 +3,7 @@ type Fx{{.KindName}}ServiceHandlerParams struct {
 
 	Handler      api.Handler
 	MetricsScope tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
+	Auth         authapi.Auth
 	AuditLog     logging.AuditLog
 }
 
@@ -29,8 +28,7 @@ func New{{.KindName}}ServiceHandler(params Fx{{.KindName}}ServiceHandlerParams) 
 	return &{{.LowerKindName}}ServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -38,8 +36,7 @@ func New{{.KindName}}ServiceHandler(params Fx{{.KindName}}ServiceHandlerParams) 
 type {{.LowerKindName}}ServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -156,15 +153,11 @@ func (c {{.LowerKindName}}ServiceHandler) Create{{.KindName}}(
 	ctx context.Context, request *Create{{.KindName}}Request) (resp *Create{{.KindName}}Response, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.{{.KindName}}.ObjectMeta.Namespace, "name", request.{{.KindName}}.ObjectMeta.Name)
 	logger.Info("Create{{.KindName}} Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "Create{{.KindName}}",
-		logging.NamespaceTag:    request.{{.KindName}}.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.{{.KindName}}.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForCreate(
@@ -176,8 +169,8 @@ func (c {{.LowerKindName}}ServiceHandler) Create{{.KindName}}(
 				)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -185,7 +178,9 @@ func (c {{.LowerKindName}}ServiceHandler) Create{{.KindName}}(
 
 	// Authorization
 	projectName := request.{{.KindName}}.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "{{.KindName}}"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "{{.KindName}}")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -226,40 +221,12 @@ func (c {{.LowerKindName}}ServiceHandler) Create{{.KindName}}(
 func (c {{.LowerKindName}}ServiceHandler) Get{{.KindName}}(
 	ctx context.Context, request *Get{{.KindName}}Request) (resp *Get{{.KindName}}Response, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("Get{{.KindName}} Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "Get{{.KindName}}",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForGet(
-												ctx,
-												request,
-												resp,
-												err,
-												),
-				)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "{{.KindName}}"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -268,6 +235,14 @@ func (c {{.LowerKindName}}ServiceHandler) Get{{.KindName}}(
 
 	result := &{{.KindName}}{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForGet(
+												ctx,
+												request,
+												resp,
+												err,
+												),
+				)
 
 	if err != nil {
 		logger.Error(err, "Cannot get {{.KindName}} request info from k8s/ETCD", "error", err, "api_msg_tag", "Get{{.KindName}}")
@@ -301,15 +276,11 @@ func (c {{.LowerKindName}}ServiceHandler) Get{{.KindName}}(
 func (c {{.LowerKindName}}ServiceHandler) Update{{.KindName}}(
 	ctx context.Context, request *Update{{.KindName}}Request) (resp *Update{{.KindName}}Response, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.{{.KindName}}.ObjectMeta.Namespace, "name", request.{{.KindName}}.ObjectMeta.Name)
 	logger.Info("Update{{.KindName}} Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "Update{{.KindName}}",
-		logging.NamespaceTag:    request.{{.KindName}}.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.{{.KindName}}.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForUpdate(
@@ -321,8 +292,8 @@ func (c {{.LowerKindName}}ServiceHandler) Update{{.KindName}}(
 				)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -330,7 +301,9 @@ func (c {{.LowerKindName}}ServiceHandler) Update{{.KindName}}(
 
 	// Authorization
 	projectName := request.{{.KindName}}.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "{{.KindName}}"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "{{.KindName}}")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -371,15 +344,11 @@ func (c {{.LowerKindName}}ServiceHandler) Update{{.KindName}}(
 func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}(
 	ctx context.Context, request *Delete{{.KindName}}Request) (resp *Delete{{.KindName}}Response, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("Delete{{.KindName}} Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "Delete{{.KindName}}",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForDelete(
@@ -391,8 +360,8 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}(
 				)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -400,7 +369,9 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "{{.KindName}}"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "{{.KindName}}")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -443,14 +414,11 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}(
 func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}Collection(
 	ctx context.Context, request *Delete{{.KindName}}CollectionRequest) (resp *Delete{{.KindName}}CollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("Delete{{.KindName}}Collection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "Delete{{.KindName}}Collection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForDeleteCollection(
@@ -462,8 +430,8 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}Collection(
 				)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -471,7 +439,9 @@ func (c {{.LowerKindName}}ServiceHandler) Delete{{.KindName}}Collection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "{{.KindName}}"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "{{.KindName}}")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -517,39 +487,12 @@ func (c {{.LowerKindName}}ServiceHandler) List{{.KindName}}(
 	ctx context.Context, request *List{{.KindName}}Request) (resp *List{{.KindName}}Response, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("List{{.KindName}} Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "List{{.KindName}}",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForList(
-												ctx,
-												request,
-												resp,
-												err,
-												),
-				)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "{{.KindName}}"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &{{.KindName}}List{}
 	listOptions := &metav1.ListOptions{}
@@ -561,6 +504,14 @@ func (c {{.LowerKindName}}ServiceHandler) List{{.KindName}}(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.build{{.KindName}}AuditLogEventForList(
+												ctx,
+												request,
+												resp,
+												err,
+												),
+				)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List {{.KindName}}", "error", err, "api_msg_tag", "List{{.KindName}}")

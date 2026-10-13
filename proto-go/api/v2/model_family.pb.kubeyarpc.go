@@ -19,11 +19,10 @@ import (
 type FxModelFamilyServiceHandlerParams struct {
 	fx.In
 
-	Handler       api.Handler
-	MetricsScope  tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
-	AuditLog      logging.AuditLog
+	Handler      api.Handler
+	MetricsScope tally.Scope
+	Auth         authapi.Auth
+	AuditLog     logging.AuditLog
 }
 
 var modelFamilyApiHooks []ModelFamilyAPIHook
@@ -47,8 +46,7 @@ func NewModelFamilyServiceHandler(params FxModelFamilyServiceHandlerParams) Mode
 	return &modelFamilyServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -56,8 +54,7 @@ func NewModelFamilyServiceHandler(params FxModelFamilyServiceHandlerParams) Mode
 type modelFamilyServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -175,15 +172,11 @@ func (c modelFamilyServiceHandler) CreateModelFamily(
 	ctx context.Context, request *CreateModelFamilyRequest) (resp *CreateModelFamilyResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.ModelFamily.ObjectMeta.Namespace, "name", request.ModelFamily.ObjectMeta.Name)
 	logger.Info("CreateModelFamily Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "CreateModelFamily",
-		logging.NamespaceTag:    request.ModelFamily.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.ModelFamily.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForCreate(
@@ -195,8 +188,8 @@ func (c modelFamilyServiceHandler) CreateModelFamily(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -204,7 +197,9 @@ func (c modelFamilyServiceHandler) CreateModelFamily(
 
 	// Authorization
 	projectName := request.ModelFamily.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "ModelFamily"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "ModelFamily")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -245,40 +240,12 @@ func (c modelFamilyServiceHandler) CreateModelFamily(
 func (c modelFamilyServiceHandler) GetModelFamily(
 	ctx context.Context, request *GetModelFamilyRequest) (resp *GetModelFamilyResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("GetModelFamily Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "GetModelFamily",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForGet(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "ModelFamily"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -287,6 +254,14 @@ func (c modelFamilyServiceHandler) GetModelFamily(
 
 	result := &ModelFamily{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForGet(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "Cannot get ModelFamily request info from k8s/ETCD", "error", err, "api_msg_tag", "GetModelFamily")
@@ -320,15 +295,11 @@ func (c modelFamilyServiceHandler) GetModelFamily(
 func (c modelFamilyServiceHandler) UpdateModelFamily(
 	ctx context.Context, request *UpdateModelFamilyRequest) (resp *UpdateModelFamilyResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.ModelFamily.ObjectMeta.Namespace, "name", request.ModelFamily.ObjectMeta.Name)
 	logger.Info("UpdateModelFamily Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "UpdateModelFamily",
-		logging.NamespaceTag:    request.ModelFamily.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.ModelFamily.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForUpdate(
@@ -340,8 +311,8 @@ func (c modelFamilyServiceHandler) UpdateModelFamily(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -349,7 +320,9 @@ func (c modelFamilyServiceHandler) UpdateModelFamily(
 
 	// Authorization
 	projectName := request.ModelFamily.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "ModelFamily"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "ModelFamily")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -390,15 +363,11 @@ func (c modelFamilyServiceHandler) UpdateModelFamily(
 func (c modelFamilyServiceHandler) DeleteModelFamily(
 	ctx context.Context, request *DeleteModelFamilyRequest) (resp *DeleteModelFamilyResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("DeleteModelFamily Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteModelFamily",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForDelete(
@@ -410,8 +379,8 @@ func (c modelFamilyServiceHandler) DeleteModelFamily(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -419,7 +388,9 @@ func (c modelFamilyServiceHandler) DeleteModelFamily(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "ModelFamily"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "ModelFamily")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -462,14 +433,11 @@ func (c modelFamilyServiceHandler) DeleteModelFamily(
 func (c modelFamilyServiceHandler) DeleteModelFamilyCollection(
 	ctx context.Context, request *DeleteModelFamilyCollectionRequest) (resp *DeleteModelFamilyCollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("DeleteModelFamilyCollection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteModelFamilyCollection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForDeleteCollection(
@@ -481,8 +449,8 @@ func (c modelFamilyServiceHandler) DeleteModelFamilyCollection(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -490,7 +458,9 @@ func (c modelFamilyServiceHandler) DeleteModelFamilyCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "ModelFamily"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "ModelFamily")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -536,39 +506,12 @@ func (c modelFamilyServiceHandler) ListModelFamily(
 	ctx context.Context, request *ListModelFamilyRequest) (resp *ListModelFamilyResponse, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("ListModelFamily Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "ListModelFamily",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForList(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "ModelFamily"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &ModelFamilyList{}
 	listOptions := &metav1.ListOptions{}
@@ -580,6 +523,14 @@ func (c modelFamilyServiceHandler) ListModelFamily(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildModelFamilyAuditLogEventForList(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List ModelFamily", "error", err, "api_msg_tag", "ListModelFamily")

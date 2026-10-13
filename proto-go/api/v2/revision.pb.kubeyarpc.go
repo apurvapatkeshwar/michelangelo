@@ -19,11 +19,10 @@ import (
 type FxRevisionServiceHandlerParams struct {
 	fx.In
 
-	Handler       api.Handler
-	MetricsScope  tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
-	AuditLog      logging.AuditLog
+	Handler      api.Handler
+	MetricsScope tally.Scope
+	Auth         authapi.Auth
+	AuditLog     logging.AuditLog
 }
 
 var revisionApiHooks []RevisionAPIHook
@@ -47,8 +46,7 @@ func NewRevisionServiceHandler(params FxRevisionServiceHandlerParams) RevisionSe
 	return &revisionServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -56,8 +54,7 @@ func NewRevisionServiceHandler(params FxRevisionServiceHandlerParams) RevisionSe
 type revisionServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -175,15 +172,11 @@ func (c revisionServiceHandler) CreateRevision(
 	ctx context.Context, request *CreateRevisionRequest) (resp *CreateRevisionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Revision.ObjectMeta.Namespace, "name", request.Revision.ObjectMeta.Name)
 	logger.Info("CreateRevision Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "CreateRevision",
-		logging.NamespaceTag:    request.Revision.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.Revision.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForCreate(
@@ -195,8 +188,8 @@ func (c revisionServiceHandler) CreateRevision(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -204,7 +197,9 @@ func (c revisionServiceHandler) CreateRevision(
 
 	// Authorization
 	projectName := request.Revision.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "Revision"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "Revision")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -245,40 +240,12 @@ func (c revisionServiceHandler) CreateRevision(
 func (c revisionServiceHandler) GetRevision(
 	ctx context.Context, request *GetRevisionRequest) (resp *GetRevisionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("GetRevision Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "GetRevision",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForGet(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "Revision"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -287,6 +254,14 @@ func (c revisionServiceHandler) GetRevision(
 
 	result := &Revision{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForGet(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "Cannot get Revision request info from k8s/ETCD", "error", err, "api_msg_tag", "GetRevision")
@@ -320,15 +295,11 @@ func (c revisionServiceHandler) GetRevision(
 func (c revisionServiceHandler) UpdateRevision(
 	ctx context.Context, request *UpdateRevisionRequest) (resp *UpdateRevisionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Revision.ObjectMeta.Namespace, "name", request.Revision.ObjectMeta.Name)
 	logger.Info("UpdateRevision Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "UpdateRevision",
-		logging.NamespaceTag:    request.Revision.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.Revision.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForUpdate(
@@ -340,8 +311,8 @@ func (c revisionServiceHandler) UpdateRevision(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -349,7 +320,9 @@ func (c revisionServiceHandler) UpdateRevision(
 
 	// Authorization
 	projectName := request.Revision.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "Revision"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "Revision")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -390,15 +363,11 @@ func (c revisionServiceHandler) UpdateRevision(
 func (c revisionServiceHandler) DeleteRevision(
 	ctx context.Context, request *DeleteRevisionRequest) (resp *DeleteRevisionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("DeleteRevision Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteRevision",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForDelete(
@@ -410,8 +379,8 @@ func (c revisionServiceHandler) DeleteRevision(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -419,7 +388,9 @@ func (c revisionServiceHandler) DeleteRevision(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "Revision"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "Revision")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -462,14 +433,11 @@ func (c revisionServiceHandler) DeleteRevision(
 func (c revisionServiceHandler) DeleteRevisionCollection(
 	ctx context.Context, request *DeleteRevisionCollectionRequest) (resp *DeleteRevisionCollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("DeleteRevisionCollection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteRevisionCollection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForDeleteCollection(
@@ -481,8 +449,8 @@ func (c revisionServiceHandler) DeleteRevisionCollection(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -490,7 +458,9 @@ func (c revisionServiceHandler) DeleteRevisionCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "Revision"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "Revision")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -536,39 +506,12 @@ func (c revisionServiceHandler) ListRevision(
 	ctx context.Context, request *ListRevisionRequest) (resp *ListRevisionResponse, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("ListRevision Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "ListRevision",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForList(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "Revision"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &RevisionList{}
 	listOptions := &metav1.ListOptions{}
@@ -580,6 +523,14 @@ func (c revisionServiceHandler) ListRevision(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildRevisionAuditLogEventForList(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List Revision", "error", err, "api_msg_tag", "ListRevision")

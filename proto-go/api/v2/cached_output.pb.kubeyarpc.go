@@ -19,11 +19,10 @@ import (
 type FxCachedOutputServiceHandlerParams struct {
 	fx.In
 
-	Handler       api.Handler
-	MetricsScope  tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
-	AuditLog      logging.AuditLog
+	Handler      api.Handler
+	MetricsScope tally.Scope
+	Auth         authapi.Auth
+	AuditLog     logging.AuditLog
 }
 
 var cachedOutputApiHooks []CachedOutputAPIHook
@@ -47,8 +46,7 @@ func NewCachedOutputServiceHandler(params FxCachedOutputServiceHandlerParams) Ca
 	return &cachedOutputServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -56,8 +54,7 @@ func NewCachedOutputServiceHandler(params FxCachedOutputServiceHandlerParams) Ca
 type cachedOutputServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -175,15 +172,11 @@ func (c cachedOutputServiceHandler) CreateCachedOutput(
 	ctx context.Context, request *CreateCachedOutputRequest) (resp *CreateCachedOutputResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.CachedOutput.ObjectMeta.Namespace, "name", request.CachedOutput.ObjectMeta.Name)
 	logger.Info("CreateCachedOutput Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "CreateCachedOutput",
-		logging.NamespaceTag:    request.CachedOutput.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.CachedOutput.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForCreate(
@@ -195,8 +188,8 @@ func (c cachedOutputServiceHandler) CreateCachedOutput(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -204,7 +197,9 @@ func (c cachedOutputServiceHandler) CreateCachedOutput(
 
 	// Authorization
 	projectName := request.CachedOutput.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "CachedOutput"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "CachedOutput")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -245,40 +240,12 @@ func (c cachedOutputServiceHandler) CreateCachedOutput(
 func (c cachedOutputServiceHandler) GetCachedOutput(
 	ctx context.Context, request *GetCachedOutputRequest) (resp *GetCachedOutputResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("GetCachedOutput Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "GetCachedOutput",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForGet(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "CachedOutput"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -287,6 +254,14 @@ func (c cachedOutputServiceHandler) GetCachedOutput(
 
 	result := &CachedOutput{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForGet(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "Cannot get CachedOutput request info from k8s/ETCD", "error", err, "api_msg_tag", "GetCachedOutput")
@@ -320,15 +295,11 @@ func (c cachedOutputServiceHandler) GetCachedOutput(
 func (c cachedOutputServiceHandler) UpdateCachedOutput(
 	ctx context.Context, request *UpdateCachedOutputRequest) (resp *UpdateCachedOutputResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.CachedOutput.ObjectMeta.Namespace, "name", request.CachedOutput.ObjectMeta.Name)
 	logger.Info("UpdateCachedOutput Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "UpdateCachedOutput",
-		logging.NamespaceTag:    request.CachedOutput.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.CachedOutput.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForUpdate(
@@ -340,8 +311,8 @@ func (c cachedOutputServiceHandler) UpdateCachedOutput(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -349,7 +320,9 @@ func (c cachedOutputServiceHandler) UpdateCachedOutput(
 
 	// Authorization
 	projectName := request.CachedOutput.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "CachedOutput"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "CachedOutput")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -390,15 +363,11 @@ func (c cachedOutputServiceHandler) UpdateCachedOutput(
 func (c cachedOutputServiceHandler) DeleteCachedOutput(
 	ctx context.Context, request *DeleteCachedOutputRequest) (resp *DeleteCachedOutputResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("DeleteCachedOutput Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteCachedOutput",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForDelete(
@@ -410,8 +379,8 @@ func (c cachedOutputServiceHandler) DeleteCachedOutput(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -419,7 +388,9 @@ func (c cachedOutputServiceHandler) DeleteCachedOutput(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "CachedOutput"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "CachedOutput")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -462,14 +433,11 @@ func (c cachedOutputServiceHandler) DeleteCachedOutput(
 func (c cachedOutputServiceHandler) DeleteCachedOutputCollection(
 	ctx context.Context, request *DeleteCachedOutputCollectionRequest) (resp *DeleteCachedOutputCollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("DeleteCachedOutputCollection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteCachedOutputCollection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForDeleteCollection(
@@ -481,8 +449,8 @@ func (c cachedOutputServiceHandler) DeleteCachedOutputCollection(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -490,7 +458,9 @@ func (c cachedOutputServiceHandler) DeleteCachedOutputCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "CachedOutput"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "CachedOutput")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -536,39 +506,12 @@ func (c cachedOutputServiceHandler) ListCachedOutput(
 	ctx context.Context, request *ListCachedOutputRequest) (resp *ListCachedOutputResponse, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("ListCachedOutput Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "ListCachedOutput",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForList(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "CachedOutput"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &CachedOutputList{}
 	listOptions := &metav1.ListOptions{}
@@ -580,6 +523,14 @@ func (c cachedOutputServiceHandler) ListCachedOutput(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildCachedOutputAuditLogEventForList(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List CachedOutput", "error", err, "api_msg_tag", "ListCachedOutput")

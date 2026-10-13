@@ -63,11 +63,11 @@ var resourceForKind = map[string]string{
 	"TriggerRun":       "triggerruns",
 }
 
-// Attributes builds the authorizer attributes for a generated handler's
-// (namespace, action, kind) triple. An empty namespace expresses a
-// cluster-wide request (for example List across all namespaces) and
-// therefore requires a cluster-scoped RBAC grant. Unknown actions and
-// kinds fail closed with an error.
+// Attributes builds the authorizer attributes for a (namespace, action,
+// kind) triple. An empty namespace expresses a cluster-wide request (for
+// example List across all namespaces) and therefore requires a
+// cluster-scoped RBAC grant. Unknown actions and kinds fail closed with an
+// error.
 func Attributes(userInfo user.Info, namespace string, action Action, kind string) (authorizer.Attributes, error) {
 	verb, ok := verbForAction[action]
 	if !ok {

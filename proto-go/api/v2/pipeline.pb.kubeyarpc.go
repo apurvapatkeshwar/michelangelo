@@ -19,11 +19,10 @@ import (
 type FxPipelineServiceHandlerParams struct {
 	fx.In
 
-	Handler       api.Handler
-	MetricsScope  tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
-	AuditLog      logging.AuditLog
+	Handler      api.Handler
+	MetricsScope tally.Scope
+	Auth         authapi.Auth
+	AuditLog     logging.AuditLog
 }
 
 var pipelineApiHooks []PipelineAPIHook
@@ -47,8 +46,7 @@ func NewPipelineServiceHandler(params FxPipelineServiceHandlerParams) PipelineSe
 	return &pipelineServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -56,8 +54,7 @@ func NewPipelineServiceHandler(params FxPipelineServiceHandlerParams) PipelineSe
 type pipelineServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -175,15 +172,11 @@ func (c pipelineServiceHandler) CreatePipeline(
 	ctx context.Context, request *CreatePipelineRequest) (resp *CreatePipelineResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Pipeline.ObjectMeta.Namespace, "name", request.Pipeline.ObjectMeta.Name)
 	logger.Info("CreatePipeline Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "CreatePipeline",
-		logging.NamespaceTag:    request.Pipeline.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.Pipeline.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForCreate(
@@ -195,8 +188,8 @@ func (c pipelineServiceHandler) CreatePipeline(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -204,7 +197,9 @@ func (c pipelineServiceHandler) CreatePipeline(
 
 	// Authorization
 	projectName := request.Pipeline.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "Pipeline"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "Pipeline")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -245,40 +240,12 @@ func (c pipelineServiceHandler) CreatePipeline(
 func (c pipelineServiceHandler) GetPipeline(
 	ctx context.Context, request *GetPipelineRequest) (resp *GetPipelineResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("GetPipeline Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "GetPipeline",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForGet(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "Pipeline"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -287,6 +254,14 @@ func (c pipelineServiceHandler) GetPipeline(
 
 	result := &Pipeline{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForGet(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "Cannot get Pipeline request info from k8s/ETCD", "error", err, "api_msg_tag", "GetPipeline")
@@ -320,15 +295,11 @@ func (c pipelineServiceHandler) GetPipeline(
 func (c pipelineServiceHandler) UpdatePipeline(
 	ctx context.Context, request *UpdatePipelineRequest) (resp *UpdatePipelineResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Pipeline.ObjectMeta.Namespace, "name", request.Pipeline.ObjectMeta.Name)
 	logger.Info("UpdatePipeline Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "UpdatePipeline",
-		logging.NamespaceTag:    request.Pipeline.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.Pipeline.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForUpdate(
@@ -340,8 +311,8 @@ func (c pipelineServiceHandler) UpdatePipeline(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -349,7 +320,9 @@ func (c pipelineServiceHandler) UpdatePipeline(
 
 	// Authorization
 	projectName := request.Pipeline.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "Pipeline"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "Pipeline")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -390,15 +363,11 @@ func (c pipelineServiceHandler) UpdatePipeline(
 func (c pipelineServiceHandler) DeletePipeline(
 	ctx context.Context, request *DeletePipelineRequest) (resp *DeletePipelineResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("DeletePipeline Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeletePipeline",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForDelete(
@@ -410,8 +379,8 @@ func (c pipelineServiceHandler) DeletePipeline(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -419,7 +388,9 @@ func (c pipelineServiceHandler) DeletePipeline(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "Pipeline"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "Pipeline")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -462,14 +433,11 @@ func (c pipelineServiceHandler) DeletePipeline(
 func (c pipelineServiceHandler) DeletePipelineCollection(
 	ctx context.Context, request *DeletePipelineCollectionRequest) (resp *DeletePipelineCollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("DeletePipelineCollection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeletePipelineCollection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForDeleteCollection(
@@ -481,8 +449,8 @@ func (c pipelineServiceHandler) DeletePipelineCollection(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -490,7 +458,9 @@ func (c pipelineServiceHandler) DeletePipelineCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "Pipeline"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "Pipeline")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -536,39 +506,12 @@ func (c pipelineServiceHandler) ListPipeline(
 	ctx context.Context, request *ListPipelineRequest) (resp *ListPipelineResponse, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("ListPipeline Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "ListPipeline",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForList(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "Pipeline"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &PipelineList{}
 	listOptions := &metav1.ListOptions{}
@@ -580,6 +523,14 @@ func (c pipelineServiceHandler) ListPipeline(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildPipelineAuditLogEventForList(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List Pipeline", "error", err, "api_msg_tag", "ListPipeline")

@@ -19,11 +19,10 @@ import (
 type FxEvaluationReportServiceHandlerParams struct {
 	fx.In
 
-	Handler       api.Handler
-	MetricsScope  tally.Scope
-	Authenticator authapi.TokenAuthenticator
-	Authorizer    authapi.Authorizer
-	AuditLog      logging.AuditLog
+	Handler      api.Handler
+	MetricsScope tally.Scope
+	Auth         authapi.Auth
+	AuditLog     logging.AuditLog
 }
 
 var evaluationReportApiHooks []EvaluationReportAPIHook
@@ -47,8 +46,7 @@ func NewEvaluationReportServiceHandler(params FxEvaluationReportServiceHandlerPa
 	return &evaluationReportServiceHandler{
 		apiHandler:      params.Handler,
 		MetricsScope:    params.MetricsScope.SubScope(logging.MichelangeloAPIScopeName),
-		authenticator:   params.Authenticator,
-		authorizer:      params.Authorizer,
+		auth:            params.Auth,
 		auditLogEmitter: params.AuditLog,
 	}
 }
@@ -56,8 +54,7 @@ func NewEvaluationReportServiceHandler(params FxEvaluationReportServiceHandlerPa
 type evaluationReportServiceHandler struct {
 	apiHandler      api.Handler
 	MetricsScope    tally.Scope
-	authenticator   authapi.TokenAuthenticator
-	authorizer      authapi.Authorizer
+	auth            authapi.Auth
 	auditLogEmitter logging.AuditLog
 }
 
@@ -176,15 +173,11 @@ func (c evaluationReportServiceHandler) CreateEvaluationReport(
 	ctx context.Context, request *CreateEvaluationReportRequest) (resp *CreateEvaluationReportResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
 
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.EvaluationReport.ObjectMeta.Namespace, "name", request.EvaluationReport.ObjectMeta.Name)
 	logger.Info("CreateEvaluationReport Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "CreateEvaluationReport",
-		logging.NamespaceTag:    request.EvaluationReport.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.EvaluationReport.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForCreate(
@@ -196,8 +189,8 @@ func (c evaluationReportServiceHandler) CreateEvaluationReport(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -205,7 +198,9 @@ func (c evaluationReportServiceHandler) CreateEvaluationReport(
 
 	// Authorization
 	projectName := request.EvaluationReport.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Create, "EvaluationReport"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Create, "EvaluationReport")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -246,40 +241,12 @@ func (c evaluationReportServiceHandler) CreateEvaluationReport(
 func (c evaluationReportServiceHandler) GetEvaluationReport(
 	ctx context.Context, request *GetEvaluationReportRequest) (resp *GetEvaluationReportResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("GetEvaluationReport Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "GetEvaluationReport",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForGet(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Get, "EvaluationReport"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	getOptions := &metav1.GetOptions{}
 	if request.GetOptions != nil {
@@ -288,6 +255,14 @@ func (c evaluationReportServiceHandler) GetEvaluationReport(
 
 	result := &EvaluationReport{}
 	err = c.apiHandler.Get(ctx, request.Namespace, request.Name, getOptions, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForGet(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "Cannot get EvaluationReport request info from k8s/ETCD", "error", err, "api_msg_tag", "GetEvaluationReport")
@@ -321,15 +296,11 @@ func (c evaluationReportServiceHandler) GetEvaluationReport(
 func (c evaluationReportServiceHandler) UpdateEvaluationReport(
 	ctx context.Context, request *UpdateEvaluationReportRequest) (resp *UpdateEvaluationReportResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.EvaluationReport.ObjectMeta.Namespace, "name", request.EvaluationReport.ObjectMeta.Name)
 	logger.Info("UpdateEvaluationReport Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "UpdateEvaluationReport",
-		logging.NamespaceTag:    request.EvaluationReport.ObjectMeta.Namespace,
-		logging.EntityNameTag:   request.EvaluationReport.ObjectMeta.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForUpdate(
@@ -341,8 +312,8 @@ func (c evaluationReportServiceHandler) UpdateEvaluationReport(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -350,7 +321,9 @@ func (c evaluationReportServiceHandler) UpdateEvaluationReport(
 
 	// Authorization
 	projectName := request.EvaluationReport.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Update, "EvaluationReport"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Update, "EvaluationReport")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -391,15 +364,11 @@ func (c evaluationReportServiceHandler) UpdateEvaluationReport(
 func (c evaluationReportServiceHandler) DeleteEvaluationReport(
 	ctx context.Context, request *DeleteEvaluationReportRequest) (resp *DeleteEvaluationReportResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace, "name", request.Name)
 	logger.Info("DeleteEvaluationReport Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteEvaluationReport",
-		logging.NamespaceTag:    request.Namespace,
-		logging.EntityNameTag:   request.Name,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForDelete(
@@ -411,8 +380,8 @@ func (c evaluationReportServiceHandler) DeleteEvaluationReport(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -420,7 +389,9 @@ func (c evaluationReportServiceHandler) DeleteEvaluationReport(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.Delete, "EvaluationReport"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.Delete, "EvaluationReport")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -463,14 +434,11 @@ func (c evaluationReportServiceHandler) DeleteEvaluationReport(
 func (c evaluationReportServiceHandler) DeleteEvaluationReportCollection(
 	ctx context.Context, request *DeleteEvaluationReportCollectionRequest) (resp *DeleteEvaluationReportCollectionResponse, err error) {
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("DeleteEvaluationReportCollection Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "DeleteEvaluationReportCollection",
-		logging.NamespaceTag:    request.Namespace,
 	})
 
 	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForDeleteCollection(
@@ -482,8 +450,8 @@ func (c evaluationReportServiceHandler) DeleteEvaluationReportCollection(
 	)
 
 	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
+	userAuthenticated, err := c.auth.UserAuthenticated(ctx)
+	if !userAuthenticated {
 		logger.Error(err, "User is not authenticated")
 		metric.Counter("unauthenticated").Inc(1)
 		return nil, err
@@ -491,7 +459,9 @@ func (c evaluationReportServiceHandler) DeleteEvaluationReportCollection(
 
 	// Authorization
 	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.DeleteCollection, "EvaluationReport"); err != nil {
+	userAuthorized, err := c.auth.UserAuthorized(ctx, projectName, authapi.DeleteCollection, "EvaluationReport")
+
+	if !userAuthorized {
 		logger.Error(err, "User is not authorized")
 		metric.Counter("unauthorized").Inc(1)
 		return nil, err
@@ -537,39 +507,12 @@ func (c evaluationReportServiceHandler) ListEvaluationReport(
 	ctx context.Context, request *ListEvaluationReportRequest) (resp *ListEvaluationReportResponse, err error) {
 
 	logger := logging.GetLogrLoggerOrPanic()
-	requestJSON := logging.MarshalToString(request)
-
-	logger = logger.WithValues("request", requestJSON, "context", ctx)
+	logger = logger.WithValues("namespace", request.Namespace)
 	logger.Info("ListEvaluationReport Request Called")
 
 	metric := c.MetricsScope.Tagged(map[string]string{
 		logging.APIProcedureTag: "ListEvaluationReport",
-		logging.NamespaceTag:    request.Namespace,
 	})
-
-	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForList(
-		ctx,
-		request,
-		resp,
-		err,
-	),
-	)
-
-	// Authentication
-	userInfo, err := authapi.Authenticate(ctx, c.authenticator)
-	if err != nil {
-		logger.Error(err, "User is not authenticated")
-		metric.Counter("unauthenticated").Inc(1)
-		return nil, err
-	}
-
-	// Authorization
-	projectName := request.Namespace
-	if err = authapi.Authorize(ctx, c.authorizer, userInfo, projectName, authapi.List, "EvaluationReport"); err != nil {
-		logger.Error(err, "User is not authorized")
-		metric.Counter("unauthorized").Inc(1)
-		return nil, err
-	}
 
 	result := &EvaluationReportList{}
 	listOptions := &metav1.ListOptions{}
@@ -581,6 +524,14 @@ func (c evaluationReportServiceHandler) ListEvaluationReport(
 		listOptionsExt = request.ListOptionsExt
 	}
 	err = c.apiHandler.List(ctx, request.Namespace, listOptions, listOptionsExt, result)
+
+	defer c.auditLogEmitter.Emit(ctx, c.buildEvaluationReportAuditLogEventForList(
+		ctx,
+		request,
+		resp,
+		err,
+	),
+	)
 
 	if err != nil {
 		logger.Error(err, "API Handler failed to List EvaluationReport", "error", err, "api_msg_tag", "ListEvaluationReport")
