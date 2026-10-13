@@ -40,7 +40,7 @@ func TestAuthenticatorSatisfiesAuthFromTokenAuthenticator(t *testing.T) {
 
 	assert.Equal(t, auth.PrincipalTypeUser, principal.Type)
 	assert.Equal(t, "alice@example.com", principal.Name)
-	assert.Equal(t, "dev,ops", principal.Attrs["groups"])
+	assert.Equal(t, `["dev","ops"]`, principal.Attrs["groups"])
 }
 
 // TestAuthenticatorSatisfiesAuthFromTokenAuthenticatorRejectsExpired proves
