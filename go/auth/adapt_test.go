@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
@@ -61,7 +63,7 @@ func TestFromTokenAuthenticatorMapsUserInfoToPrincipal(t *testing.T) {
 	assert.Equal(t, "tok-123", stub.gotToken)
 	assert.Equal(t, PrincipalTypeUser, principal.Type)
 	assert.Equal(t, "alice@example.com", principal.Name)
-	assert.Equal(t, "dev,platform", principal.Attrs[groupsAttr])
+	assert.Equal(t, `["dev","platform"]`, principal.Attrs[groupsAttr])
 	assert.Equal(t, "uid-1", principal.Attrs[uidAttr])
 }
 
@@ -95,17 +97,69 @@ func TestFromTokenAuthenticatorFailsClosedOnNilResponse(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestFromTokenAuthenticatorRejectsEmptyName(t *testing.T) {
+	anon := &user.DefaultInfo{Name: ""}
+	stub := &stubTokenAuthenticator{response: &authenticator.Response{User: anon}, ok: true}
+	_, err := FromTokenAuthenticator(stub).Authenticate(context.Background(), "tok")
+	require.Error(t, err)
+}
+
+func TestFromTokenAuthenticatorPanicsOnNilAuthenticator(t *testing.T) {
+	assert.Panics(t, func() { FromTokenAuthenticator(nil) })
+}
+
+func TestFromTokenAuthenticatorMapsServiceAccountSubjectsToPrincipalTypeService(t *testing.T) {
+	sa := &user.DefaultInfo{Name: "system:serviceaccount:michelangelo:runner"}
+	stub := &stubTokenAuthenticator{response: &authenticator.Response{User: sa}, ok: true}
+	principal, err := FromTokenAuthenticator(stub).Authenticate(context.Background(), "tok")
+	require.NoError(t, err)
+	assert.Equal(t, PrincipalTypeService, principal.Type)
+}
+
+func TestFromTokenAuthenticatorPreservesGroupNamesWithCommas(t *testing.T) {
+	weirdUser := &user.DefaultInfo{
+		Name:   "alice@example.com",
+		Groups: []string{"CN=admins,OU=groups,DC=example,DC=com", "dev"},
+	}
+	stub := &stubTokenAuthenticator{response: &authenticator.Response{User: weirdUser}, ok: true}
+	principal, err := FromTokenAuthenticator(stub).Authenticate(context.Background(), "tok")
+	require.NoError(t, err)
+
+	// Round-trip through userInfoFromPrincipal (exercised via
+	// UserAuthorized) to confirm the comma-bearing group name survives.
+	stubAuthz := &stubAuthorizer{decision: authorizer.DecisionAllow}
+	a := NewK8sRBACAuth(stubAuthz, zap.NewNop())
+	ctx := WithPrincipal(context.Background(), principal)
+	_, err = a.UserAuthorized(ctx, "team-a", Get, "Model")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"CN=admins,OU=groups,DC=example,DC=com", "dev"}, stubAuthz.got.GetUser().GetGroups())
+}
+
+// --- K8sRBACAuth construction ---
+
+func TestNewK8sRBACAuthPanicsOnNilAuthorizer(t *testing.T) {
+	assert.Panics(t, func() { NewK8sRBACAuth(nil, zap.NewNop()) })
+}
+
 // --- K8sRBACAuth.UserAuthenticated ---
 
 func TestK8sRBACAuthUserAuthenticatedRequiresPrincipal(t *testing.T) {
-	a := NewK8sRBACAuth(&stubAuthorizer{})
+	a := NewK8sRBACAuth(&stubAuthorizer{}, zap.NewNop())
 	ok, err := a.UserAuthenticated(context.Background())
 	assert.False(t, ok)
 	require.Error(t, err)
 }
 
+func TestK8sRBACAuthUserAuthenticatedFalseForNilPrincipal(t *testing.T) {
+	a := NewK8sRBACAuth(&stubAuthorizer{}, zap.NewNop())
+	ctx := WithPrincipal(context.Background(), nil)
+	ok, err := a.UserAuthenticated(ctx)
+	assert.False(t, ok)
+	require.Error(t, err)
+}
+
 func TestK8sRBACAuthUserAuthenticatedTrueWithPrincipal(t *testing.T) {
-	a := NewK8sRBACAuth(&stubAuthorizer{})
+	a := NewK8sRBACAuth(&stubAuthorizer{}, zap.NewNop())
 	ctx := WithPrincipal(context.Background(), &Principal{Type: PrincipalTypeUser, Name: "alice"})
 	ok, err := a.UserAuthenticated(ctx)
 	assert.True(t, ok)
@@ -119,15 +173,23 @@ func principalCtx() context.Context {
 		Type: PrincipalTypeUser,
 		Name: "alice@example.com",
 		Attrs: map[string]string{
-			groupsAttr: "dev,platform",
+			groupsAttr: `["dev","platform"]`,
 			uidAttr:    "uid-1",
 		},
 	})
 }
 
+func TestK8sRBACAuthUserAuthorizedFalseForNilPrincipal(t *testing.T) {
+	a := NewK8sRBACAuth(&stubAuthorizer{}, zap.NewNop())
+	ctx := WithPrincipal(context.Background(), nil)
+	ok, err := a.UserAuthorized(ctx, "team-a", Get, "Model")
+	assert.False(t, ok)
+	require.Error(t, err)
+}
+
 func TestK8sRBACAuthUserAuthorizedBuildsAttributesAndAllows(t *testing.T) {
 	stub := &stubAuthorizer{decision: authorizer.DecisionAllow}
-	a := NewK8sRBACAuth(stub)
+	a := NewK8sRBACAuth(stub, zap.NewNop())
 	ok, err := a.UserAuthorized(principalCtx(), "team-a", Create, "Cluster")
 	require.NoError(t, err)
 	assert.True(t, ok)
@@ -142,18 +204,24 @@ func TestK8sRBACAuthUserAuthorizedBuildsAttributesAndAllows(t *testing.T) {
 
 func TestK8sRBACAuthUserAuthorizedDeniesUnlessAllow(t *testing.T) {
 	for _, decision := range []authorizer.Decision{authorizer.DecisionDeny, authorizer.DecisionNoOpinion} {
+		core, logs := observer.New(zap.InfoLevel)
 		stub := &stubAuthorizer{decision: decision, reason: "no RoleBinding"}
-		a := NewK8sRBACAuth(stub)
+		a := NewK8sRBACAuth(stub, zap.New(core))
 		ok, err := a.UserAuthorized(principalCtx(), "team-a", Delete, "Model")
 		assert.False(t, ok)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no RoleBinding")
+		// The RBAC-internal reason is logged server-side, not returned to
+		// the caller.
+		assert.NotContains(t, err.Error(), "no RoleBinding")
+		assert.Contains(t, err.Error(), "cannot")
+		require.Equal(t, 1, logs.Len())
+		assert.Equal(t, "no RoleBinding", logs.All()[0].ContextMap()["reason"])
 	}
 }
 
 func TestK8sRBACAuthUserAuthorizedFailsClosed(t *testing.T) {
 	stub := &stubAuthorizer{err: errors.New("apiserver unreachable")}
-	a := NewK8sRBACAuth(stub)
+	a := NewK8sRBACAuth(stub, zap.NewNop())
 
 	ok, err := a.UserAuthorized(principalCtx(), "team-a", Get, "Model")
 	assert.False(t, ok)

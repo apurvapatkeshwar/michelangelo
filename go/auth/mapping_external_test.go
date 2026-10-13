@@ -51,6 +51,14 @@ func TestResourceForKindMatchesCRDs(t *testing.T) {
 
 // TestVerbForActionCoversAllActions pins the verb table to the six Action
 // values the generated handlers can pass in.
+//
+// This list is hand-maintained rather than derived from auth.Action's own
+// const block: that block lives in auth.go, a main-owned file this
+// adaptation deliberately leaves untouched, and the generated
+// *.pb.kubeyarpc.go call sites aren't a stable thing to scan either. If a
+// new Action constant is ever added there, this test will keep passing
+// silently -- mapping.go's verbForAction (and this list) must be updated
+// by hand in lockstep. A test gap, acknowledged, not fixed here.
 func TestVerbForActionCoversAllActions(t *testing.T) {
 	assert.Equal(t, map[auth.Action]string{
 		auth.Create:           "create",
