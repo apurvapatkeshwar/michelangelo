@@ -20,6 +20,10 @@ The API server has two modes, selected by `apiserver.auth.mode` in the Helm valu
 
 **Enable enforcement only after your clients can send tokens.** The Web UI does not acquire OIDC tokens on its own today: unless you front Envoy with an auth proxy (for example `oauth2-proxy`) that injects an `Authorization: Bearer <id-token>` header, enabling `k8s-rbac` will lock the UI out — including reads. gRPC/CLI clients must likewise attach the header to every call.
 
+**Transport security.** Bearer tokens are sent as plain `Authorization` headers with no additional encryption of their own, so `k8s-rbac` mode must only run behind TLS: terminate TLS at (or in front of) Envoy so the token never travels over an unencrypted connection. Do not enable `k8s-rbac` on a deployment that serves plain HTTP.
+
+**Rolling back.** Set `apiserver.auth.mode: dummy` and run `helm upgrade`; the API server returns to the permissive default on its next rollout, with no other steps required.
+
 ## Enabling k8s-rbac mode
 
 Configure everything through Helm values and run `helm upgrade`; the API server picks up the new ConfigMap automatically (its Deployment is annotated with the config checksum).
@@ -48,6 +52,7 @@ Notes:
 - Once enforcement is on, users without a `RoleBinding` are denied access to all resources.
 - Authorization decisions are cached for `sarCache.allowTTL` / `denyTTL` (default 10s each), so a revoked `RoleBinding` can be honored for up to that window. Set a TTL to `0s` to disable that cache at the cost of one `SubjectAccessReview` per request.
 - `oidc.clockSkewLeeway` (default 30s) bounds the accepted clock skew when validating token expiry and not-before claims.
+- Pick a `usernameClaim` that is both unique per person and verified by the IdP (not user-editable) -- its value is used directly as the RBAC username in every `SubjectAccessReview` and `RoleBinding` subject, so a claim two people could share, or one a user could change, undermines per-user authorization.
 
 ## Connecting an Identity Provider (OIDC)
 
@@ -68,8 +73,9 @@ oidc:
   issuerUrl: https://accounts.google.com
   audiences: ["<client-id>.apps.googleusercontent.com"]
   usernameClaim: email
-  groupsClaim: hd    # Google Workspace hosted domain
 ```
+
+Google ID tokens carry no group membership claim. Do not set `groupsClaim` to `hd` (the hosted-domain string): it is the same value for every account in the domain, so a `Group` RoleBinding keyed on it would match the entire workspace, not a specific team. Grant access with per-user `RoleBinding` subjects instead (see [Granting Access with RBAC](#granting-access-with-rbac)), or manage groups outside Google Workspace (for example Okta or Azure AD) if group-based RBAC is required.
 
 ### Azure Active Directory
 
@@ -77,9 +83,11 @@ oidc:
 oidc:
   issuerUrl: https://login.microsoftonline.com/<tenant-id>/v2.0
   audiences: ["<application-client-id>"]
-  usernameClaim: upn        # User Principal Name (email format)
+  usernameClaim: preferred_username   # or email, if your tenant issues it
   groupsClaim: groups
 ```
+
+`upn` is not included in Azure AD v2.0 ID tokens by default; `preferred_username` or `email` is reliably present instead. Also note that `groups` yields the members' object IDs (GUIDs), not display names — `Group` RoleBinding subjects must match those IDs exactly.
 
 ### Keycloak
 

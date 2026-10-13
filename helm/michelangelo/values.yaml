@@ -191,7 +191,10 @@ apiserver:
     serviceAccounts:
       enabled: true
       # Audiences TokenReview accepts. Empty accepts the cluster API
-      # server's default audiences.
+      # server's default audiences -- fine for a single-cluster dev setup,
+      # but in production list the exact audience(s) you issue projected
+      # tokens with, so a token minted for an unrelated API cannot be
+      # replayed against this one.
       audiences: []
 
     # SubjectAccessReview decision cache. Bounds how long a revoked
@@ -400,6 +403,10 @@ worker:
     # Audiences requested for the minted tokens; when
     # apiserver.auth.serviceAccounts.audiences is set, list one of them.
     audiences: []
+    # Requested lifetime for minted tokens. Empty leaves the cluster's
+    # TokenRequest default; Kubernetes enforces its own minimum (10
+    # minutes) regardless of what's requested here.
+    ttl: ""
 
   resources: {}
 

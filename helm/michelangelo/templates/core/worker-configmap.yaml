@@ -20,6 +20,9 @@ data:
           - {{ . | quote }}
           {{- end }}
         {{- end }}
+        {{- with .Values.worker.runnerToken.ttl }}
+        ttl: {{ . }}
+        {{- end }}
       {{- end }}
 
     logging:
