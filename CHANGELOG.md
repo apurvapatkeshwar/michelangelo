@@ -2,6 +2,1007 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-10-05
+
+
+### Bug Fixes
+
+
+- **ci:** Scope NODE_AUTH_TOKEN to the npm-publish job, not just its final step (#2121)
+
+
+- **pipelinerun:** Propagate Temporal/Cadence workflow failure into error_message (#2126)
+
+
+- **ci:** Scan :main instead of stale :latest tag in CVE Scan (#2127)
+
+
+- **sandbox:** Point minio image at quay.io mirror (#2146)
+
+
+- **uniflow:** Read the Ray task log URL from the RayCluster CR (#2152)
+
+
+- **docker:** Bump ui base image to patched nginx:alpine digest (#2140)
+
+
+- **go:** Bump grpc, thrift, x/crypto to close CVE Scan findings (#2141)
+
+
+- **sandbox:** Point k3d workflow.endpoint at the rendered Cadence Service (#2154)
+
+
+- **ci:** Make CVE Scan's exit-code gate respect its own severity filter (#2159)
+
+
+- **ui:** Default Environment field to Development in Start new pipeline run dialog (#2160)
+
+
+- **docker:** Upgrade libexpat to close CVE-2026-93990 in ui image (#2162)
+
+
+- **deployment:** Don't roll back a deployment's first-ever rollout (#2163)
+
+
+- **ci:** Resolve golangci-lint/Go version mismatch in go-lint.yml (#2166)
+
+
+- **sandbox:** Mirror minio sandbox image to ghcr.io instead of quay.io (#2170)
+
+
+- **ui:** Add missing import for function (#2179)
+
+
+- **triggerrun:** Include run ID in TriggerRun log URLs (#2171)
+
+
+- **ci:** Scope ui-release.yml's push trigger to build-ui-image's actual inputs (#2188)
+
+
+- **kubeyarpc:** Omit request bodies from handler logs (#2197)
+
+
+- **kubeyarpc:** Drop namespace and name tags from API handler metrics (#2198)
+
+
+- **uniflow:** Avoid eager deployment plugin imports (#2204)
+
+
+- **sandbox:** Wire MinIO's own root credentials to michelangeloadmin (#2219)
+
+
+- **ui:** Add Paused to stateTextMap (#2221)
+
+
+### CI/CD
+
+
+- Bump release-drafter/release-drafter from 6.4.0 to 7.7.0 (#2131)
+
+
+- Bump docker/login-action from 3 to 4 (#2132)
+
+
+- Bump codecov/codecov-action from 7.0.0 to 7.1.1 in the actions-minor-and-patch group (#2130)
+
+
+- **release:** Unify GitHub Release body format on git-cliff, retire release-drafter (#2136)
+
+
+- Bump dorny/paths-filter from 3.0.4 to 4.0.3 (#2186)
+
+
+- Bump actions/upload-artifact from 4 to 7 (#2187)
+
+
+- Bump orhun/git-cliff-action from 4.9.0 to 4.9.1 in the actions-minor-and-patch group (#2185)
+
+
+- Fix cve-scan.yml Slack notify to v4's method/payload schema (#2174)
+
+
+### Documentation
+
+
+- **user-guides:** Record verification of backfill and file-sync guides (#2113)
+
+
+- **examples:** Fix broken run commands and fabricated output in example READMEs (#2112)
+
+
+- **contributing:** Document the tag-ancestry / merge-back invariant (#1978)
+
+
+- **scheduler:** Operator guide for the Kueue backend and updated extension guide (#1985)
+
+
+- **api-reference:** Fix generator HTML escaping and add two Python SDK pages (#2144)
+
+
+- Update CHANGELOG.md for v0.11.0 (#2149)
+
+
+- **core:** Remove stray comment on trigger interval-seconds accessor (#2158)
+
+
+- Update SECURITY.md supported-versions table to 0.11.x/0.10.x (#2173)
+
+
+- Replace Slack invite-by-email with a shareable invite link (#2202)
+
+
+- Update CHANGELOG.md for v0.12.0-rc.1 (#2224)
+
+
+### Features
+
+
+- **trainer:** Add an MLflow-backed ExperimentStore for auto-resume (#1872)
+
+
+- **schema:** Add evaluator task configuration schema (#2125)
+
+
+- **evaluator:** Add EvaluationReport chart builders (#2135)
+
+
+- **ui:** Add pipeline revision detail page (#2091)
+
+
+- **evaluator:** Add the evaluator core -- metrics, gating, and chart… (#2143)
+
+
+- **ui:** Add Environment field to Run trigger dialog (#2153)
+
+
+- **core:** Trigger list column parity (schedule, environment, auto-flip) (#2151)
+
+
+- **triggerrun:** Default environment label on TriggerRun create (#2157)
+
+
+- Cascade delete revisions on DeletePipeline (#2167)
+
+
+- **ui:** Use latest revision on pipeline detail page (#2118)
+
+
+- **ui:** Add revision selector on detail page (#2117)
+
+
+- **trigger:** Add Information tab and detail metadata parity (#2161)
+
+
+- **ui:** Render stages as pending (#2014)
+
+
+- **variables:** Add MessageVariable, copied from the internal SDK (#2183)
+
+
+- **ui:** Update columns for pipeline/revision list view (#2194)
+
+
+- **evaluator:** Add the evaluator workflow task, preprocessor, and e… (#2181)
+
+
+- **ui:** Add action menu for revision list item (#2178)
+
+
+- **ui:** Badge the latest revision in the detail page revision selector (#2195)
+
+
+- **evaluator:** Add intrinsic embedding metrics (#2201)
+
+
+- **ray:** Move Ray log persistence to official KubeRay v1.7.1 images (#2200)
+
+
+### Miscellaneous
+
+
+- Merge release/v0.11 back to main (#2123)
+
+
+- **examples:** Remove gpt_oss_20b_finetune from core, now in michelangelo-examples (#2150)
+
+
+- **sandbox:** Enable pipeline revisioning in k3d values (#2138)
+
+
+- **sandbox:** Rename default credential from minioadmin to michelangeloadmin (#2193)
+
+
+- **go:** Bump go.uber.org/cadence to v1.4.0 (#2128)
+
+
+- **examples:** Remove movielens from core, now in michelangelo-examples (#2217)
+
+
+- Add Rerun action alongside a static-primary Kill action on trigger runs (#2168)
+
+
+- Bump version to 0.12.0-rc.1 (#2223)
+
+
+- Release 0.12.0 (#2230)
+
+
+### Testing
+
+
+- **trainer:** Add a real regression guard for MlflowExperimentStore resume (#2079)
+
+## [0.11.0] - 2026-09-21
+
+
+### Bug Fixes
+
+
+- **javascript:** Audit placeholder text for accessibility and UX guidelines (#2036)
+
+
+- **go:** Stamp SourcePipelineType label unconditionally on PipelineRun create (#1965)
+
+
+- Route go-vet pre-commit hook through bazel nogo (#1855)
+
+
+- Delete recycled TriggerRuns from metadata storage (#1976)
+
+
+- **native_transform:** Use proper ceiling division for stats batch_count (#1918)
+
+
+- **core:** Render breadcrumb entity names in Title Case (#2029)
+
+
+- **core:** Title-case entity names in remaining nav consumers (#2040)
+
+
+- **ray:** Persist RayJob immutable annotation and fix always-dirty status check (#2055)
+
+
+- **ray:** Drop reconciles for immutable RayCluster/RayJob objects (#2053)
+
+
+- **sandbox:** Back the mysql Pod with a data volume so restarts keep the databases (#1980)
+
+
+- **proto-go:** Sync gen-proto-go.sh's Go version with MODULE.bazel's SDK pin (#2065)
+
+
+- Revert name reflection (#2085)
+
+
+- **go:** Unload models per deployment and per cluster on delete (#2111)
+
+
+- **ci:** Cherry-pick NODE_AUTH_TOKEN scoping fix to release/v0.11 (#2121) (#2124)
+
+
+### CI/CD
+
+
+- Bump softprops/action-gh-release from 2.6.2 to 3.0.3 (#2025)
+
+
+- Bump actions/checkout from 4 to 7 (#2024)
+
+
+- Bump orhun/git-cliff-action from 4.8.0 to 4.9.0 in the actions-minor-and-patch group (#2038)
+
+
+- Bump slackapi/slack-github-action from 1.27.0 to 4.0.0 (#2039)
+
+
+- Bump docker/build-push-action from 5 to 7 (#1970)
+
+
+- **changelog:** Fix range fallback to survive release-branch deletion (#2064)
+
+
+- Bump actions/setup-node from 4 to 7 (#2076)
+
+
+- Bump actions/deploy-pages from 4 to 5 (#2075)
+
+
+- Bump actions/github-script from 6 to 9 (#2074)
+
+
+- Build the Triton serving image for arm64 as well as amd64 (#2116)
+
+
+### Documentation
+
+
+- Add distributed training guide for LightningTrainer (#2010)
+
+
+- **architecture:** Reject client-side filtering of option lists (#2035)
+
+
+- Regenerate changelog snapshot for 0.9.0 and 0.10.0 (#2058)
+
+
+- **ui:** Document lowercase-canonical entity name convention (#2059)
+
+
+- Add Code to Cluster conference talk to Further Reading (#2106)
+
+
+- Update CHANGELOG.md for v0.11.0-rc.1 (#2120)
+
+
+### Features
+
+
+- **model:** Validate description length on create/update (#2002)
+
+
+- **raycluster:** Terminate cluster missing from remote and mark all terminal states immutable (#2006)
+
+
+- **ui:** Add retire button (#2037)
+
+
+- **uniflow:** Add scala plugin for pre-compiled Spark JAR tasks (#1690)
+
+
+- **native_transform:** Add tabular_native_transform workflow task (#1919)
+
+
+- **ui:** Add deployment table on model detail page (#2080)
+
+
+- **deployment-plugin:** Add Starlark deployment worker plugin (#2086)
+
+
+- **ui:** Add info tab for pipeline run detail page (#2077)
+
+
+- **ui:** Add delete button (#2042)
+
+
+- **pipeline:** Stamp michelangelo/PipelineType label on Revision (#2087)
+
+
+- **core:** Describe row labels with tooltips (#2107)
+
+
+- **python:** Support file-backed task kwargs (#2015)
+
+
+- **ui:** Add update deployment button  (#2044)
+
+
+- **rpc:** Register RevisionService and unpack registered Any payloads (#2088)
+
+
+- **studio:** Add Revisions list view for pipeline (#2089)
+
+
+- **ui:** Add more fields to inference server form (#2104)
+
+
+- **go:** Support a custom Triton serving image on InferenceServer (#2114)
+
+
+### Miscellaneous
+
+
+- **docker:** Bump nvidia/tritonserver to 25.01-py3 (matches internal), wire it into InferenceServer (#1999)
+
+
+- **examples:** Remove california_housing_xgb pipeline (migrated to michelangelo-examples) (#1751)
+
+
+- Populate Model.Spec.SourcePipelineRun from pipeline-run identity env vars (#2034)
+
+
+- Merge back release/v0.10 to main (#2032)
+
+
+- **go:** Bump k8s.io/* and controller-runtime to current stable (#2060)
+
+
+- Catch zero-arg and unused-overrides test fixtures (#1960)
+
+
+- Add ma-sandbox-deploy Claude Code skill (#1638)
+
+
+- Add ma-sandbox-setup Claude Code skill (#1637)
+
+
+- Add ma-sandbox-reset Claude Code skill (#1639)
+
+
+- Add ma-sandbox-debug Claude Code skill (#1640)
+
+
+- **go:** Bump Go SDK, rules_go, and gazelle to latest stable (#2069)
+
+
+- Upgrade Bazel from 7.4.1 to 8.8.0 (#2050)
+
+
+- Bump version to 0.11.0-rc.1 (#2119)
+
+
+- Release 0.11.0 (#2133)
+
+
+### Performance
+
+
+- Improve mobile page load performance (#2028)
+
+
+### Testing
+
+
+- **core:** Add getCall to createQueryMockRouter (#2067)
+
+## [0.10.0] - 2026-09-08
+
+
+### Bug Fixes
+
+
+- **ci:** Pin release.yaml's Go setup to go.mod instead of a hardcoded version (#1897)
+
+
+- **go:** Bump Go SDK from 1.26.3 to 1.26.5 to close remaining CVE Scan findings (#1732)
+
+
+- **release:** Close tracking issue on final promotion (#1896)
+
+
+- **k8sengine:** Emit rayStartParams as {} not null for RayClusters (#1932)
+
+
+- **build:** Regenerate proto/api/BUILD.bazel with gazelle (#1953)
+
+
+- **python:** Allow shape=[] (true scalar) in Triton schema validation (#1934)
+
+
+- **python:** ModelPusherPlugin downloads remote artifact URIs before upload (#1948)
+
+
+- Preserve backfill TriggerRun status (#1957)
+
+
+- **rpc:** Auto-pack Any/enum fields at the RPC layer, not in UI config (#1959)
+
+
+- **python:** Pusher storage keys, push_id, and deployable-archive config (#1961)
+
+
+- **examples/bert_cola:** Pass the trained model as a ModelVariable, not a local path (#1974)
+
+
+- **python:** Accept inference-multicluster in sandbox demo guard (#1996)
+
+
+- **ui:** Use fieldSelector on pipeline_name for Pipeline detail Runs tab (#1967)
+
+
+- **go:** Simplify trigger-fire environment defaulting to copy-forward only (#1994)
+
+
+- Make website Bun installs reproducible (#2017)
+
+
+- **trainer:** Default to SingleDeviceStrategy when world size is 1 (#2005)
+
+
+- **changelog:** Correct v0.10.0-rc.1 range to v0.9.0..v0.10.0-rc.1 (#2045)
+
+
+### CI/CD
+
+
+- Bump actions/upload-pages-artifact from 3 to 5 (#1910)
+
+
+- Bump docker/setup-buildx-action from 3 to 4 (#1911)
+
+
+- Bump peter-evans/create-pull-request from 6.1.0 to 8.1.1 (#1824)
+
+
+- Bump Trivy to v0.74.0 in CVE Scan workflow (#1950)
+
+
+- Run CVE Scan on schedule only, not on every main-branch release (#1951)
+
+
+- **codecov:** Mark project and patch status checks informational (#1850)
+
+
+- Pin base images by digest and track them via Dependabot (#1952)
+
+
+- Bump actions/download-artifact from 4 to 8 (#1971)
+
+
+- Bump docker/setup-qemu-action from 3 to 4 (#1969)
+
+
+### Documentation
+
+
+- **security:** Update supported versions for 0.8.x (#1848)
+
+
+- **api-reference:** Add gRPC service reference for all 15 API services (#1862)
+
+
+- Correct batch endpoint, feature store, and traffic splitting claims (#1833)
+
+
+- Surface the release changelog on the docs site (#1887)
+
+
+- Add role-based learning paths sequencing the existing docs (#1885)
+
+
+- Correct sandbox setup prerequisites and resource sizing (#1909)
+
+
+- Point monitoring guide at the chart-managed observability resources (#1922)
+
+
+- **api-reference:** Generate Python SDK Reference from docstrings (#1956)
+
+
+- Correct A/B testing and inference backend claims (#1928)
+
+
+- **ui:** Update entity config examples for the Pipeline Runs → Runs rename (#2016)
+
+
+- Revert getting-started.md tutorial to pytorch_train (MPS fix merged) (#2026)
+
+
+- Update CHANGELOG.md for v0.10.0-rc.1 (#2030)
+
+
+### Features
+
+
+- **ui:** Add model detail page (#1881)
+
+
+- **ui:** Add "All Projects" title (#1903)
+
+
+- **ui:** Add color for phase card (#1845)
+
+
+- **sandbox:** Add demo commands for multi-cluster inference (#1175)
+
+
+- **deployment:** Resolve model storage path from the Model CR (#1907)
+
+
+- **core:** Add pipelines, triggers, and runs to the deploy phase (#1935)
+
+
+- **model:** Default and inherit the environment label on Models (#1912)
+
+
+- **ui:** Add deployment create form (#1899)
+
+
+- **core:** Pluggable ownership resolver for project views (#1947)
+
+
+- **ui:** Add configuration tab on run detail page (#1929)
+
+
+- **ui:** Support pipeline run resume from + retry (#1858)
+
+
+- **ui:** Add inference server create form (#1942)
+
+
+- **ui:** Add more detail on key status indicator for deployment (#1940)
+
+
+- Stamp SourcePipelineType label on PipelineRun/TriggerRun creation (#1936)
+
+
+- **core:** Filter pipeline runs and trigger runs by SourcePipelineType label (#1933)
+
+
+- **python:** Add ma sandbox snapshot create/restore for CRD state (#1715)
+
+
+- **api:** Default EnvironmentLabel on PipelineRun create and update (#1945)
+
+
+- **ui:** Reorder phase tabs (Triggers before Runs) and rename Pipeline Runs to Runs (#1964)
+
+
+- **examples:** Package and push the fine-tuned bert_cola model (#1966)
+
+
+- **ui:** Enable the Deploy & Predict phase (#1975)
+
+
+- **inferenceserver:** Add Triton serving image with torch/transformers (#1987)
+
+
+- **ui:** Add Information tab to pipeline run detail page (#1972)
+
+
+- **ui:** Add Environment field to run pipeline dialog (#1995)
+
+
+- **ui:** Add Last Updated and Environment columns to pipeline run list (#1993)
+
+
+- Reflect name to unmarshalled table (#1914)
+
+
+### Miscellaneous
+
+
+- Merge release/v0.9 back to main (v0.9.0) (#1925)
+
+
+- Update index.md (#1926)
+
+
+- **go:** Link legacy env-label TODOs to tracking issue (#1941)
+
+
+- Add pipeline-run notification setup to Run Pipeline dialog (#1868)
+
+
+- Delete PR_1430_REVIEW_COMMENT_ANALYSIS.md (#1962)
+
+
+- Remove standalone trigger_run demo YAMLs from sandbox (#2001)
+
+
+- Upgrade website to TypeScript 7.0.2 (#2018)
+
+
+- Schedule pipelines from triggers, and link pipelines, triggers, and their runs together (#1870)
+
+
+- Bump version to 0.10.0-rc.1
+
+
+- Release 0.10.0 (#2048)
+
+
+### Performance
+
+
+- **javascript:** Switch test environment from jsdom to happy-dom (#847)
+
+
+### Refactoring
+
+
+- **train:** Extract profiler helpers from util.py into profiler.py (#1878)
+
+## [0.9.0] - 2026-08-24
+
+
+### Bug Fixes
+
+
+- Reword ma-design-interview skill to reduce duration (#1714)
+
+
+- **build:** Bump Go SDK to 1.26.3 + rules_go to 0.57.0 (CVE Scan fix, step 1/2) (#1567)
+
+
+- **python:** Restore ColumnConfig.shape optional default (#1762)
+
+
+- **ci:** Skip JavaScript coverage PR comment on fork pull requests (#1756)
+
+
+- **python:** Wire up workflowClient.executionUrlFormat for the sandbox (#1761)
+
+
+- **core:** Correct Model list columns for description, environment, type, last updated (#1673)
+
+
+- **storage/mysql:** Validate criterion field name before SQL interpolation (#1707)
+
+
+- **storage/mysql:** Implement directUpdate for the generic Update RPC (#1645)
+
+
+- **ui:** Block entity navigation for disabled/coming-soon phases in menu drawer (#1791)
+
+
+- **release:** Mark -rc tags as prereleases in GitHub releases (#1678)
+
+
+- **api:** Log blob-storage delete failure only when it fails (#1679)
+
+
+- **helm:** Drop placeholder signKey annotation from chart metadata (#1768)
+
+
+- **api:** Use status.Error for non-format error messages (#1782)
+
+
+- **core:** Exempt barrel files and test infra from react-refresh export rule (#1807)
+
+
+- **go:** Sync paused TriggerRun schedules (#1827)
+
+
+- **python:** Stop shipping test files in wheels and sdists (#1832)
+
+
+- Create TriggerRun schedules paused (#1828)
+
+
+- Make TriggerRun deletion idempotent (#1688)
+
+
+- **ui:** Tighten breadcrumb menu drawer close button and icons (#1799)
+
+
+- **core:** Stop capitalizing entity/phase names (#1846)
+
+
+- **core:** Title-case Data Sources, Evaluations, and Notebooks entity names (#1857)
+
+
+- **python:** Use __spec__.name for dot_path() under python -m (#1754)
+
+
+- **go:** Pipelinerun revision resolve and pipeline latest revision (#1797)
+
+
+- **python:** Render <crd> get <name> as table and fix -o yaml OrderedDict crash (#1822)
+
+
+- **python:** Rename evaluation_strategy to eval_strategy in bert_cola example (#1883)
+
+
+- **docs,examples:** Correct Lightning trainer imports and parameters (#1787)
+
+
+- Plumb RayTask gpu, disk and object store memory into the cluster spec (#1801)
+
+
+- **release:** Align website version and add it to version-bump.sh (#1849)
+
+
+- **ci:** Pin release.yaml's Go setup to go.mod (cherry-pick for v0.9.0-rc.1) (#1898)
+
+
+### CI/CD
+
+
+- Bump actions/setup-go from 5 to 7 (#1743)
+
+
+- Bump actions/setup-python from 5 to 7 (#1744)
+
+
+- Bump aquasecurity/trivy-action from 0.32.0 to 0.36.0 in the actions-minor-and-patch group (#1742)
+
+
+- Add least-privilege permissions to workflows missing them (#1711)
+
+
+- Pin third-party GitHub Actions to commit SHAs (#1757)
+
+
+- Pin the golangci-lint installer script to the version it installs (#1767)
+
+
+- Pin apidiff to a Go 1.24-compatible x/exp pseudo-version (#1781)
+
+
+- **go:** Migrate golangci-lint config off deprecated options (#1755)
+
+
+- **integration-test:** Run Playwright browser tests in sandbox-e2e (#1838)
+
+
+- Upload coverage reports to Codecov (#1834)
+
+
+- Add OpenSSF Scorecard workflow and badge (#1835)
+
+
+- Build examples image without pushing on fork PRs (#1802)
+
+
+- Pin sticky-pull-request-comment in javascript-coverage to a full SHA (#1810)
+
+
+- Remove unused attestations permission from release workflows (#1811)
+
+
+- Bump actions/cache from 4 to 6 (#1825)
+
+
+- Bump azure/setup-helm from 4 to 5 (#1823)
+
+
+### Documentation
+
+
+- Fix community on-ramps in CONTRIBUTING and docs (#1713)
+
+
+- **core:** Document action rendering surfaces and mutation payload flow (#1722)
+
+
+- **core:** Consolidate javascript skills into CLAUDE.md (#1724)
+
+
+- Correct Ray Tune and Ray autoscaling claims (#1788)
+
+
+- Repoint california_housing doc references to michelangelo-examples (#1749)
+
+
+- Add a migration guide for KubeRay users (#1783)
+
+
+- Revert getting-started.md tutorial to xgb_train (pytorch_train crashes on Apple Silicon) (#1871)
+
+
+- Update CHANGELOG.md for v0.9.0-rc.2 (#1906)
+
+
+### Features
+
+
+- Export success operations from core (#1716)
+
+
+- **native_transform:** Add fitted-statistics layers (PR B3) (#1683)
+
+
+- **native_transform:** Add IDHashTokenizer wrapper layer (PR B4) (#1684)
+
+
+- **native_transform:** Add Pydantic layer specs (PR B5) (#1685)
+
+
+- **js:** Config-driven form engine skeleton (#1650)
+
+
+- **native_transform:** Add TransformSpec DAG engine + TorchTransformModule (PR B6) (#1730)
+
+
+- **native_transform:** Add auxiliary transform helpers (PR B8) (#1729)
+
+
+- **ui:** Show Coming soon badge on phase cards (#1785)
+
+
+- **ui:** Change steps to ongoing operations (#1784)
+
+
+- **ui:** Add delete pipeline functionality (#1792)
+
+
+- **trainer:** Add an XGBoost trainer built on Ray Train (#1793)
+
+
+- **js:** Schema-aware wrappers for all field types (#1651)
+
+
+- **js:** Declarative validation for form config (#1652)
+
+
+- **native_transform:** Add schema bridge for fitted transform DAGs (PR B7) (#1772)
+
+
+- **native_transform:** Add TransformSpecIO + usage guide (PR E) (#1774)
+
+
+- **ui:** Add deployment information tab (#1708)
+
+
+- **ui:** Add status cards to deployment detail page (#1709)
+
+
+- **ui:** Add source code link (#1826)
+
+
+- Add GitHub-backed dev identity override to sandbox UI (#1819)
+
+
+- **core:** Add Experiment & Productionize phase (#1813)
+
+
+- **core:** Add Monitor & Debug coming-soon phase (#1815)
+
+
+- Let EntityTable own phase pipeline-type filtering (#1830)
+
+
+- **form:** Add conditional layout with the `is` operator (#1804)
+
+
+- **form:** Add isNot/isEmpty/containsAny condition operators (#1805)
+
+
+- **model:** Add Model API-hook wiring skeleton (Phase 0) (#1728)
+
+
+- **native_transform:** Add Ray execution adapter (PR C) (#1773)
+
+
+- **blobstore:** Add a native GCS backend (#1837)
+
+
+- **train:** Add FSDP2 strategy to the Lightning trainer (#1877)
+
+
+### Miscellaneous
+
+
+- Add ma-sandbox-test-plan Claude Code skill (#1641)
+
+
+- Add dependabot config for weekly grouped dependency updates (#1691)
+
+
+- Bump gazelle 0.40.0 to 0.52.2, compatible with rules_go 0.57.0 (#1747)
+
+
+- **lib:** Update california_housing example references in model_manager registry docstrings/tests (#1750)
+
+
+- Add Algolia crawler domain verification token to robots.txt (#1766)
+
+
+- Merge back release/v0.8 to main (#1721)
+
+
+- Add CODEOWNERS file (#1796)
+
+
+- Route major feature requests to the enhancements RFC process (#1803)
+
+
+- Bump vllm to 0.9.2 to shed known CVEs (#1812)
+
+
+- Support the KubeRay suspended cluster state in the MA API (#1700)
+
+
+- Bump version to 0.9.0-rc.1 (#1889)
+
+
+- Bump version to 0.9.0-rc.2 (#1905)
+
+
+- Release 0.9.0 (#1923)
+
+
+### Refactoring
+
+
+- Delete dead code in python/michelangelo/canvas/ (#1727)
+
+
+- **js:** Move form types to types directory (#1671)
+
+
+- **core:** Rename ErrorView to Signpost (#1786)
+
 ## [0.8.0] - 2026-08-10
 
 ### ⚠ Breaking Changes

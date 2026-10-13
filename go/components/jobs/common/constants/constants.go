@@ -19,11 +19,15 @@ const (
 
 // These are valid condition types of all Jobs
 const (
-	EnqueuedCondition             string = "Enqueued"
-	KillingCondition              string = "Killing"
-	KilledCondition               string = "Killed"
-	LaunchedCondition             string = "Launched"
-	PendingCondition              string = "Pending"
+	EnqueuedCondition string = "Enqueued"
+	KillingCondition  string = "Killing"
+	KilledCondition   string = "Killed"
+	LaunchedCondition string = "Launched"
+	PendingCondition  string = "Pending"
+	// QueuedCondition is true while a dispatched job waits for admission on
+	// its target cluster (e.g. a Kueue-managed cluster holding the workload
+	// suspended until quota is available).
+	QueuedCondition               string = "Queued"
 	ScheduledCondition            string = "Scheduled"
 	MetricsConfigCreatedCondition string = "MetricsConfigCreated"
 	SecretCreatedCondition        string = "SecretCreated"
@@ -42,6 +46,14 @@ const (
 	ClusterKilled      string = "ClusterKilled"
 	SparkAppNotRunning string = "SparkAppNotRunning"
 	SparkAppKilled     string = "SparkAppKilled"
+
+	// KueueQueueNotFound means the job's resolved LocalQueue does not exist
+	// on the Kueue-managed target cluster (or Kueue is not installed there),
+	// so dispatching would strand the job unadmitted.
+	KueueQueueNotFound string = "KueueQueueNotFound"
+	// KueueQueueCheckFailed means the LocalQueue existence check itself
+	// errored (target cluster unreachable etc.); the job is retried.
+	KueueQueueCheckFailed string = "KueueQueueCheckFailed"
 )
 
 // condition messages - the prefix
@@ -87,6 +99,14 @@ const (
 	RayClusterNameLabelKey string = "ray.io/cluster"
 	RayNodeTypeLabelKey    string = "ray.io/node-type"
 	RayNodeLabelKey        string = "ray.io/is-ray-node"
+)
+
+// Kueue label keys
+const (
+	// KueueQueueNameLabelKey is the label Kueue's integrations read to
+	// associate a workload with a LocalQueue. It is stamped on compute-cluster
+	// objects by the control plane (never copied from user-supplied labels).
+	KueueQueueNameLabelKey string = "kueue.x-k8s.io/queue-name"
 )
 
 // Secret label keys and values
@@ -297,7 +317,7 @@ var RayClusterStrStateToCRDStateMapping = map[string]v2pb.RayClusterState{
 	"unhealthy":             v2pb.RAY_CLUSTER_STATE_UNHEALTHY,
 	string(rayv1.Failed):    v2pb.RAY_CLUSTER_STATE_FAILED,
 	string(rayv1.Ready):     v2pb.RAY_CLUSTER_STATE_READY,
-	string(rayv1.Suspended): v2pb.RAY_CLUSTER_STATE_UNKNOWN,
+	string(rayv1.Suspended): v2pb.RAY_CLUSTER_STATE_SUSPENDED,
 }
 
 // RayJobStatus captures the lifecycle states reported for Ray jobs by the Ray operator.

@@ -8,7 +8,9 @@ VERSION_FILES=(
   "javascript/packages/core/package.json"
   "javascript/packages/rpc/package.json"
   "javascript/app/package.json"
+  "website/package.json"
   "helm/michelangelo/Chart.yaml"
+  "helm/michelangelo-llm-gateway/Chart.yaml"
 )
 
 usage() {
@@ -94,7 +96,7 @@ set_version() {
   printf "  %-50s → %s\n" "python/pyproject.toml" "$new_version"
 
   # JSON package files
-  for file in javascript/packages/core/package.json javascript/packages/rpc/package.json javascript/app/package.json; do
+  for file in javascript/packages/core/package.json javascript/packages/rpc/package.json javascript/app/package.json website/package.json; do
     sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$new_version\"/" "$REPO_ROOT/$file"
     rm -f "$REPO_ROOT/$file.bak"
     printf "  %-50s → %s\n" "$file" "$new_version"
@@ -123,6 +125,12 @@ set_version() {
   rm -f "$REPO_ROOT/helm/michelangelo/Chart.yaml.bak"
   printf "  %-50s → %s\n" "helm/michelangelo/Chart.yaml (version)" "$new_version"
   printf "  %-50s → %s\n" "helm/michelangelo/Chart.yaml (appVersion)" "$new_version"
+
+  # The gateway shares Michelangelo's release version, while its appVersion
+  # continues to identify the independently pinned LiteLLM runtime.
+  sed -i.bak "s/^version: .*/version: $new_version/" "$REPO_ROOT/helm/michelangelo-llm-gateway/Chart.yaml"
+  rm -f "$REPO_ROOT/helm/michelangelo-llm-gateway/Chart.yaml.bak"
+  printf "  %-50s → %s\n" "helm/michelangelo-llm-gateway/Chart.yaml (version)" "$new_version"
 
   echo "─────────────────────────────────────────────────"
   echo "Done. Verify with: $(basename "$0") --check"

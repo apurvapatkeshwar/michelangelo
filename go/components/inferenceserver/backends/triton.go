@@ -19,7 +19,14 @@ import (
 var _ Backend = &tritonBackend{}
 
 const (
-	defaultTritonImageTag = "23.04-py3"
+	// defaultTritonImage is the serving image for Triton-backed InferenceServers
+	// that name none themselves, and is the only place the default is recorded;
+	// inferenceServer.triton.defaultImage exists to override it, not to restate
+	// it. Built from docker/triton-serving.Dockerfile, which adds the ML
+	// framework dependencies the stock Triton image omits. The tag is pinned to a
+	// specific build rather than floating, so an InferenceServer's runtime only
+	// changes through an explicit edit.
+	defaultTritonImage = "ghcr.io/michelangelo-ai/triton-serving:sha-e9b9955"
 
 	// k8sProgressDeadlineExceeded is the Kubernetes DeploymentCondition reason string
 	// that signals a rolling update has stalled. Named constant prevents silent
@@ -32,10 +39,13 @@ const (
 )
 
 // Triton Server Management
-type tritonBackend struct{}
+type tritonBackend struct {
+	// defaultImage is the operator-configured image. Empty means defaultTritonImage.
+	defaultImage string
+}
 
-func NewTritonBackend() *tritonBackend {
-	return &tritonBackend{}
+func NewTritonBackend(defaultImage string) *tritonBackend {
+	return &tritonBackend{defaultImage: defaultImage}
 }
 
 func (b *tritonBackend) CreateServer(ctx context.Context, logger *zap.Logger, kubeClient client.Client, inferenceServer *v2pb.InferenceServer) (*ServerStatus, error) {
@@ -230,6 +240,8 @@ func (b *tritonBackend) createTritonDeployment(ctx context.Context, logger *zap.
 		replicas = 1
 	}
 
+	servingImage := inferenceServer.Spec.InitSpec.GetServingSpec().GetImage()
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploymentName,
@@ -249,10 +261,12 @@ func (b *tritonBackend) createTritonDeployment(ctx context.Context, logger *zap.
 					},
 				},
 				Spec: corev1.PodSpec{
+					ImagePullSecrets: tritonImagePullSecrets(servingImage),
 					Containers: []corev1.Container{
 						{
-							Name:  "triton",
-							Image: fmt.Sprintf("nvcr.io/nvidia/tritonserver:%s", defaultTritonImageTag),
+							Name:            "triton",
+							Image:           b.buildTritonImage(inferenceServer),
+							ImagePullPolicy: tritonImagePullPolicy(servingImage),
 							Ports: []corev1.ContainerPort{
 								{ContainerPort: 8000, Name: "http"},
 								{ContainerPort: 8001, Name: "grpc"},
@@ -426,19 +440,22 @@ func buildResourceRequirements(initSpec *v2pb.InitSpec) corev1.ResourceRequireme
 	requests := corev1.ResourceList{}
 	limits := corev1.ResourceList{}
 
-	if initSpec.ResourceSpec.Cpu > 0 {
-		requests[corev1.ResourceCPU] = parseQuantity(fmt.Sprintf("%d", initSpec.ResourceSpec.Cpu))
-		limits[corev1.ResourceCPU] = parseQuantity(fmt.Sprintf("%d", initSpec.ResourceSpec.Cpu))
+	// resourceSpec is optional, so it is read through the nil-safe getters.
+	resourceSpec := initSpec.GetResourceSpec()
+
+	if cpu := resourceSpec.GetCpu(); cpu > 0 {
+		requests[corev1.ResourceCPU] = parseQuantity(fmt.Sprintf("%d", cpu))
+		limits[corev1.ResourceCPU] = parseQuantity(fmt.Sprintf("%d", cpu))
 	}
 
-	if initSpec.ResourceSpec.Memory != "" {
-		requests[corev1.ResourceMemory] = parseQuantity(initSpec.ResourceSpec.Memory)
-		limits[corev1.ResourceMemory] = parseQuantity(initSpec.ResourceSpec.Memory)
+	if memory := resourceSpec.GetMemory(); memory != "" {
+		requests[corev1.ResourceMemory] = parseQuantity(memory)
+		limits[corev1.ResourceMemory] = parseQuantity(memory)
 	}
 
-	if initSpec.ResourceSpec.Gpu > 0 {
-		requests["nvidia.com/gpu"] = parseQuantity(fmt.Sprintf("%d", initSpec.ResourceSpec.Gpu))
-		limits["nvidia.com/gpu"] = parseQuantity(fmt.Sprintf("%d", initSpec.ResourceSpec.Gpu))
+	if gpu := resourceSpec.GetGpu(); gpu > 0 {
+		requests["nvidia.com/gpu"] = parseQuantity(fmt.Sprintf("%d", gpu))
+		limits["nvidia.com/gpu"] = parseQuantity(fmt.Sprintf("%d", gpu))
 	}
 
 	return corev1.ResourceRequirements{
@@ -458,4 +475,43 @@ func generateK8sDeploymentName(inferenceServerName string) string {
 
 func generateK8sServiceName(inferenceServerName string) string {
 	return fmt.Sprintf("%s-inference-service", inferenceServerName)
+}
+
+// buildTritonImage resolves the container image in order of precedence: the spec,
+// the operator-configured default, then defaultTritonImage.
+func (b *tritonBackend) buildTritonImage(inferenceServer *v2pb.InferenceServer) string {
+	if uri := inferenceServer.Spec.InitSpec.GetServingSpec().GetImage().GetUri(); uri != "" {
+		return uri
+	}
+	if b.defaultImage != "" {
+		return b.defaultImage
+	}
+	return defaultTritonImage
+}
+
+// tritonImagePullPolicy maps the spec's pull policy onto the Kubernetes enum,
+// defaulting to IfNotPresent.
+func tritonImagePullPolicy(image *v2pb.ServingImage) corev1.PullPolicy {
+	switch image.GetImagePullPolicy() {
+	case string(corev1.PullAlways):
+		return corev1.PullAlways
+	case string(corev1.PullNever):
+		return corev1.PullNever
+	default:
+		return corev1.PullIfNotPresent
+	}
+}
+
+// tritonImagePullSecrets names the registry credentials the kubelet uses to pull
+// a private image.
+func tritonImagePullSecrets(image *v2pb.ServingImage) []corev1.LocalObjectReference {
+	names := image.GetImagePullSecrets()
+	if len(names) == 0 {
+		return nil
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(names))
+	for _, name := range names {
+		refs = append(refs, corev1.LocalObjectReference{Name: name})
+	}
+	return refs
 }

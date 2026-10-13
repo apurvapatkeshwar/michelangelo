@@ -25,6 +25,8 @@ The platform is modular: adopt the full stack or integrate individual components
 
 ## Get started
 
+Prefer an ordered path over a menu? **[Learning Paths](./getting-started/learning-paths.md)** sequences the docs into three role-based tracks (ML Engineer, Operator, Contributor) with time estimates.
+
 ### I'm evaluating Michelangelo AI
 
 Understand what the platform does, how it compares to your current stack, and whether it fits your use case.
@@ -39,7 +41,7 @@ Get a local environment running and build an end-to-end ML pipeline.
 
 - **[Sandbox Setup](./getting-started/sandbox-setup.md)** — Set up a local Michelangelo AI cluster (~20 min)
 - **[Getting Started with Pipelines](./user-guides/getting-started/getting-started.md)** — Build your first pipeline from scratch (~30 min)
-- **[Example Projects](./user-guides/examples/index.md)** — 9 end-to-end workflows: XGBoost, BERT, GPT fine-tuning, batch inference, and more
+- **[Example Projects](./user-guides/examples/index.md)** — 10 end-to-end workflows: XGBoost, BERT, GPT fine-tuning, batch inference, and more
 
 ### I'm deploying or operating the platform
 
@@ -82,5 +84,5 @@ Understanding scope helps you decide if Michelangelo AI is the right tool.
 Connect with the Michelangelo AI core team and developer community through our dedicated channels:
 
 - **[GitHub Discussions](https://github.com/michelangelo-ai/michelangelo/discussions):** Our primary channel for general Q&A, troubleshooting, technical support, and sharing ideas.
-- **[Slack Workspace](https://michelangelo-ai.slack.com/):** For real-time chat, networking, and focused conversations with other developers in the ecosystem. The workspace is invite-based; email [michelangelo-oss@uber.com](mailto:michelangelo-oss@uber.com) to request an invite.
+- **[Slack Workspace](https://join.slack.com/t/michelangelo-ai/shared_invite/zt-4aja31p6t-_Yl_lWizcMxs8FFC4evZzQ):** For real-time chat, networking, and focused conversations with other developers in the ecosystem. Anyone can [join with this invite link](https://join.slack.com/t/michelangelo-ai/shared_invite/zt-4aja31p6t-_Yl_lWizcMxs8FFC4evZzQ); if the link stops working, email [michelangelo-oss@uber.com](mailto:michelangelo-oss@uber.com).
 - **[Email](mailto:michelangelo-oss@uber.com):** For private, sensitive, or 1-on-1 inquiries that cannot be discussed publicly (for example, security disclosures or enterprise partnerships), feel free to email us at michelangelo-oss@uber.com.

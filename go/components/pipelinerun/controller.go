@@ -210,12 +210,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	} else {
 		if conditionResult.IsKilled {
 			pipelineRun.Status.State = v2pb.PIPELINE_RUN_STATE_KILLED
+			pipelineRun.Status.ErrorMessage = findFailureMessage(pipelineRun.Status.Steps)
 		} else if !conditionResult.IsTerminal {
 			pipelineRun.Status.State = v2pb.PIPELINE_RUN_STATE_RUNNING
 		} else if conditionResult.AreSatisfied {
 			pipelineRun.Status.State = v2pb.PIPELINE_RUN_STATE_SUCCEEDED
 		} else {
 			pipelineRun.Status.State = v2pb.PIPELINE_RUN_STATE_FAILED
+			pipelineRun.Status.ErrorMessage = findFailureMessage(pipelineRun.Status.Steps)
 		}
 	}
 
@@ -370,12 +372,14 @@ func (t *pipelineRunDrainTarget) Progress(ctx context.Context) (bool, error) {
 	}
 	if conditionResult.IsKilled {
 		t.run.Status.State = v2pb.PIPELINE_RUN_STATE_KILLED
+		t.run.Status.ErrorMessage = findFailureMessage(t.run.Status.Steps)
 	} else if !conditionResult.IsTerminal {
 		t.run.Status.State = v2pb.PIPELINE_RUN_STATE_RUNNING
 	} else if conditionResult.AreSatisfied {
 		t.run.Status.State = v2pb.PIPELINE_RUN_STATE_SUCCEEDED
 	} else {
 		t.run.Status.State = v2pb.PIPELINE_RUN_STATE_FAILED
+		t.run.Status.ErrorMessage = findFailureMessage(t.run.Status.Steps)
 	}
 	if err := t.r.updatePipelineRunStatus(ctx, t.run, originalPipelineRun); err != nil {
 		return false, err
@@ -615,15 +619,11 @@ func extractMetricLabels(pipelineRun *v2pb.PipelineRun) PipelineRunMetricLabels 
 	return labels
 }
 
-// getPipelineType extracts the pipeline type from the pipeline run
-// Returns "unknown" if the type cannot be determined
+// getPipelineType reads the pipeline type from the pipeline run's
+// michelangelo/SourcePipelineType label. Returns "unknown" if absent.
 func getPipelineType(pipelineRun *v2pb.PipelineRun) string {
-	// The pipeline type would need to be extracted from the source pipeline
-	// or from labels/annotations. For now, return unknown.
-	// In a full implementation, you would fetch the Pipeline resource
-	// and extract the type from pipeline.Spec.Type
 	if pipelineRun.Labels != nil {
-		if pipelineType, ok := pipelineRun.Labels["pipelinerun.michelangelo/pipeline-type"]; ok {
+		if pipelineType, ok := pipelineRun.Labels[api.SourcePipelineTypeLabelName]; ok {
 			return pipelineType
 		}
 	}
@@ -634,7 +634,7 @@ func getPipelineType(pipelineRun *v2pb.PipelineRun) string {
 // Returns "unknown" if not set
 func getEnvironment(pipelineRun *v2pb.PipelineRun) string {
 	if pipelineRun.Labels != nil {
-		if env, ok := pipelineRun.Labels["pipelinerun.michelangelo/environment"]; ok {
+		if env, ok := pipelineRun.Labels[api.EnvironmentLabel]; ok {
 			return env
 		}
 	}
@@ -701,4 +701,22 @@ func getFailureReason(pipelineRun *v2pb.PipelineRun) string {
 		return "unknown_failure"
 	}
 	return "none"
+}
+
+// findFailureMessage walks steps depth-first looking for the first FAILED or KILLED step
+// with a non-empty Message, checking each step before its substeps so a workflow-level
+// failure (attached to the top-level step) takes priority over any substep detail.
+func findFailureMessage(steps []*v2pb.PipelineRunStepInfo) string {
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		if (step.State == v2pb.PIPELINE_RUN_STEP_STATE_FAILED || step.State == v2pb.PIPELINE_RUN_STEP_STATE_KILLED) && step.Message != "" {
+			return step.Message
+		}
+		if message := findFailureMessage(step.SubSteps); message != "" {
+			return message
+		}
+	}
+	return ""
 }

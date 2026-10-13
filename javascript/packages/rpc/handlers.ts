@@ -1,10 +1,9 @@
-import { create } from '@bufbuild/protobuf';
-
-import { UserInfoSchema } from './gen/michelangelo/api/v2/user_pb';
 import { getServices } from './services';
 
-import type { PipelineRun } from './gen/michelangelo/api/v2/pipeline_run_pb';
-import type { TriggerRun } from './gen/michelangelo/api/v2/trigger_run_pb';
+import type { DeploymentJson } from './gen/michelangelo/api/v2/deployment_pb';
+import type { InferenceServerJson } from './gen/michelangelo/api/v2/inference_server_pb';
+import type { PipelineRunJson } from './gen/michelangelo/api/v2/pipeline_run_pb';
+import type { TriggerRunJson } from './gen/michelangelo/api/v2/trigger_run_pb';
 import type { ExtractUnaryRpc } from './types';
 
 let handlersPromise: Promise<Awaited<ReturnType<typeof createHandlers>>> | null = null;
@@ -34,10 +33,28 @@ async function createHandlers() {
   const services = await getServices();
 
   return {
+    ListCluster: unary(services.ClusterService.listCluster),
     ListDeployment: unary(services.DeploymentService.listDeployment),
     GetDeployment: unary(services.DeploymentService.getDeployment),
+    CreateDeployment: (record: DeploymentJson, headers?: Record<string, string>) => {
+      const actorName = headers?.['x-user-name'];
+      if (actorName && record.spec) {
+        record.spec.owner = { name: actorName };
+      }
+      return services.DeploymentService.createDeployment({ deployment: record }, headers);
+    },
+    UpdateDeployment: (record: DeploymentJson, headers?: Record<string, string>) => {
+      const actorName = headers?.['x-user-name'];
+      if (actorName && record.spec) {
+        record.spec.owner = { name: actorName };
+      }
+      return services.DeploymentService.updateDeployment({ deployment: record }, headers);
+    },
+    DeleteDeployment: deleteCrd(services.DeploymentService.deleteDeployment),
     ListInferenceServer: unary(services.InferenceServerService.listInferenceServer),
     GetInferenceServer: unary(services.InferenceServerService.getInferenceServer),
+    CreateInferenceServer: (record: InferenceServerJson, headers?: Record<string, string>) =>
+      services.InferenceServerService.createInferenceServer({ inferenceServer: record }, headers),
     ListProject: unary(services.ProjectService.listProject),
     GetProject: unary(services.ProjectService.getProject),
     GetPipeline: unary(services.PipelineService.getPipeline),
@@ -47,18 +64,29 @@ async function createHandlers() {
     GetPipelineRun: unary(services.PipelineRunService.getPipelineRun),
     ListTriggerRun: unary(services.TriggerRunService.listTriggerRun),
     GetTriggerRun: unary(services.TriggerRunService.getTriggerRun),
-    UpdateTriggerRun: (record: TriggerRun, headers?: Record<string, string>) =>
-      services.TriggerRunService.updateTriggerRun({ triggerRun: record }, headers),
-    CreatePipelineRun: (record: PipelineRun, headers?: Record<string, string>) => {
+    CreateTriggerRun: (record: TriggerRunJson, headers?: Record<string, string>) => {
       const actorName = headers?.['x-user-name'];
       if (actorName && record.spec) {
-        record.spec.actor = create(UserInfoSchema, { name: actorName });
+        record.spec.actor = { name: actorName };
+      }
+      return services.TriggerRunService.createTriggerRun({ triggerRun: record }, headers);
+    },
+    UpdateTriggerRun: (record: TriggerRunJson, headers?: Record<string, string>) =>
+      services.TriggerRunService.updateTriggerRun({ triggerRun: record }, headers),
+    CreatePipelineRun: (record: PipelineRunJson, headers?: Record<string, string>) => {
+      const actorName = headers?.['x-user-name'];
+      if (actorName && record.spec) {
+        record.spec.actor = { name: actorName };
       }
       return services.PipelineRunService.createPipelineRun({ pipelineRun: record }, headers);
     },
-    UpdatePipelineRun: (record: PipelineRun, headers?: Record<string, string>) =>
+    UpdatePipelineRun: (record: PipelineRunJson, headers?: Record<string, string>) =>
       services.PipelineRunService.updatePipelineRun({ pipelineRun: record }, headers),
     ListModel: unary(services.ModelService.listModel),
+    GetModel: unary(services.ModelService.getModel),
+    ListModelFamily: unary(services.ModelFamilyService.listModelFamily),
+    ListRevision: unary(services.RevisionService.listRevision),
+    GetRevision: unary(services.RevisionService.getRevision),
   } as const;
 }
 

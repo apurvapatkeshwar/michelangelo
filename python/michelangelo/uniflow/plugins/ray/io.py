@@ -135,46 +135,57 @@ class RayDatasetIO(IO[Dataset]):
        and parallel-checks remaining files for non-empty row groups.
     2. ``ray.data.read_parquet`` reads the survivors.
     3. If PyArrow raises ``ArrowNotImplementedError`` on nested columns
-       (ray-project/ray#61675), the Polars fallback ``_ParquetPolarsDatasource``
-       retries the read. **Requires ``polars`` to be installed**
-       (``pip install michelangelo[ray-polars]``).
+       (https://github.com/ray-project/ray/issues/61675), the Polars fallback
+       ``_ParquetPolarsDatasource`` retries the read. **Requires ``polars`` to
+       be installed** (``pip install michelangelo[ray-polars]``).
 
     Raises:
         FileNotFoundError: If no parquet files are found at *url* on read.
 
     Example:
-        >>> import ray, tempfile, pandas as pd
-        >>> ds = ray.data.from_pandas(pd.DataFrame([{"x": 1}]))
-        >>> io = RayDatasetIO()
-        >>> dest = tempfile.mkdtemp()
-        >>> io.write(dest, ds)
-        >>> result = io.read(dest, None)
-        >>> result.count()
-        1
+    ```python
+    >>> import ray, tempfile, pandas as pd
+    >>> ds = ray.data.from_pandas(pd.DataFrame([{"x": 1}]))
+    >>> io = RayDatasetIO()
+    >>> dest = tempfile.mkdtemp()
+    >>> io.write(dest, ds)
+    >>> result = io.read(dest, None)
+    >>> result.count()
+    1
+    ```
     """
 
-    def write(self, url: str, value: Dataset) -> None:
+    def write(self, url: str, value: Dataset, **write_kwargs: Any) -> None:
         """Write *value* to *url* as Parquet files.
 
         Args:
             url: Destination directory path or URL (local, ``s3://``, etc.).
                 Ray writes multiple shard files under this directory.
             value: Ray Dataset to write.
+            **write_kwargs: Additional kwargs forwarded to
+                ``Dataset.write_parquet`` (e.g. ``max_rows_per_file``,
+                ``min_rows_per_file``). Must not set ``filesystem``, which
+                this method always supplies itself.
 
         Returns:
             ``None`` — no metadata needed for the read path.
         """
         fs, root = _fs_path(url)
-        value.write_parquet(root, filesystem=fs)
+        value.write_parquet(root, filesystem=fs, **write_kwargs)
         _logger.info("RayDatasetIO: wrote dataset to '%s'.", url)
         return None
 
-    def read(self, url: str, _metadata: Any | None) -> Dataset:
+    def read(self, url: str, _metadata: Any | None, **read_kwargs: Any) -> Dataset:
         """Read a Ray Dataset from *url*, skipping empty parquet files.
 
         Args:
             url: Source directory path or URL.
             _metadata: Unused; pass ``None``.
+            **read_kwargs: Additional kwargs forwarded to
+                ``ray.data.read_parquet`` (e.g. as produced by
+                ``parquet_read_config_to_kwargs``). Must not set
+                ``filesystem`` or ``file_extensions``, which this method
+                always supplies itself.
 
         Returns:
             Ray Dataset loaded from Parquet shards under *url*.
@@ -188,7 +199,7 @@ class RayDatasetIO(IO[Dataset]):
             raise FileNotFoundError(f"RayDatasetIO: no parquet files found at '{url}'.")
         try:
             ds = ray.data.read_parquet(
-                paths, filesystem=fs, file_extensions=["parquet"]
+                paths, filesystem=fs, file_extensions=["parquet"], **read_kwargs
             )
             _logger.info("RayDatasetIO: read %d file(s) from '%s'.", len(paths), url)
             return ds

@@ -9,6 +9,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	goapi "github.com/michelangelo-ai/michelangelo/go/api"
 	conditionInterfaces "github.com/michelangelo-ai/michelangelo/go/base/conditions/interfaces"
 	"github.com/michelangelo-ai/michelangelo/go/components/common/routing"
 	osscommon "github.com/michelangelo-ai/michelangelo/go/components/deployment/plugins/oss/common"
@@ -34,6 +35,10 @@ type Params struct {
 
 	// Client is the controller-runtime client for the control-plane cluster.
 	Client client.Client
+
+	// APIHandler reads control-plane API objects that may live in metadata storage rather
+	// than etcd, such as the immutable Model kind.
+	APIHandler goapi.Handler
 
 	// HTTPClient is the HTTP client for the control-plane cluster.
 	HTTPClient *http.Client
@@ -79,13 +84,13 @@ func getRollingActors(params Params, deployment *v2pb.Deployment) ([]conditionIn
 
 	for _, target := range targets {
 		actors = append(actors,
-			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target),
+			strategiesCommon.NewRollingRolloutActor(params.ClientFactory, params.APIHandler, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target),
 			strategiesCommon.NewTrafficRoutingActor(params.ClientFactory, params.RouteManager, target),
 		)
 	}
 	actors = append(actors, strategiesCommon.NewDiscoveryRoutingActor(params.DynamicClient, params.RouteManager))
 	for _, target := range targets {
-		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.BackendRegistry, params.ModelConfigProvider, params.Logger, target))
+		actors = append(actors, strategiesCommon.NewModelCleanupActor(params.ClientFactory, params.ModelConfigProvider, params.Logger, target))
 	}
 
 	return actors, nil

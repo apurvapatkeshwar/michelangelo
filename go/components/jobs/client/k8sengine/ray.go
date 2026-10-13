@@ -26,6 +26,13 @@ type LogPersistenceConfig struct {
 	CollectorImage    string `yaml:"collectorImage"`    // KubeRay collector sidecar image
 	S3DisableSSL      bool   `yaml:"s3DisableSSL"`      // Set S3DISABLE_SSL on the collector (true for in-cluster MinIO; false for OCI/S3)
 
+	// ExposableEventTypes sets RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES
+	// on every Ray container. Empty means "ALL", which requires Ray >= 2.54; for
+	// older Ray images set the explicit comma-separated event-type list instead
+	// (legacyExposableEventTypes). Michelangelo does not own the Ray runtime
+	// image — it comes from the user's task spec — so this must stay overridable.
+	ExposableEventTypes string `yaml:"exposableEventTypes"`
+
 	// LogURLFormat is a Go text/template applied during local→global cluster
 	// status translation to produce the human-browsable log URL surfaced on
 	// v2 RayClusterStatus. Available template variables: Bucket, PathPrefix,
@@ -50,6 +57,10 @@ func (m Mapper) mapRay(rayJob *v2pb.RayJob, jobClusterObject runtime.Object, clu
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rayJob.Name,
 			Namespace: RayLocalNamespace,
+			// RayJobs target an existing RayCluster via ClusterSelector, so
+			// they are never Kueue-queued themselves (Kueue admits the
+			// cluster); no queue label is resolved here.
+			Labels: mapLabels(rayJob.GetLabels(), ""),
 		},
 		Spec: rayv1.RayJobSpec{
 			ClusterSelector: map[string]string{
@@ -127,15 +138,20 @@ func buildSubmitterPodTemplate(head corev1.PodTemplateSpec) *corev1.PodTemplateS
 	}
 }
 
-func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, error) {
+func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster, cluster *v2pb.Cluster) (runtime.Object, error) {
 	workerGroupSpecs := getWorkerGroupSpecs(rayCluster.GetName(), rayCluster.GetSpec().Workers)
 	headGroupSpec := getHeadGroupSpec(rayCluster.GetSpec().Head)
 
 	if m.LogPersistence.Enabled {
-		injectCollectorSidecar(&headGroupSpec.Template, m.LogPersistence, rayCluster.GetName(), RayLocalNamespace, "Head")
+		injectCollectorSidecar(&headGroupSpec.Template, m.LogPersistence, "Head")
 		for i := range workerGroupSpecs {
-			injectCollectorSidecar(&workerGroupSpecs[i].Template, m.LogPersistence, rayCluster.GetName(), RayLocalNamespace, "Worker")
+			injectCollectorSidecar(&workerGroupSpecs[i].Template, m.LogPersistence, "Worker")
 		}
+	}
+
+	queueName, err := m.kueueQueueName(rayCluster.GetLabels(), rayCluster.GetNamespace(), cluster)
+	if err != nil {
+		return nil, err
 	}
 
 	rayV1Cluster := &rayv1.RayCluster{
@@ -146,6 +162,7 @@ func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, erro
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rayCluster.Name,
 			Namespace: RayLocalNamespace,
+			Labels:    mapLabels(rayCluster.GetLabels(), queueName),
 		},
 		Spec: rayv1.RayClusterSpec{
 			HeadGroupSpec:    headGroupSpec,
@@ -156,12 +173,32 @@ func (m Mapper) mapRayCluster(rayCluster *v2pb.RayCluster) (runtime.Object, erro
 	return rayV1Cluster, nil
 }
 
+// nonNilRayStartParams returns params unchanged when non-nil, otherwise an
+// empty (non-nil) map. KubeRay's HeadGroupSpec/WorkerGroupSpec.RayStartParams
+// field has no `omitempty`, so a nil map serializes to JSON `null` — and the
+// RayCluster CRD rejects `null` ("rayStartParams in body must be of type
+// object"). Michelangelo's v2 API omits rayStartParams by default (and proto3
+// drops empty maps on the wire, so callers cannot force `{}` from the request),
+// which leaves this field nil here. The bug stays latent until an admission
+// webhook re-serializes the RayCluster on create — notably Kueue's mutating
+// webhook, which decodes the object and marshals it whole, turning the omitted
+// map into an explicit `null` that the CRD then rejects. Emitting `{}` instead
+// is always valid and is the equivalent of "no extra ray start params".
+func nonNilRayStartParams(params map[string]string) map[string]string {
+	if params == nil {
+		return map[string]string{}
+	}
+	return params
+}
+
 func getHeadGroupSpec(head *v2pb.RayHeadSpec) rayv1.HeadGroupSpec {
-	return rayv1.HeadGroupSpec{
+	spec := rayv1.HeadGroupSpec{
 		ServiceType:    corev1.ServiceType(head.GetServiceType()),
-		RayStartParams: head.GetRayStartParams(),
+		RayStartParams: nonNilRayStartParams(head.GetRayStartParams()),
 		Template:       k8sptr.Deref(head.GetPod(), corev1.PodTemplateSpec{}),
 	}
+	tolerateNVIDIAGPUTaint(&spec.Template)
+	return spec
 }
 
 func getWorkerGroupSpecs(clusterName string, workers []*v2pb.RayWorkerSpec) []rayv1.WorkerGroupSpec {
@@ -172,9 +209,10 @@ func getWorkerGroupSpecs(clusterName string, workers []*v2pb.RayWorkerSpec) []ra
 			Replicas:       &workerGroup.MinInstances,
 			MinReplicas:    &workerGroup.MinInstances,
 			MaxReplicas:    &workerGroup.MaxInstances,
-			RayStartParams: workerGroup.RayStartParams,
+			RayStartParams: nonNilRayStartParams(workerGroup.GetRayStartParams()),
 			Template:       k8sptr.Deref(workerGroup.Pod, corev1.PodTemplateSpec{}),
 		}
+		tolerateNVIDIAGPUTaint(&wg.Template)
 		workerGroupSpecsJSON[i] = wg
 	}
 	return workerGroupSpecsJSON
@@ -185,43 +223,46 @@ const (
 	rayLogsPath       = "/tmp/ray"
 	collectorPort     = 8084
 
-	// nodeIDScript is the PostStart lifecycle hook that extracts the raylet node ID.
-	// The collector watches /tmp/ray/raylet_node_id for node identification.
-	// This script polls until the raylet process starts, then extracts --node_id from its args.
-	// Copied from: https://github.com/ray-project/kuberay/blob/master/historyserver/config/raycluster.yaml
-	nodeIDScript = `GetNodeId(){
-  while true; do
-    nodeid=$(ps -ef | grep raylet | grep node_id | grep -v grep | grep -oP '(?<=--node_id=)[^ ]*')
-    if [ -n "$nodeid" ]; then
-      echo "$(date) raylet started: ${nodeid}" >> /tmp/ray/init.log
-      echo $nodeid > /tmp/ray/raylet_node_id
-      break
-    else
-      echo "$(date) raylet not started" >> /tmp/ray/init.log
-      sleep 1
-    fi
-  done
-}
-GetNodeId`
+	// defaultExposableEventTypes forwards every Ray event type to the collector.
+	// This is what KubeRay's v1.7 reference config uses; it requires Ray >= 2.54.
+	defaultExposableEventTypes = "ALL"
 
-	// exposableEventTypes lists the Ray event types the collector should receive.
-	// Required for Ray 2.52.0+. In 2.53.0+ the env var name changes to
-	// RAY_DASHBOARD_AGGREGATOR_AGENT_PUBLISHER_HTTP_ENDPOINT_EXPOSABLE_EVENT_TYPES
-	exposableEventTypes = "TASK_DEFINITION_EVENT,TASK_LIFECYCLE_EVENT,ACTOR_TASK_DEFINITION_EVENT," +
+	// legacyExposableEventTypes is the explicit list that "ALL" replaced, kept as
+	// the documented fallback for Ray images older than 2.54, which reject "ALL".
+	// Select it through LogPersistenceConfig.ExposableEventTypes.
+	legacyExposableEventTypes = "TASK_DEFINITION_EVENT,TASK_LIFECYCLE_EVENT,ACTOR_TASK_DEFINITION_EVENT," +
 		"TASK_PROFILE_EVENT,DRIVER_JOB_DEFINITION_EVENT,DRIVER_JOB_LIFECYCLE_EVENT," +
 		"ACTOR_DEFINITION_EVENT,ACTOR_LIFECYCLE_EVENT,NODE_DEFINITION_EVENT,NODE_LIFECYCLE_EVENT"
 )
 
+// exposableEventTypes resolves the event-type filter to put on the Ray
+// containers, defaulting to "ALL" when the operator has not pinned one.
+func (c LogPersistenceConfig) exposableEventTypes() string {
+	if c.ExposableEventTypes == "" {
+		return defaultExposableEventTypes
+	}
+	return c.ExposableEventTypes
+}
+
 // injectCollectorSidecar injects a KubeRay History Server collector sidecar container
-// into the pod template. Follows the official KubeRay config pattern:
-// https://github.com/ray-project/kuberay/blob/master/historyserver/config/raycluster.yaml
+// into the pod template. Follows the official KubeRay v1.7 config pattern:
+// https://github.com/ray-project/kuberay/blob/v1.7.1/historyserver/config/raycluster.yaml
 //
 // It adds:
 // - Shared emptyDir volume for /tmp/ray
-// - Ray event export env vars on all existing containers
-// - PostStart lifecycle hook to extract raylet node ID
-// - Collector sidecar with S3 env vars and event port
-func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersistenceConfig, clusterName string, clusterNamespace string, role string) {
+// - Ray event export env vars (plus RAY_TMP_ROOT) on all existing containers
+// - Collector sidecar, configured entirely through env
+//
+// The v1.7 collector is env-driven: it runs its own image entrypoint (no Command
+// override), and it identifies its node from the downward-API POD_IP/FQ_RAY_IP
+// rather than the v1.6 PostStart hook that scraped --node_id out of `ps -ef`.
+// Cluster identity likewise comes from the downward API, not from the caller.
+//
+// OWNER_KIND/OWNER_NAME are deliberately left unset: Michelangelo never creates
+// RayJob-owned clusters, so every cluster lands under
+// cluster-history/raycluster/{namespace}/{cluster}/, which is what
+// LogPersistenceConfig.LogURLFormat renders.
+func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersistenceConfig, role string) {
 	// 1. Determine the volume name for /tmp/ray.
 	// If a Ray container already mounts /tmp/ray, reuse that volume so
 	// the collector shares the same data. Otherwise, create a new emptyDir.
@@ -262,8 +303,14 @@ func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersi
 		MountPath: rayLogsPath,
 	}
 
-	// Ray event export env vars — tells Ray to forward events to the collector's HTTP endpoint
+	// Ray event export env vars — tells Ray to forward events to the collector's
+	// HTTP endpoint. RAY_TMP_ROOT pins Ray's temp root to the shared volume the
+	// collector reads from; v1.7 requires it on both sides.
 	eventExportEnvVars := []corev1.EnvVar{
+		{
+			Name:  "RAY_TMP_ROOT",
+			Value: rayLogsPath,
+		},
 		{
 			Name:  "RAY_enable_ray_event",
 			Value: "true",
@@ -278,11 +325,12 @@ func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersi
 		},
 		{
 			Name:  "RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES",
-			Value: exposableEventTypes,
+			Value: config.exposableEventTypes(),
 		},
 	}
 
-	// 2. Update all existing containers: add volume mount, env vars, and lifecycle hook
+	// 2. Update all existing containers: add volume mount and env vars.
+	// Any Lifecycle the user set is left untouched — v1.7 needs no hook of its own.
 	for i := range podTemplate.Spec.Containers {
 		c := &podTemplate.Spec.Containers[i]
 		// Only add volume mount if /tmp/ray is not already mounted
@@ -297,54 +345,55 @@ func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersi
 			c.VolumeMounts = append(c.VolumeMounts, rayLogsVolumeMount)
 		}
 		c.Env = append(c.Env, eventExportEnvVars...)
-
-		// Add PostStart lifecycle hook to extract raylet node ID.
-		// Preserves any existing PreStop hook.
-		if c.Lifecycle == nil {
-			c.Lifecycle = &corev1.Lifecycle{}
-		}
-		c.Lifecycle.PostStart = &corev1.LifecycleHandler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/sh", "-lc", "--", nodeIDScript},
-			},
-		}
 	}
 
-	// 3. Build S3 env vars for collector — matches official kuberay config pattern
-	// (env vars, NOT --runtime-class-config-path). We set BOTH credential
-	// naming conventions on purpose:
-	//   - AWS_S3ID / AWS_S3SECRET / AWS_S3TOKEN — kuberay's storage/s3 reads
-	//     these explicitly (historyserver/pkg/storage/s3/config.go).
-	//   - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — required by AWS SDK code
-	//     paths that fall through to the default credential chain (e.g. SigV4
-	//     signing against OCI Object Storage).
-	// AWS_REGION is also required by the SDK for SigV4 even when StorageEndpoint
-	// points at a non-AWS endpoint — without it the collector panics with
-	// MissingRegion before ever issuing a request.
-	collectorS3Env := []corev1.EnvVar{
+	// 3. Build the collector env. The v1.7 collector takes no flags: everything
+	// below is read by historyserver/cmd/collector/main.go at startup.
+	//
+	// ORDER MATTERS. Kubernetes expands $(VAR) references only against env vars
+	// declared EARLIER in the same container's list, so RAY_CLUSTER_NAME and
+	// RAY_CLUSTER_NAMESPACE must precede FQ_RAY_IP or it resolves to the literal
+	// "$(RAY_CLUSTER_NAME)-head-svc...." and the collector never finds the head.
+	//
+	// Credentials use the standard AWS names only; v1.7 dropped the custom
+	// credential aliases the v1.6 fork read, and region moved from the generic
+	// AWS region variable to S3_REGION.
+	collectorEnv := []corev1.EnvVar{
 		{
-			Name: "AWS_S3ID",
+			Name: "RAY_CLUSTER_NAME",
 			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: config.CredentialsSecret,
-					},
-					Key: "AWS_ACCESS_KEY_ID",
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "metadata.labels['ray.io/cluster']",
 				},
 			},
 		},
 		{
-			Name: "AWS_S3SECRET",
+			Name: "RAY_CLUSTER_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: config.CredentialsSecret,
-					},
-					Key: "AWS_SECRET_ACCESS_KEY",
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "metadata.namespace",
 				},
 			},
 		},
-		{Name: "AWS_S3TOKEN", Value: ""},
+		{
+			Name: "POD_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "status.podIP",
+				},
+			},
+		},
+		{Name: "FQ_RAY_IP", Value: "$(RAY_CLUSTER_NAME)-head-svc.$(RAY_CLUSTER_NAMESPACE).svc.cluster.local"},
+		{Name: "RAY_TMP_ROOT", Value: rayLogsPath},
+		{Name: "RAY_ROLE", Value: role},
+		{Name: "STORAGE_BACKEND", Value: "s3"},
+		{Name: "STORAGE_ROOT_DIR", Value: config.PathPrefix},
+		{Name: "EVENTS_PORT", Value: strconv.Itoa(collectorPort)},
+		{Name: "S3_BUCKET", Value: config.Bucket},
+		{Name: "S3_ENDPOINT", Value: config.StorageEndpoint},
+		{Name: "S3_REGION", Value: config.Region},
+		{Name: "S3FORCE_PATH_STYLE", Value: "true"},
+		{Name: "S3DISABLE_SSL", Value: strconv.FormatBool(config.S3DisableSSL)},
 		{
 			Name: "AWS_ACCESS_KEY_ID",
 			ValueFrom: &corev1.EnvVarSource{
@@ -367,36 +416,27 @@ func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersi
 				},
 			},
 		},
-		{Name: "AWS_REGION", Value: config.Region},
-		{Name: "S3_BUCKET", Value: config.Bucket},
-		{Name: "S3_ENDPOINT", Value: config.StorageEndpoint},
-		{Name: "S3FORCE_PATH_STYLE", Value: "true"},
-		{Name: "S3DISABLE_SSL", Value: strconv.FormatBool(config.S3DisableSSL)},
+		// Static credentials only — no STS session token. Set empty rather than
+		// omitted to match upstream's reference config.
+		{Name: "AWS_SESSION_TOKEN", Value: ""},
 	}
 
 	// Head collector gets additional env vars for dashboard polling
 	if role == "Head" {
-		collectorS3Env = append(collectorS3Env,
+		collectorEnv = append(collectorEnv,
 			corev1.EnvVar{Name: "RAY_DASHBOARD_ADDRESS", Value: "http://localhost:8265"},
 			corev1.EnvVar{Name: "RAY_COLLECTOR_ADDITIONAL_ENDPOINTS", Value: "/api/v0/placement_groups?detail=1&limit=10000"},
 			corev1.EnvVar{Name: "RAY_COLLECTOR_POLL_INTERVAL", Value: "30s"},
 		)
 	}
 
-	// 4. Build collector sidecar container using command (not args) per official config
+	// 4. Build the collector sidecar. No Command/Args override: the v1.7 image
+	// entrypoint reads the env above.
 	collectorContainer := corev1.Container{
 		Name:            "collector",
 		Image:           config.CollectorImage,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command: []string{
-			"collector",
-			fmt.Sprintf("--role=%s", role),
-			"--runtime-class-name=s3",
-			fmt.Sprintf("--ray-cluster-name=%s", clusterName),
-			fmt.Sprintf("--ray-root-dir=%s", "log"),
-			fmt.Sprintf("--events-port=%d", collectorPort),
-		},
-		Env: collectorS3Env,
+		Env:             collectorEnv,
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "events",
@@ -410,10 +450,48 @@ func injectCollectorSidecar(podTemplate *corev1.PodTemplateSpec, config LogPersi
 				corev1.ResourceMemory: resource.MustParse("128Mi"),
 			},
 		},
-		VolumeMounts: []corev1.VolumeMount{rayLogsVolumeMount},
+		VolumeMounts:    []corev1.VolumeMount{rayLogsVolumeMount},
+		SecurityContext: collectorSecurityContext(&podTemplate.Spec),
 	}
 
 	podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, collectorContainer)
+}
+
+// collectorSecurityContext picks the identity the collector sidecar runs as.
+//
+// The v1.7 collector does not start collecting until it can dial the raylet
+// unix socket under RAY_TMP_ROOT (historyserver utils.GetSessionDir ->
+// IsSessionDirActive). Connecting to a unix socket needs write permission on
+// the socket file, which Ray creates 0755 owned by whatever uid runs
+// `ray start`. The collector image runs as 1000:1000, so against a Ray image
+// that runs as root (michelangelo-examples and most custom task images) the
+// dial fails with EACCES, the collector gives up after 60s and exits 1,
+// kubelet restarts it into CrashLoopBackOff, utils.terminalPodErrorReasons
+// then kills the whole cluster, and nothing is ever uploaded.
+//
+// The image USER is not visible from the pod spec, so match the Ray container
+// (Containers[0], KubeRay's convention) instead of assuming uid 1000:
+//   - explicit container-level runAsUser on the Ray container: mirror it;
+//   - pod-level runAsUser: return nil so the sidecar inherits that identity;
+//   - otherwise: root, which can open any uid's socket and read any uid's logs.
+func collectorSecurityContext(podSpec *corev1.PodSpec) *corev1.SecurityContext {
+	if len(podSpec.Containers) > 0 {
+		if sc := podSpec.Containers[0].SecurityContext; sc != nil && sc.RunAsUser != nil {
+			uid := *sc.RunAsUser
+			out := &corev1.SecurityContext{RunAsUser: &uid}
+			if sc.RunAsGroup != nil {
+				gid := *sc.RunAsGroup
+				out.RunAsGroup = &gid
+			}
+			return out
+		}
+	}
+	if podSpec.SecurityContext != nil && podSpec.SecurityContext.RunAsUser != nil {
+		return nil
+	}
+	root := int64(0)
+	rootGroup := int64(0)
+	return &corev1.SecurityContext{RunAsUser: &root, RunAsGroup: &rootGroup}
 }
 
 // getRayClusterStateFromStatus maps KubeRay v1 cluster state to our internal v2pb.RayClusterState
@@ -426,13 +504,43 @@ func getRayClusterStateFromKubeRayState(kubeRayState rayv1.ClusterState) v2pb.Ra
 	case "unhealthy":
 		return v2pb.RAY_CLUSTER_STATE_UNHEALTHY
 	case rayv1.Suspended:
-		return v2pb.RAY_CLUSTER_STATE_UNKNOWN
+		return v2pb.RAY_CLUSTER_STATE_SUSPENDED
 	case "": // Empty state means unknown
 		return v2pb.RAY_CLUSTER_STATE_UNKNOWN
 	default:
 		// For any future states we don't recognize, default to unknown
 		return v2pb.RAY_CLUSTER_STATE_UNKNOWN
 	}
+}
+
+// KubeRay writes these condition types while suspending/resuming a cluster
+// (RayCluster.spec.suspend). The vendored ray-operator API (v1.2.2) predates
+// their constants, so they are string-matched here.
+const (
+	rayClusterSuspendingConditionType = "RayClusterSuspending"
+	rayClusterSuspendedConditionType  = "RayClusterSuspended"
+)
+
+// isSuspended reports whether the cluster is suspended or being suspended
+// (spec.suspend=true, e.g. set by a queueing/admission controller such as
+// Kueue). Spec intent, reported state, and conditions are all checked because
+// status.state lags spec.suspend when a cluster is suspended at creation.
+func isSuspended(rc *rayv1.RayCluster) bool {
+	if rc.Spec.Suspend != nil && *rc.Spec.Suspend {
+		return true
+	}
+	if rc.Status.State == rayv1.Suspended {
+		return true
+	}
+	for _, cond := range rc.Status.Conditions {
+		if cond.Status != metav1.ConditionTrue {
+			continue
+		}
+		if cond.Type == rayClusterSuspendingConditionType || cond.Type == rayClusterSuspendedConditionType {
+			return true
+		}
+	}
+	return false
 }
 
 func isFailureCondition(cond metav1.Condition) bool {
@@ -448,9 +556,15 @@ func isFailureCondition(cond metav1.Condition) bool {
 	}
 }
 
-func extractPodErrorsFromConditions(conditions []metav1.Condition) []*v2pb.PodErrors {
+func extractPodErrorsFromConditions(rc *rayv1.RayCluster) []*v2pb.PodErrors {
+	// Pods are intentionally absent while a cluster is suspended, so pod-level
+	// failure conditions (HeadPodReady=False, ReplicaFailure) are not errors in
+	// that window. Once unsuspended they count again.
+	if isSuspended(rc) {
+		return nil
+	}
 	var podErrors []*v2pb.PodErrors
-	for _, cond := range conditions {
+	for _, cond := range rc.Status.Conditions {
 		if !isFailureCondition(cond) {
 			continue
 		}
@@ -463,14 +577,22 @@ func extractPodErrorsFromConditions(conditions []metav1.Condition) []*v2pb.PodEr
 	return podErrors
 }
 
-func deriveReasonFromConditions(conditions []metav1.Condition) string {
-	for _, cond := range conditions {
+func deriveReasonFromConditions(rc *rayv1.RayCluster) string {
+	if isSuspended(rc) {
+		for _, cond := range rc.Status.Conditions {
+			if cond.Type == rayClusterSuspendingConditionType && cond.Status == metav1.ConditionTrue {
+				return "ClusterSuspending"
+			}
+		}
+		return "ClusterSuspended"
+	}
+	for _, cond := range rc.Status.Conditions {
 		if rayv1.RayClusterConditionType(cond.Type) == rayv1.RayClusterReplicaFailure &&
 			cond.Status == metav1.ConditionTrue && cond.Reason != "" {
 			return cond.Reason
 		}
 	}
-	for _, cond := range conditions {
+	for _, cond := range rc.Status.Conditions {
 		if rayv1.RayClusterConditionType(cond.Type) == rayv1.HeadPodReady &&
 			cond.Status == metav1.ConditionFalse && cond.Reason != "" &&
 			cond.Reason != rayv1.RayClusterPodsProvisioning {
@@ -487,6 +609,13 @@ func convertRayV1ClusterStatusToV2(rayV1Cluster *rayv1.RayCluster) *v2pb.RayClus
 	// Map state using the conversion function
 	status.State = getRayClusterStateFromKubeRayState(rayV1Cluster.Status.State)
 
+	// Suspension is visible in spec/conditions before status.state catches up
+	// (e.g. a cluster suspended by its admission webhook at creation still has
+	// state ""); report SUSPENDED for the whole window.
+	if isSuspended(rayV1Cluster) {
+		status.State = v2pb.RAY_CLUSTER_STATE_SUSPENDED
+	}
+
 	// Map last update time
 	if rayV1Cluster.Status.LastUpdateTime != nil && !rayV1Cluster.Status.LastUpdateTime.IsZero() {
 		status.LastUpdateTime = rayV1Cluster.Status.LastUpdateTime
@@ -500,7 +629,7 @@ func convertRayV1ClusterStatusToV2(rayV1Cluster *rayv1.RayCluster) *v2pb.RayClus
 	}
 
 	if len(rayV1Cluster.Status.Conditions) > 0 {
-		status.PodErrors = extractPodErrorsFromConditions(rayV1Cluster.Status.Conditions)
+		status.PodErrors = extractPodErrorsFromConditions(rayV1Cluster)
 	}
 
 	return status

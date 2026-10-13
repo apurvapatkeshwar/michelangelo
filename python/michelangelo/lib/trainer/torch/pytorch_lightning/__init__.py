@@ -17,19 +17,24 @@ Public surface re-exported below:
   :class:`ModelSpec`, :class:`TrainingType`, :class:`LearningMode` — warm-start
   schema types consumed by the trainer.
 * :class:`ExperimentStore` — pluggable auto-resume seam;
-  :class:`FsspecExperimentStore` is the filesystem default.
+  :class:`FsspecExperimentStore` is the filesystem default and
+  :class:`MlflowExperimentStore` records markers on an MLflow tracking server
+  (requires the ``trainer-mlflow`` extra).
 * :func:`comet_profiler_sink` — ready-made ``LightningTrainerParam.profiler_sink``
   that ships profiler output to a Comet experiment.
 * :func:`mlflow_profiler_sink` — ready-made ``LightningTrainerParam.profiler_sink``
   that ships profiler output to an MLflow run.
 """
 
-from michelangelo.lib.trainer.torch.pytorch_lightning._private.util import (
+from michelangelo.lib.trainer.torch.pytorch_lightning._private.profiler import (
     comet_profiler_sink,
     mlflow_profiler_sink,
 )
 from michelangelo.lib.trainer.torch.pytorch_lightning.experiment_store import (
     FsspecExperimentStore,
+)
+from michelangelo.lib.trainer.torch.pytorch_lightning.experiment_store_mlflow import (
+    MlflowExperimentStore,
 )
 from michelangelo.lib.trainer.torch.pytorch_lightning.lightning_trainer import (
     LightningTrainer,
@@ -54,6 +59,7 @@ __all__ = [
     "LightningTrainer",
     "LightningTrainerParam",
     "LightningTrainerWithStateDict",
+    "MlflowExperimentStore",
     "ModelSpec",
     "TrainingObserver",
     "TrainingType",

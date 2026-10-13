@@ -45,6 +45,9 @@ from pytorch_lightning.utilities.deepspeed import (
 from ray.train.torch import TorchTrainer
 
 from michelangelo.lib.trainer.torch.pytorch_lightning._private.util import (
+    _apply_batch_limit,
+    _is_deepspeed_strategy,
+    _is_model_parallel_strategy,
     _train_loop_per_worker,
 )
 
@@ -92,8 +95,11 @@ class LightningTrainerParam:
         data_collate_fn: Optional custom collate function passed to
             ``Dataset.iter_torch_batches``; defaults to Ray Data's column-tensor
             output.
-        lightning_trainer_kwargs: Extra keyword arguments forwarded verbatim to
-            ``pytorch_lightning.Trainer(...)``.
+        lightning_trainer_kwargs: Extra keyword arguments forwarded to
+            ``pytorch_lightning.Trainer(...)``. ``limit_train_batches`` and
+            ``limit_val_batches`` are also applied to the matching Ray Dataset, and
+            a float fraction is resolved to an int batch count. See
+            :func:`~_private.util._apply_batch_limit` for the row math and caveats.
         transfer_learning_spec: Optional warm-start spec describing layer freezing
             patterns.
         incremental_training_spec: Optional spec for continuing from an existing
@@ -189,6 +195,38 @@ class LightningTrainer(TorchTrainer):
         train_data = train_loop_config.pop("train_data")
         val_data = train_loop_config.pop("val_data")
 
+        # Bound each split's dataset by its Lightning batch limit so the data
+        # pipeline stops reading at the cap (and fractional limits become ints
+        # Lightning accepts for loaders without __len__). The worker count comes
+        # from the construction-time scaling_config; an override passed to
+        # train() does not resize an already-capped dataset.
+        num_workers = scaling_config.num_workers if scaling_config is not None else 1
+        trainer_kwargs = train_loop_config.get("lightning_trainer_kwargs") or {}
+        unlimited_train_data, unlimited_val_data = train_data, val_data
+        train_data, train_limit = _apply_batch_limit(
+            train_data,
+            trainer_kwargs.get("limit_train_batches"),
+            trainer_param.batch_size,
+            num_workers,
+            "train",
+        )
+        val_data, val_limit = _apply_batch_limit(
+            val_data,
+            trainer_kwargs.get("limit_val_batches"),
+            trainer_param.batch_size,
+            num_workers,
+            "val",
+        )
+        for split, limit in (("train", train_limit), ("val", val_limit)):
+            if limit is not None:
+                trainer_kwargs[f"limit_{split}_batches"] = limit
+        self._batch_limit_num_workers: int | None = (
+            num_workers
+            if train_data is not unlimited_train_data
+            or val_data is not unlimited_val_data
+            else None
+        )
+
         # A configured profiler needs an estimate of steps-per-epoch to derive
         # (or validate) its sampling schedule, which needs the training row
         # count. Only pay for it when a profiler is actually requested: count()
@@ -281,6 +319,18 @@ class LightningTrainer(TorchTrainer):
                     "constructor to control resumption."
                 )
             self.run_config = run_config
+
+        capped_for = self._batch_limit_num_workers
+        if capped_for is not None and self.scaling_config.num_workers != capped_for:
+            _logger.warning(
+                "limit_*_batches capped the datasets for %s worker(s) at "
+                "construction, but train() runs with %s. Each worker will see "
+                "fewer rows than its limit allows, so Lightning may stop short "
+                "of the configured number of batches. Pass the scaling_config "
+                "to the LightningTrainer constructor instead.",
+                capped_for,
+                self.scaling_config.num_workers,
+            )
 
         result = self.fit()
         if result.error:
@@ -408,26 +458,9 @@ class LightningTrainerWithStateDict(LightningTrainer):
 
     After ``train()`` completes, callers can pass an initialized ``torch.nn.Module``
     to :meth:`update_model_state_dict` and have it populated from the latest
-    checkpoint. Supports both DDP single-file checkpoints and DeepSpeed ZeRO
-    sharded directories.
+    checkpoint. Supports DDP single-file checkpoints, DeepSpeed ZeRO sharded
+    directories, and FSDP2 distributed checkpoints.
     """
-
-    def _is_deepspeed_strategy(self) -> bool:
-        """Return ``True`` if the configured strategy is DeepSpeed."""
-        strategy = self.trainer_param.lightning_trainer_kwargs.get("strategy")
-        if strategy is None:
-            return False
-
-        # DeepSpeed was used if the strategy is "deepspeed" or a RayDeepSpeedStrategy instance
-        if isinstance(strategy, str):
-            return strategy.lower() == "deepspeed"
-
-        try:
-            from ray.train.lightning import RayDeepSpeedStrategy
-
-            return isinstance(strategy, RayDeepSpeedStrategy)
-        except ImportError:
-            return False
 
     def update_model_state_dict(self, torch_model: torch.nn.Module) -> None:
         """Populate ``torch_model`` in-place from the latest training checkpoint.
@@ -442,8 +475,9 @@ class LightningTrainerWithStateDict(LightningTrainer):
             raise ValueError(
                 "No checkpoint available. Please call train() first to generate a checkpoint."
             )
-        used_deepspeed = self._is_deepspeed_strategy()
-        # use the ray checkpoint as_directory() to get the local temp checkpoint directory
+        strategy = self.trainer_param.lightning_trainer_kwargs.get("strategy")
+        used_deepspeed = _is_deepspeed_strategy(strategy)
+        used_model_parallel = _is_model_parallel_strategy(strategy)
         with self.checkpoint.as_directory() as d:
             _logger.info(
                 "Saving Ray Checkpoint to local temp Checkpoint directory: %s", d
@@ -467,6 +501,23 @@ class LightningTrainerWithStateDict(LightningTrainer):
                     lightning_ckpt_path,
                     local_model_path,
                 )
+            elif used_model_parallel:
+                # Private torch API, re-verify on torch upgrade.
+                from torch.distributed.checkpoint import FileSystemReader
+                from torch.distributed.checkpoint.state_dict_loader import (
+                    _load_state_dict_from_keys,
+                )
+
+                loaded = _load_state_dict_from_keys(
+                    {"state_dict"},
+                    storage_reader=FileSystemReader(lightning_ckpt_path),
+                )
+                model_state_dict = loaded.get("state_dict")
+                if not model_state_dict:
+                    raise RuntimeError(
+                        f"FSDP2 sharded checkpoint from {lightning_ckpt_path!r} has no 'state_dict' keys."
+                    )
+                _logger.info("Loaded FSDP2 model weights from %s", lightning_ckpt_path)
             else:
                 # DDP checkpoint
                 checkpoint = torch.load(lightning_ckpt_path, map_location="cpu")

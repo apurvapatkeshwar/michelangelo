@@ -1,26 +1,47 @@
-import { create, createRegistry, fromJson, toJson } from '@bufbuild/protobuf';
+import { createRegistry, fromJson, toJson } from '@bufbuild/protobuf';
+import {
+  BoolValueSchema,
+  DoubleValueSchema,
+  Int64ValueSchema,
+  StringValueSchema,
+} from '@bufbuild/protobuf/wkt';
 
 import { createFetchTransport } from './create-fetch-transport';
 import { TypedStructSchema } from './gen/michelangelo/api/typed_struct_pb';
+import { ClusterService } from './gen/michelangelo/api/v2/cluster_svc_pb';
 import { DeploymentService } from './gen/michelangelo/api/v2/deployment_svc_pb';
 import { InferenceServerService } from './gen/michelangelo/api/v2/inference_server_svc_pb';
+import { ModelFamilyService } from './gen/michelangelo/api/v2/model_family_svc_pb';
 import { ModelService } from './gen/michelangelo/api/v2/model_svc_pb';
+import { PipelineSchema } from './gen/michelangelo/api/v2/pipeline_pb';
 import { PipelineRunService } from './gen/michelangelo/api/v2/pipeline_run_svc_pb';
 import { PipelineService } from './gen/michelangelo/api/v2/pipeline_svc_pb';
 import { ProjectService } from './gen/michelangelo/api/v2/project_svc_pb';
+import { RevisionService } from './gen/michelangelo/api/v2/revision_svc_pb';
 import { TriggerRunService } from './gen/michelangelo/api/v2/trigger_run_svc_pb';
+import { omitDeletionGracePeriod } from './omit-deletion-grace-period';
+import { packAnyFields } from './pack-any-fields';
 import { getRuntimeConfig } from './runtime-config';
 
-import type { DescService } from '@bufbuild/protobuf';
+import type { DescService, JsonValue } from '@bufbuild/protobuf';
 import type { FetchTransport, ServiceClient, Services } from './types';
 
-const typeRegistry = createRegistry(TypedStructSchema);
+// Every message type that can appear inside a google.protobuf.Any must be registered here:
+// requests with an unregistered `@type` fail (fromJson/toJson throw). The wrapper types cover
+// packed ListOptionsExt criteria; PipelineSchema covers Revision.spec.content for Pipeline
+// revisions.
+export const typeRegistry = createRegistry(
+  TypedStructSchema,
+  PipelineSchema,
+  StringValueSchema,
+  BoolValueSchema,
+  Int64ValueSchema,
+  DoubleValueSchema
+);
 
 /**
- * Builds a service client whose methods JSON-encode the request, POST it
- * through the fetch transport, and decode the JSON response back into a
- * protobuf-es message. Envoy's grpc_json_transcoder handles the JSON<->binary
- * conversion on the wire, so this client only ever sees JSON.
+ * Builds a service client that sends and receives proto3 JSON. Responses are returned as
+ * Envoy's grpc_json_transcoder emits them, default values included.
  */
 function createServiceClient<T extends DescService>(
   service: T,
@@ -35,15 +56,18 @@ function createServiceClient<T extends DescService>(
     if (method.methodKind !== 'unary') continue;
 
     client[method.localName] = async (request, headers) => {
-      const message = create(method.input, request);
+      const withoutGracePeriod = omitDeletionGracePeriod(method.input, request, typeRegistry);
+      // cast: each step returns the JSON object it was given, rewritten
+      const packedRequest = packAnyFields(method.input, withoutGracePeriod) as JsonValue;
+      // Parsing and re-serializing checks every value against its field type and drops keys
+      // that aren't fields. Callers pass whole records back (e.g. form state), so unknown keys
+      // are expected rather than an error.
+      const message = fromJson(method.input, packedRequest, {
+        registry: typeRegistry,
+        ignoreUnknownFields: true,
+      });
       const requestJson = toJson(method.input, message, { registry: typeRegistry });
-      const responseJson = await transport.callUnary(
-        service.typeName,
-        method.name,
-        requestJson,
-        headers
-      );
-      return fromJson(method.output, responseJson, { registry: typeRegistry });
+      return transport.callUnary(service.typeName, method.name, requestJson, headers);
     };
   }
 
@@ -59,6 +83,7 @@ async function createServices(): Promise<Services> {
   const transport = createFetchTransport({ baseUrl: apiBaseUrl });
 
   return {
+    ClusterService: createServiceClient(ClusterService, transport),
     DeploymentService: createServiceClient(DeploymentService, transport),
     InferenceServerService: createServiceClient(InferenceServerService, transport),
     ProjectService: createServiceClient(ProjectService, transport),
@@ -66,6 +91,8 @@ async function createServices(): Promise<Services> {
     PipelineRunService: createServiceClient(PipelineRunService, transport),
     TriggerRunService: createServiceClient(TriggerRunService, transport),
     ModelService: createServiceClient(ModelService, transport),
+    ModelFamilyService: createServiceClient(ModelFamilyService, transport),
+    RevisionService: createServiceClient(RevisionService, transport),
   } as const;
 }
 

@@ -140,6 +140,42 @@ func TestBeforeCreate_RunAnnotationsWinOverSnapshot(t *testing.T) {
 	assert.Equal(t, "run-image", request.PipelineRun.Annotations["michelangelo.ai/uniflow-image-id"])
 }
 
+// A revision-pinned run must NOT inherit Michelangelo-managed annotations from the
+// snapshotted Pipeline. MetadataStoragePrimaryKeyAnnotation is the one that corrupts the
+// metadata store: copying it onto the run makes every revision-pinned run of a
+// Pipeline inherit the Pipeline's MySQL primary key, so they all upsert onto the single
+// row keyed by the Pipeline's uid and overwrite each other's blobs. Ordinary client
+// annotations must still be carried over.
+func TestBeforeCreate_StripsPlatformAnnotationsFromSnapshot(t *testing.T) {
+	snapshotted := &v2.Pipeline{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pipeline",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				api.MetadataStoragePrimaryKeyAnnotation: "pipeline-uid-123",
+				api.ImmutableAnnotation:                 "true",
+				api.DeletingAnnotation:                  "true",
+				api.DeletePropagationAnnotation:         "Foreground",
+				"michelangelo.ai/uniflow-image-id":      "image-x",
+			},
+		},
+		Spec: v2.PipelineSpec{Description: "revision X"},
+	}
+	hook := setUpHook(t, snapshotRevision(t, "rev-x", snapshotted))
+
+	request := newCreateRequest("rev-x")
+	require.NoError(t, hook.BeforeCreate(context.Background(), request))
+
+	annotations := request.PipelineRun.Annotations
+	assert.NotContains(t, annotations, api.MetadataStoragePrimaryKeyAnnotation,
+		"primary-key annotation must never be copied from the snapshot")
+	assert.NotContains(t, annotations, api.ImmutableAnnotation)
+	assert.NotContains(t, annotations, api.DeletingAnnotation)
+	assert.NotContains(t, annotations, api.DeletePropagationAnnotation)
+	assert.Equal(t, "image-x", annotations["michelangelo.ai/uniflow-image-id"],
+		"client annotations must still be copied from the snapshot")
+}
+
 // Revisions snapshot several resource kinds; a non-Pipeline revision must be
 // rejected loudly rather than falling back to the live Pipeline.
 func TestBeforeCreate_RejectsNonPipelineRevision(t *testing.T) {
@@ -505,6 +541,96 @@ func TestBeforeCreate_RevisionNamespaceFallsBackToPipelineRun(t *testing.T) {
 	assert.Equal(t, "revision X", request.PipelineRun.Spec.PipelineSpec.Description)
 }
 
+func TestBeforeCreate_DefaultsEnvironmentLabelWhenAbsent(t *testing.T) {
+	hook := setUpHook(t)
+	hook.defaultEnv = "staging"
+
+	request := &v2.CreatePipelineRunRequest{
+		PipelineRun: &v2.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-run", Namespace: testNamespace},
+		},
+	}
+	require.NoError(t, hook.BeforeCreate(context.Background(), request))
+	assert.Equal(t, "staging", request.PipelineRun.Labels[api.EnvironmentLabel])
+}
+
+func TestBeforeCreate_DefaultsToUnspecifiedWhenUnconfigured(t *testing.T) {
+	hook := setUpHook(t)
+
+	request := &v2.CreatePipelineRunRequest{
+		PipelineRun: &v2.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-run", Namespace: testNamespace},
+		},
+	}
+	require.NoError(t, hook.BeforeCreate(context.Background(), request))
+	assert.Equal(t, api.UnspecifiedEnvironment, request.PipelineRun.Labels[api.EnvironmentLabel])
+}
+
+func TestBeforeCreate_PreservesExplicitEnvironmentLabel(t *testing.T) {
+	hook := setUpHook(t)
+	hook.defaultEnv = "production"
+
+	request := &v2.CreatePipelineRunRequest{
+		PipelineRun: &v2.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-run",
+				Namespace: testNamespace,
+				Labels:    map[string]string{api.EnvironmentLabel: "staging"},
+			},
+		},
+	}
+	require.NoError(t, hook.BeforeCreate(context.Background(), request))
+	assert.Equal(t, "staging", request.PipelineRun.Labels[api.EnvironmentLabel])
+}
+
+func TestBeforeUpdate_DefaultsEnvironmentLabelWhenAbsent(t *testing.T) {
+	hook := setUpHook(t)
+	hook.defaultEnv = "staging"
+
+	request := &v2.UpdatePipelineRunRequest{
+		PipelineRun: &v2.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-run", Namespace: testNamespace},
+		},
+	}
+	require.NoError(t, hook.BeforeUpdate(context.Background(), request))
+	assert.Equal(t, "staging", request.PipelineRun.Labels[api.EnvironmentLabel])
+}
+
+func TestBeforeUpdate_PreservesExplicitEnvironmentLabel(t *testing.T) {
+	hook := setUpHook(t)
+	hook.defaultEnv = "production"
+
+	request := &v2.UpdatePipelineRunRequest{
+		PipelineRun: &v2.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-run",
+				Namespace: testNamespace,
+				Labels:    map[string]string{api.EnvironmentLabel: "staging"},
+			},
+		},
+	}
+	require.NoError(t, hook.BeforeUpdate(context.Background(), request))
+	assert.Equal(t, "staging", request.PipelineRun.Labels[api.EnvironmentLabel])
+}
+
+func TestBeforeUpdate_NilAnnotationsReplacedWithEmptyMap(t *testing.T) {
+	hook := setUpHook(t)
+
+	request := &v2.UpdatePipelineRunRequest{
+		PipelineRun: &v2.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-run", Namespace: testNamespace},
+		},
+	}
+	require.Nil(t, request.PipelineRun.Annotations)
+	require.NoError(t, hook.BeforeUpdate(context.Background(), request))
+	assert.NotNil(t, request.PipelineRun.Annotations)
+	assert.Empty(t, request.PipelineRun.Annotations)
+}
+
+func TestRegisterPipelineRunAPIHook(t *testing.T) {
+	RegisterPipelineRunAPIHook(zaptest.NewLogger(t), nil, runtime.NewScheme(), "production")
+}
+
 func TestBeforeCreate_PipelineGetTransientErrorIsSoft(t *testing.T) {
 	live := &v2.Pipeline{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pipeline", Namespace: testNamespace},
@@ -525,4 +651,35 @@ func TestBeforeCreate_PipelineGetTransientErrorIsSoft(t *testing.T) {
 	require.NoError(t, hook.BeforeCreate(context.Background(), request))
 	assert.Nil(t, request.PipelineRun.Spec.Revision)
 	assert.Nil(t, request.PipelineRun.Spec.PipelineSpec)
+}
+
+func TestBeforeCreate_StampsSourcePipelineTypeLabel(t *testing.T) {
+	live := &v2.Pipeline{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pipeline", Namespace: testNamespace},
+		Spec:       v2.PipelineSpec{Type: v2.PIPELINE_TYPE_TRAIN},
+	}
+	hook := setUpHook(t, live)
+
+	request := newPipelineRefRequest("test-pipeline")
+	require.NoError(t, hook.BeforeCreate(context.Background(), request))
+	assert.Equal(t, "PIPELINE_TYPE_TRAIN",
+		request.PipelineRun.GetLabels()[api.SourcePipelineTypeLabelName])
+}
+
+// When the owning Pipeline has no type set (proto3 zero value
+// PIPELINE_TYPE_INVALID), the label must still be stamped with the
+// explicit string "PIPELINE_TYPE_INVALID" rather than silently omitted.
+// This provides a greppable diagnostic value on every PipelineRun.
+func TestBeforeCreate_StampsSourcePipelineTypeLabelWhenTypeUnset(t *testing.T) {
+	live := &v2.Pipeline{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pipeline", Namespace: testNamespace},
+		// Spec.Type deliberately omitted — defaults to PIPELINE_TYPE_INVALID (0).
+	}
+	hook := setUpHook(t, live)
+
+	request := newPipelineRefRequest("test-pipeline")
+	require.NoError(t, hook.BeforeCreate(context.Background(), request))
+	assert.Equal(t, "PIPELINE_TYPE_INVALID",
+		request.PipelineRun.GetLabels()[api.SourcePipelineTypeLabelName],
+		"label must be present even when the Pipeline has no type set")
 }

@@ -1,5 +1,5 @@
 load("@plugin", "atexit", "json", "os", "ray", "time")
-load("../../commons.star", "CACHE_OPERATION_GET", "CACHE_OPERATION_PUT", "DEFAULT_RETRY_ATTEMPTS", "TASK_STATE_FAILED", "TASK_STATE_KILLED", "TASK_STATE_PENDING", "TASK_STATE_RUNNING", "TASK_STATE_SKIPPED", "TASK_STATE_SUCCEEDED", "TIME_FOMART", "create_cached_output", "get_cache_enabled", "get_cache_keys", "get_cached_output", "get_pythonpath", "get_result_url", "get_task_image", "get_task_name", "io_read_json", "process_terminated_job", "report_progress", "resource_dict", COMMONS_ENV = "ENV")
+load("../../commons.star", "CACHE_OPERATION_GET", "CACHE_OPERATION_PUT", "DEFAULT_RETRY_ATTEMPTS", "TASK_STATE_FAILED", "TASK_STATE_KILLED", "TASK_STATE_PENDING", "TASK_STATE_RUNNING", "TASK_STATE_SKIPPED", "TASK_STATE_SUCCEEDED", "TIME_FOMART", "create_cached_output", "get_cache_enabled", "get_cache_keys", "get_cached_output", "get_pythonpath", "get_result_url", "get_task_image", "get_task_name", "io_read_json", "process_terminated_job", "report_progress", COMMONS_ENV = "ENV")
 
 DEFAULT_CREATE_CLUSTER_TIMEOUT_SECONDS = 60 * 30  # Timeout duration for cluster creation in seconds.
 RAY_ENV = {
@@ -29,24 +29,6 @@ RAY_DEFAULT_ZONE = os.environ.get("RAY_DEFAULT_ZONE", "")
 
 USER_ID = os.environ.get("USER_ID", "default_user")
 IMAGE_PULL_POLICY = os.environ.get("IMAGE_PULL_POLICY", "Never")
-
-RAY_LOG_URL_PREFIX = os.environ.get("RAY_LOG_URL_PREFIX")
-
-def get_ray_log_url(ray_job_name):
-    """
-    Generate a log URL for a Ray job based on the job name.
-    Only generates URL when RAY_LOG_URL_PREFIX environment variable is provided.
-    Expected format: {RAY_LOG_URL_PREFIX}/{ray_job_name}.log
-
-    Args:
-        ray_job_name: The name of the Ray job (e.g., "uf-ray-abc123")
-
-    Returns:
-        str: The complete log URL or empty string if prefix not configured
-    """
-    if RAY_LOG_URL_PREFIX and ray_job_name:
-        return "{}/{}.log".format(RAY_LOG_URL_PREFIX, ray_job_name)
-    return ""
 
 # This function defines the orchestration logic for Ray tasks.
 #
@@ -164,25 +146,38 @@ def task(
         cluster_image = get_task_image(task_name)
         print("ray | create cluster:", "ns:", cluster_namespace, "image:", cluster_image, "task_name:", task_name)
 
+        # Forward disk only when it differs from the shipped default. The
+        # default (512Gi) has never reached the pod spec, so honoring it now
+        # would suddenly attach a large ephemeral-storage request to every
+        # existing RayTask; an explicit parameter or env override still wins.
+        _head_disk_request = _head_disk if _head_disk != RAY_DEFAULT_HEAD_DISK else None
+        _worker_disk_request = _worker_disk if _worker_disk != RAY_DEFAULT_WORKER_DISK else None
+
         cluster = ray_cluster_spec(
             namespace = cluster_namespace,
             image = cluster_image,
-            head_resource = resource_dict(
+            head_resources = container_resources(
                 cpu = _head_cpu,
                 memory = _head_memory,
+                disk = _head_disk_request,
+                gpu = _head_gpu,
             ),
-            worker_resource = resource_dict(
+            worker_resources = container_resources(
                 cpu = _worker_cpu,
                 memory = _worker_memory,
+                disk = _worker_disk_request,
+                gpu = _worker_gpu,
             ),
             worker_instances = _worker_instances,
+            head_object_store_memory = head_object_store_memory,
+            worker_object_store_memory = worker_object_store_memory,
             debug_enabled = breakpoint,
             runtime_env = runtime_env,
         )
 
         total_retry_attempt = retry_attempts + 1
         for retry_attempt_id in range(1, total_retry_attempt + 1):
-            job_state, job, cluster_url, ray_job_name = execute_ray_task(
+            job_state, job, cluster_url, cluster_log_url = execute_ray_task(
                 task_path = task_path,
                 task_name = task_name,
                 cluster = cluster,
@@ -199,9 +194,9 @@ def task(
                 breakpoint = breakpoint,
             )
 
-            # Generate log URL from Ray job name
-            generated_log_url = get_ray_log_url(ray_job_name)
-            log_url = generated_log_url if generated_log_url else cluster_url
+            # Prefer the persisted-log URL published on the RayCluster CR; fall
+            # back to the live dashboard URL when log persistence is disabled.
+            log_url = cluster_log_url if cluster_log_url else cluster_url
 
             retryable = process_terminated_job(
                 job_state = job_state,
@@ -292,15 +287,28 @@ def execute_ray_task(task_path, task_name, cluster, cluster_namespace, runtime_e
         fail("ray | cluster creation failed, activityId=" + first_activity_id)
 
     cluster_url = cluster["status"].get("jobUrl", "UAPI did not report RayJob URL")
+
+    # Persisted-log URL published by the RayCluster controller on
+    # RayClusterStatus.log_url, rendered from the platform's
+    # jobs.k8sengine.mapper.logPersistence.logURLFormat. Empty when log
+    # persistence is disabled, in which case callers fall back to cluster_url.
+    cluster_log_url = cluster["status"].get("logUrl", "")
+
+    # The URL reported to the control plane as this task's log location. The
+    # persisted-log URL outlives the cluster; the live dashboard URL stops
+    # resolving the moment the cluster is torn down, so prefer the former and
+    # fall back to the latter only when log persistence is disabled.
+    task_log_url = cluster_log_url if cluster_log_url else cluster_url
+
     cluster_name = cluster["metadata"]["name"]
     cluster_namespace = cluster["metadata"]["namespace"]
 
-    print("ray | cluster created:", "ns=" + cluster_namespace, "n=" + cluster_name, "url=" + cluster_url)
+    print("ray | cluster created:", "ns=" + cluster_namespace, "n=" + cluster_name, "url=" + cluster_url, "logUrl=" + cluster_log_url)
 
     report_progress(
         task_path = task_path,
         task_name = task_name,
-        task_log = cluster_url,
+        task_log = task_log_url,
         task_message = "Ray Cluster Created Successfully",
         task_state = TASK_STATE_RUNNING,
         start_time = start_time_formated_str,
@@ -324,13 +332,7 @@ def execute_ray_task(task_path, task_name, cluster, cluster_namespace, runtime_e
 
     print("ray | +run job: job=" + str(job))
 
-    # Extract Ray job ID/name from job object - try job ID first, then metadata name, then cluster name
-    ray_job_name = (job.get("spec", {}).get("jobId") or
-                    job.get("status", {}).get("jobId") or
-                    job.get("metadata", {}).get("name", cluster_name))
-    generated_log_url = get_ray_log_url(ray_job_name)
-    log_url = generated_log_url if generated_log_url else cluster_url
-    atexit.register(report_ray_task_result, job, task_path, task_name, cluster_url, start_time_formated_str, args, kwargs, retry_attempt_id, cache_version, namespace, result_url)
+    atexit.register(report_ray_task_result, job, task_path, task_name, task_log_url, start_time_formated_str, args, kwargs, retry_attempt_id, cache_version, namespace, result_url)
 
     if breakpoint:
         print("ray | breakpoint:", "ns=" + cluster_namespace, "n=" + cluster_name)
@@ -341,7 +343,7 @@ def execute_ray_task(task_path, task_name, cluster, cluster_namespace, runtime_e
         fail(err_message)
 
     # Terminate cluster
-    job_state = report_ray_task_result(job, task_path, task_name, cluster_url, start_time_formated_str, args, kwargs, retry_attempt_id, cache_version, namespace, result_url)
+    job_state = report_ray_task_result(job, task_path, task_name, task_log_url, start_time_formated_str, args, kwargs, retry_attempt_id, cache_version, namespace, result_url)
     if job_state == TASK_STATE_SUCCEEDED:
         ray.terminate_cluster(cluster_name, cluster_namespace, "job succeeded", "TERMINATION_TYPE_SUCCEEDED")
     else:
@@ -350,13 +352,13 @@ def execute_ray_task(task_path, task_name, cluster, cluster_namespace, runtime_e
     atexit.unregister(terminate_cluster)
     atexit.unregister(report_ray_task_result)
 
-    return (job_state, job, cluster_url, ray_job_name)
+    return (job_state, job, cluster_url, cluster_log_url)
 
 def terminate_cluster(cluster_namespace, cluster_name):
     ray.terminate_cluster(cluster_name, cluster_namespace, "job failed", "TERMINATION_TYPE_FAILED")
     print("ray | cluster terminated:", "ns=" + cluster_namespace, "n=" + cluster_name)
 
-def report_ray_task_result(job, task_path, task_name, cluster_url, start_time_formated_str, args, kwargs, retry_attempt_id, cache_version, namespace, result_url):
+def report_ray_task_result(job, task_path, task_name, task_log_url, start_time_formated_str, args, kwargs, retry_attempt_id, cache_version, namespace, result_url):
     end_time_seconds = time.time()
     end_time_formated_str = time.utc_format_seconds(TIME_FOMART, end_time_seconds)
 
@@ -376,7 +378,7 @@ def report_ray_task_result(job, task_path, task_name, cluster_url, start_time_fo
         report_progress(
             task_path = task_path,
             task_name = task_name,
-            task_log = cluster_url,
+            task_log = task_log_url,
             task_message = "Ray Job Succeeded",
             task_state = TASK_STATE_SUCCEEDED,
             start_time = start_time_formated_str,
@@ -392,7 +394,7 @@ def report_ray_task_result(job, task_path, task_name, cluster_url, start_time_fo
         report_progress(
             task_path = task_path,
             task_name = task_name,
-            task_log = cluster_url,
+            task_log = task_log_url,
             task_message = task_message,
             task_state = TASK_STATE_KILLED,
             start_time = start_time_formated_str,
@@ -410,7 +412,7 @@ def report_ray_task_result(job, task_path, task_name, cluster_url, start_time_fo
         report_progress(
             task_path = task_path,
             task_name = task_name,
-            task_log = cluster_url,
+            task_log = task_log_url,
             task_message = task_message,
             task_state = TASK_STATE_FAILED,
             start_time = start_time_formated_str,
@@ -427,6 +429,29 @@ def ray_job_entrypoint(task_path, result_url, args = None, kwargs = None):
 
     return "python3 -m michelangelo.uniflow.core.run_task --task '" + task_path + "' --args '" + args + "' --kwargs '" + kwargs + "' --result-url '" + result_url + "'"
 
+# Builds the k8s.io.api.core.v1.ResourceRequirements dict for a Ray container.
+#
+# Unlike the Spark path, which sends a typed ResourceSpec through
+# utils.ConvertToResourceList on the Go side, the Ray pod spec is consumed as a
+# literal PodTemplateSpec with no renaming step. The keys here must therefore
+# be real Kubernetes resource names ("ephemeral-storage", "nvidia.com/gpu"),
+# not the proto JSON names produced by resource_dict in commons.star
+# ("diskSize", "gpu"), which the scheduler would silently ignore.
+def container_resources(cpu, memory, disk = None, gpu = None):
+    requests = {
+        "cpu": cpu,
+        "memory": memory,
+    }
+    if disk:
+        requests["ephemeral-storage"] = disk
+    resources = {"requests": requests}
+    if gpu:
+        # nvidia.com/gpu is an extended resource: Kubernetes requires the
+        # limit to be present and equal to the request, so it is set in both.
+        requests["nvidia.com/gpu"] = gpu
+        resources["limits"] = {"nvidia.com/gpu": gpu}
+    return resources
+
 # Constructs a Unified API resource for provisioning a Ray Cluster.
 # This function generates a RayJob Custom Resource Definition (CRD) that defines the specifications for a Ray cluster.
 # Refer to the RayJob CRD: https://github.com/michelangelo-ai/michelangelo/blob/main/proto/api/v2/ray_job.proto
@@ -440,17 +465,24 @@ def ray_job_entrypoint(task_path, result_url, args = None, kwargs = None):
 #         - The Docker image containing Ray, application code, and dependencies.
 #         - Example: "127.0.0.1:5055/uber-usi/uber-one-michelangelo-sandbox:bkt1-produ-1719018451-45448"
 #
-#     head_resource (dict):
-#         - Resource configuration for the Ray **head node**.
-#         - Reference: `resource_dict` function in commons.star.
+#     head_resources (dict):
+#         - Kubernetes ResourceRequirements for the Ray **head node** container.
+#         - Reference: `container_resources` in this file.
 #
-#     worker_resource (dict):
-#         - Resource configuration for the Ray **worker nodes**.
-#         - Reference: `resource_dict` function in commons.star.
+#     worker_resources (dict):
+#         - Kubernetes ResourceRequirements for the Ray **worker node** containers.
+#         - Reference: `container_resources` in this file.
 #
 #     worker_instances (int):
 #         - Number of Ray worker instances to launch.
 #         - Must be a non-negative integer.
+#
+#     head_object_store_memory (int, optional):
+#         - Object store memory for the head node, in bytes, passed verbatim to
+#           `ray start --object-store-memory` via rayStartParams.
+#
+#     worker_object_store_memory (int, optional):
+#         - Object store memory per worker node, in bytes, same mechanism.
 #
 #     debug_enabled (bool, optional):
 #         - Enables debugging tools if set to True.
@@ -465,9 +497,11 @@ def ray_job_entrypoint(task_path, result_url, args = None, kwargs = None):
 def ray_cluster_spec(
         namespace,
         image,
-        head_resource,
-        worker_resource,
+        head_resources,
+        worker_resources,
         worker_instances,
+        head_object_store_memory = None,
+        worker_object_store_memory = None,
         debug_enabled = False,
         runtime_env = None):
     ray_init_kwargs = os.environ.get("_RAY_INIT_KWARGS", {})
@@ -481,7 +515,20 @@ def ray_cluster_spec(
         for k, v in env.items()
     ]
 
-    support_gpu = head_resource.get("gpu", 0) + worker_resource.get("gpu", 0) * worker_instances > 0
+    # rayStartParams pass through KubeRay verbatim as `ray start` flags, so
+    # object store memory is forwarded here rather than as a pod resource.
+    head_ray_start_params = {
+        "block": "true",
+        "dashboard-host": "0.0.0.0",
+    }
+    if head_object_store_memory:
+        head_ray_start_params["object-store-memory"] = str(head_object_store_memory)
+    worker_ray_start_params = {
+        "block": "true",
+        "dashboard-host": "0.0.0.0",
+    }
+    if worker_object_store_memory:
+        worker_ray_start_params["object-store-memory"] = str(worker_object_store_memory)
 
     annotations = {}
     if debug_enabled:
@@ -499,10 +546,7 @@ def ray_cluster_spec(
             "rayVersion": "2.3.1",  # Keeping original version
             "head": {
                 "serviceType": "ClusterIP",
-                "rayStartParams": {
-                    "block": "true",
-                    "dashboard-host": "0.0.0.0",
-                },
+                "rayStartParams": head_ray_start_params,
                 "pod": {
                     "spec": {
                         "volumes": [
@@ -518,9 +562,7 @@ def ray_cluster_spec(
                         "containers": [
                             {
                                 "name": "head",
-                                "resources": {
-                                    "requests": head_resource,
-                                },
+                                "resources": head_resources,
                                 "image": image,  # Keeping original variable
                                 "imagePullPolicy": IMAGE_PULL_POLICY,
                                 "env": env,  # Keeping original variable
@@ -557,19 +599,14 @@ def ray_cluster_spec(
                     "maxInstances": worker_instances,
                     "nodeType": "worker-group-1",
                     "objectStoreMemoryRatio": 0.0,
-                    "rayStartParams": {
-                        "block": "true",
-                        "dashboard-host": "0.0.0.0",
-                    },
+                    "rayStartParams": worker_ray_start_params,
                     "pod": {
                         "spec": {
                             "restartPolicy": "Never",
                             "containers": [
                                 {
                                     "name": "worker",
-                                    "resources": {
-                                        "requests": worker_resource,
-                                    },
+                                    "resources": worker_resources,
                                     "image": image,
                                     "imagePullPolicy": IMAGE_PULL_POLICY,
                                     "env": env,

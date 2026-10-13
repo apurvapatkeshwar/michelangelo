@@ -27,8 +27,8 @@ DEFAULT_CONFIG = {
         "rpc-encoding": "proto",
     },
     "minio": {
-        "access_key_id": "minioadmin",
-        "secret_access_key": "minioadmin",
+        "access_key_id": "michelangeloadmin",
+        "secret_access_key": "michelangeloadmin",
         "endpoint_url": "http://localhost:9091",
     },
     "plugin": {
@@ -42,9 +42,9 @@ DEFAULT_CONFIG = {
     # patching the plugin source.
     "pipeline_run_state_pb2_module": "michelangelo.gen.api.v2.pipeline_run_pb2",
     # Label key the pipeline_run plugin reads for the ENVIRONMENT column.
-    # OSS apiserver writes ``pipelinerun.michelangelo/environment``; downstream
+    # OSS apiserver writes ``michelangelo/environment``; downstream
     # distributions may use a different key.
-    "pipeline_run_environment_label": "pipelinerun.michelangelo/environment",
+    "pipeline_run_environment_label": "michelangelo/environment",
     # Import path for the generated ``pipeline_pb2`` module the pipeline plugin
     # consults for PipelineType enum names + values. Downstream distributions
     # that extend the enum can point this at their own module without patching
