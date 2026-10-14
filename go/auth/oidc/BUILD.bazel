@@ -27,5 +27,8 @@ go_test(
         "@com_github_go_jose_go_jose_v4//:go_default_library",
         "@com_github_stretchr_testify//assert:go_default_library",
         "@com_github_stretchr_testify//require:go_default_library",
+        "@io_k8s_apiserver//pkg/authentication/authenticator:go_default_library",
+        "@org_uber_go_yarpc//api/transport:go_default_library",
+        "@org_uber_go_zap//:go_default_library",
     ],
 )
