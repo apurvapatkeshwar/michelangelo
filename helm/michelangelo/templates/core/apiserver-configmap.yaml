@@ -30,7 +30,20 @@ data:
             - {{ . | quote }}
             {{- end }}
           usernameClaim: {{ .Values.apiserver.auth.oidc.usernameClaim | quote }}
+          {{- with .Values.apiserver.auth.oidc.usernamePrefix }}
+          usernamePrefix: {{ . | quote }}
+          {{- end }}
+          allowUnverifiedEmail: {{ .Values.apiserver.auth.oidc.allowUnverifiedEmail }}
           groupsClaim: {{ .Values.apiserver.auth.oidc.groupsClaim | quote }}
+          {{- with .Values.apiserver.auth.oidc.groupsPrefix }}
+          groupsPrefix: {{ . | quote }}
+          {{- end }}
+          {{- with .Values.apiserver.auth.oidc.supportedSigningAlgs }}
+          supportedSigningAlgs:
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
           clockSkewLeeway: {{ .Values.apiserver.auth.oidc.clockSkewLeeway }}
         {{- end }}
         {{- if .Values.apiserver.auth.serviceAccounts.enabled }}

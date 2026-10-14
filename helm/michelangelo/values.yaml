@@ -179,10 +179,32 @@ apiserver:
       # when the UI and the CLI use different client IDs.
       audiences: []
       # Claim used as the username RBAC sees (SubjectAccessReview user).
+      # Defaulting to "email" means the apiserver requires the token's
+      # email_verified claim to be true (see allowUnverifiedEmail below);
+      # use "sub" instead for an opaque-but-stable, IdP-assigned identity
+      # that doesn't depend on that claim.
       usernameClaim: email
+      # Prepended to the username claim's value. Leave empty only if the
+      # claim can never produce a "system:"-prefixed value -- otherwise
+      # the apiserver rejects it outright, to keep an IdP-supplied string
+      # from colliding with a Kubernetes built-in identity.
+      usernamePrefix: ""
+      # Opts out of requiring email_verified=true when usernameClaim is
+      # "email" (the default). Has no effect for any other usernameClaim.
+      # Leave this false unless you have verified your IdP never issues an
+      # unverified email in this claim.
+      allowUnverifiedEmail: false
       # Claim carrying group memberships (SubjectAccessReview groups).
       groupsClaim: groups
+      # Prepended to every group claim value, for the same reason as
+      # usernamePrefix.
+      groupsPrefix: ""
+      # JWT signing algorithms accepted. Empty uses the apiserver's default
+      # allowlist (RS256, ES256) rather than whatever the issuer's discovery
+      # document advertises.
+      supportedSigningAlgs: []
       # Accepted clock skew when validating token expiry / not-before.
+      # Must not exceed 5m.
       clockSkewLeeway: 30s
 
     # TokenReview-based authentication for in-cluster callers, including

@@ -48,11 +48,27 @@ apiserver:
 Notes:
 
 - The API server fetches `<issuerUrl>/.well-known/openid-configuration` at startup and **fails fast if the issuer is unreachable or misconfigured** — check the apiserver logs if the pod does not become ready after enabling OIDC.
-- Tokens are verified on every request: signature (against the issuer's JWKS), issuer, audience, and expiry. There is no separate session to configure; session lifetime is your IdP's token lifetime.
+- Tokens are verified on every request: signature (against the issuer's JWKS, restricted to `oidc.supportedSigningAlgs` -- RS256 and ES256 by default), issuer, audience, and expiry. There is no separate session to configure; session lifetime is your IdP's token lifetime.
 - Once enforcement is on, users without a `RoleBinding` are denied access to all resources.
 - Authorization decisions are cached for `sarCache.allowTTL` / `denyTTL` (default 10s each), so a revoked `RoleBinding` can be honored for up to that window. Set a TTL to `0s` to disable that cache at the cost of one `SubjectAccessReview` per request.
-- `oidc.clockSkewLeeway` (default 30s) bounds the accepted clock skew when validating token expiry and not-before claims.
-- Pick a `usernameClaim` that is both unique per person and verified by the IdP (not user-editable) -- its value is used directly as the RBAC username in every `SubjectAccessReview` and `RoleBinding` subject, so a claim two people could share, or one a user could change, undermines per-user authorization.
+- `oidc.clockSkewLeeway` (default 30s, maximum 5m) bounds the accepted clock skew when validating token expiry and not-before claims.
+- `issuerUrl` must be `https://`; plain `http://` is only accepted for a loopback address, which is only ever useful for local testing against a throwaway issuer.
+
+### Choosing a usernameClaim: `email` vs `sub`
+
+The default, `email`, is convenient because it's human-readable in `RoleBinding` subjects and audit logs, but it's only as trustworthy as the IdP's `email_verified` claim -- so the apiserver requires that claim to be `true` whenever `usernameClaim` is `email`, and denies the request otherwise. If your IdP doesn't reliably set `email_verified` (some SSO/SAML-to-OIDC bridges don't), set `oidc.allowUnverifiedEmail: true` to opt out -- but only after confirming your IdP cannot be tricked into issuing a token for an email address the holder doesn't control.
+
+Set `usernameClaim: sub` instead for an identity that's opaque (usually a GUID or similar, not human-readable) but stable and IdP-assigned regardless of email verification -- a reasonable default if your audit tooling can resolve `sub` values back to people some other way, or if your IdP's email verification story is unclear.
+
+Either way, pick a claim that is both unique per person and verified by the IdP (not user-editable) -- its value is used directly as the RBAC username in every `SubjectAccessReview` and `RoleBinding` subject, so a claim two people could share, or one a user could change, undermines per-user authorization.
+
+### Preventing claim collisions with Kubernetes built-in identities
+
+Kubernetes reserves the `system:` prefix for its own built-in identities (`system:masters`, `system:serviceaccount:...`, etc.). If your IdP could ever issue a username or group claim value starting with `system:` -- unlikely with `email`, more plausible with `sub` or a custom claim -- the apiserver rejects that token outright rather than letting it collide with a built-in identity in an RBAC decision. Set `oidc.usernamePrefix` / `oidc.groupsPrefix` (for example `"oidc:"`) to avoid ever hitting that rejection: every username/group is prefixed before it reaches RBAC, so your `RoleBinding` subjects need the same prefix (e.g. `oidc:alice@example.com`).
+
+### Connecting to a private IdP (internal CA)
+
+The apiserver's OIDC discovery and JWKS fetches use the system root CA pool. A private IdP behind an internal CA (common for self-hosted Dex or Keycloak) needs that CA trusted explicitly -- today that means setting `CABundleFile` in the apiserver's auth config directly (a PEM file path), since the chart does not yet have a values-driven way to mount a custom CA bundle into the apiserver pod; this is tracked as a follow-up to this chart's support for OIDC. Until then, `oidc.issuerUrl` must be reachable via a CA the system pool already trusts (e.g. a public IdP, or an internal one issued by your organization's CA if it's in the base image's trust store).
 
 ## Connecting an Identity Provider (OIDC)
 
@@ -96,6 +112,8 @@ oidc:
   issuerUrl: https://keycloak.your-domain.com/realms/<realm-name>
   audiences: ["michelangelo"]
 ```
+
+Keycloak is commonly self-hosted behind an internal CA; see [Connecting to a private IdP](#connecting-to-a-private-idp-internal-ca) above if so. If you've set `usernameClaim: sub` (Keycloak's `sub` is a stable GUID per user, unaffected by email verification), consider also setting `usernamePrefix` so the resulting RBAC username stays unambiguous.
 
 ## Multi-Factor Authentication
 
