@@ -1,22 +1,31 @@
+---
+last_verified: 2026-10-15
+---
+
 # Authentication & Identity
 
 This guide is for platform operators and cluster administrators configuring authentication for a Michelangelo AI deployment.
 
-**Prerequisites**: A running Michelangelo AI control plane (see [Platform Setup](./platform-setup.md)) and `kubectl` access to the `ma-system` namespace.
+**Prerequisites**: A running Michelangelo AI control plane (see [Platform Setup](./platform-setup.md)) and `kubectl` access to the namespace the Helm chart is installed in.
 
-Authentication in Michelangelo AI operates at two levels:
+## What ships by default
 
 - **User authentication** — end users present OIDC ID tokens (issued by your identity provider) as bearer tokens on API requests
 - **Service authentication** — internal callers (the worker) present Kubernetes ServiceAccount tokens, which the API server validates through the TokenReview API
 
 Authorization for both is delegated to Kubernetes RBAC: every request becomes a `SubjectAccessReview`, so access is granted with ordinary `RoleBinding`s on the Michelangelo resources.
 
+Under the hood, this is built from two independent, pluggable layers in the `go/auth` package:
+
+1. **Transport authentication** (`go/auth/authn.go`). `auth.NewInboundMiddleware` is a YARPC inbound middleware that requires an `authorization: Bearer <token>` header, verifies it with an `Authenticator` (the OIDC verifier below, and/or ServiceAccount TokenReview), optionally restricts callers to an allowlist of service names, and stores the verified `Principal` on the request context. For outbound calls, `auth.NewBearerOutboundMiddleware` attaches a token from a `TokenSource`.
+2. **Handler authorization**. The generated API handlers call the `auth.Auth` interface (`UserAuthenticated`, `UserAuthorized`). `auth.NewK8sRBACAuth` adapts a `k8s.io/apiserver` authorizer to this interface so decisions are made with Kubernetes RBAC.
+
 ## Auth modes
 
 The API server has two modes, selected by `apiserver.auth.mode` in the Helm values:
 
-- `dummy` (default) — every request is allowed. This is the shipped behavior; nothing changes for existing deployments.
-- `k8s-rbac` — bearer tokens are required and verified, and each request is authorized through Kubernetes RBAC.
+- `dummy` (default) — every request is allowed; neither layer above is installed. This is the shipped behavior; nothing changes for existing deployments.
+- `k8s-rbac` — both layers are wired in: bearer tokens are required and verified, and each request is authorized through Kubernetes RBAC.
 
 **Enable enforcement only after your clients can send tokens.** The Web UI does not acquire OIDC tokens on its own today: unless you front Envoy with an auth proxy (for example `oauth2-proxy`) that injects an `Authorization: Bearer <id-token>` header, enabling `k8s-rbac` will lock the UI out — including reads. gRPC/CLI clients must likewise attach the header to every call.
 
@@ -53,6 +62,21 @@ Notes:
 - Authorization decisions are cached for `sarCache.allowTTL` / `denyTTL` (default 10s each), so a revoked `RoleBinding` can be honored for up to that window. Set a TTL to `0s` to disable that cache at the cost of one `SubjectAccessReview` per request.
 - `oidc.clockSkewLeeway` (default 30s, maximum 5m) bounds the accepted clock skew when validating token expiry and not-before claims.
 - `issuerUrl` must be `https://`; plain `http://` is only accepted for a loopback address, which is only ever useful for local testing against a throwaway issuer.
+
+### OIDC configuration reference
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `issuerUrl` | required | OIDC issuer. Must be `https://` (plain `http` only for loopback hosts). Discovery is fetched from `/.well-known/openid-configuration` and the token's `iss` must match exactly |
+| `caBundleFile` | none | PEM file of extra CA certificates trusted for the issuer (private IdP behind an internal CA) — see below |
+| `audiences` | none | Accepted values of the token's `aud` claim |
+| `usernameClaim` | `email` | Claim used as the caller's username. With `email`, `email_verified` must be true unless `allowUnverifiedEmail` is set |
+| `allowUnverifiedEmail` | `false` | Opt out of the `email_verified` requirement |
+| `usernamePrefix` | none | Prefix added to the username. When unset, usernames starting with `system:` are rejected |
+| `groupsClaim` | `groups` | Claim carrying group memberships; a missing claim yields no groups |
+| `groupsPrefix` | none | Prefix added to every group. When unset, groups starting with `system:` are rejected |
+| `supportedSigningAlgs` | `RS256`, `ES256` | Allowed JWT signing algorithms |
+| `clockSkewLeeway` | `30s` | Leeway for `exp` / `nbf`; must not be negative or exceed 5 minutes |
 
 ### Choosing a usernameClaim: `email` vs `sub`
 
@@ -126,7 +150,7 @@ In `k8s-rbac` mode the chart installs two ClusterRoles covering the Michelangelo
 - `michelangelo-viewer` — `get` and `list`
 - `michelangelo-editor` — `get`, `list`, `create`, `update`, `delete`, `deletecollection`
 
-Bind them per project namespace with a `RoleBinding`, or cluster-wide with a `ClusterRoleBinding`. The subject names must match what the token's claims produce: `User` names match the `usernameClaim` value, `Group` names match entries in the `groupsClaim` value.
+Bind them per project namespace with a `RoleBinding`, or cluster-wide with a `ClusterRoleBinding`. The subject names must match what the token's claims produce: `User` names match the `usernameClaim` value, `Group` names match entries in the `groupsClaim` value (including any `groupsPrefix`).
 
 ### Grant a user read access to a project namespace
 
@@ -187,7 +211,7 @@ spec:
           kubernetes.io/metadata.name: ml-team-a
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: ma-system   # Control plane needs access
+          kubernetes.io/metadata.name: <release-namespace>   # Control plane needs access
 ```
 
 This allows traffic within the team's namespace and from the Michelangelo AI control plane, but blocks all other namespaces.
@@ -199,20 +223,20 @@ This allows traffic within the team's namespace and from the Michelangelo AI con
 To enable it:
 
 1. List your project namespaces in `apiserver.auth.runnerProjects`; the chart creates the `michelangelo-runner` ServiceAccount and a `michelangelo-editor` RoleBinding in each.
-2. Set `worker.runnerToken.enabled: true`; the chart also grants the worker its one narrow cluster-wide permission — `create` on `serviceaccounts/token`, restricted with `resourceNames: ["michelangelo-runner"]`.
+2. Set `worker.runnerToken.enabled: true`; the chart also grants the worker its one narrow cluster-wide permission — `create` on `serviceaccounts/token`, restricted with `resourceNames: ["michelangelo-runner"]`. With this on, the worker wires `auth.NewBearerOutboundMiddleware` itself -- there's nothing further to inject.
 3. Keep `apiserver.auth.serviceAccounts.enabled: true`, and if you set `serviceAccounts.audiences`, list one of them in `worker.runnerToken.audiences`.
 
 With `worker.runnerToken.enabled: false` (the default) the worker sends no credential, which only works in `dummy` mode. A project namespace missing its runner ServiceAccount or RoleBinding fails pipelines in that project only, with an activity error naming the missing object.
 
-`worker.useTLS` is transport encryption for the same connection — orthogonal to authentication. Do not set `useTLS: false` in production.
+This is a separate concern from transport encryption: `worker.useTLS` makes the worker dial the API server over TLS using the system trust store (pair it with `apiserver.tls.enabled` / `apiserver.tls.secretName` on the API server side). Do not set `useTLS: false` in production, independent of whether `k8s-rbac` mode is on.
 
-**Controller manager → compute cluster**: Uses the `ray-manager` service account token stored as a Secret in the control plane namespace. See [Register a Compute Cluster](register-a-compute-cluster-to-michelangelo-control-plane.md) for the full setup including token rotation guidance.
+**Controller manager to compute cluster**: Uses the `ray-manager` service account token stored as a Secret in the control plane namespace. See [Register a Compute Cluster](register-a-compute-cluster-to-michelangelo-control-plane.md) for the full setup including token rotation guidance.
 
-## Disabling Direct Storage Access
+## Securing Storage Access
 
 Do not allow users or services to directly access etcd or object storage (S3/MinIO) in ways that bypass the Michelangelo AI API. For S3 access:
 
-- Set `useIam: true` in the controller manager ConfigMap — this uses IAM roles attached to pods via ServiceAccount annotations, not hardcoded credentials
+- Supply object storage credentials through a Kubernetes Secret (`objectStorage.existingSecret`) rather than values files; see [Platform Setup](./platform-setup.md#object-store-configuration)
 - Do not grant `s3:*` to individual users; use IAM policies scoped to specific buckets and prefixes
 - Audit S3 bucket policies regularly to ensure no public or cross-account access is inadvertently granted
 
