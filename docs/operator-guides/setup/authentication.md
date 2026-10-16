@@ -223,7 +223,7 @@ This allows traffic within the team's namespace and from the Michelangelo AI con
 To enable it:
 
 1. List your project namespaces in `apiserver.auth.runnerProjects`; the chart creates the `michelangelo-runner` ServiceAccount and a `michelangelo-editor` RoleBinding in each.
-2. Set `worker.runnerToken.enabled: true`; the chart also grants the worker its one narrow cluster-wide permission — `create` on `serviceaccounts/token`, restricted with `resourceNames: ["michelangelo-runner"]`. With this on, the worker wires `auth.NewBearerOutboundMiddleware` itself -- there's nothing further to inject.
+2. Set `worker.runnerToken.enabled: true`; the chart also grants the worker permission to mint runner tokens: `create` on `serviceaccounts/token`, restricted with `resourceNames: ["michelangelo-runner"]` and bound only in each `runnerProjects` namespace (not cluster-wide). With this on, the worker wires `auth.NewBearerOutboundMiddleware` itself -- there's nothing further to inject.
 3. Keep `apiserver.auth.serviceAccounts.enabled: true`, and if you set `serviceAccounts.audiences`, list one of them in `worker.runnerToken.audiences`.
 
 With `worker.runnerToken.enabled: false` (the default) the worker sends no credential, which only works in `dummy` mode. A project namespace missing its runner ServiceAccount or RoleBinding fails pipelines in that project only, with an activity error naming the missing object.
