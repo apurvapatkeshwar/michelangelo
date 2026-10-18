@@ -30,6 +30,13 @@ _michelangelo_sandbox_kube_cluster_name = "michelangelo-sandbox"
 _cadence_domain = "default"
 _default_compute_kube_cluster_name = "michelangelo-compute-0"
 
+# Kueue release installed on demo compute clusters. 0.15+ serves
+# kueue.x-k8s.io/v1beta2, matching the control plane's default apiVersion for
+# the LocalQueue existence check, and enables the RayCluster integration in
+# its default configuration.
+_kueue_version = "0.15.0"
+_kueue_demo_dir = _dir / "demo" / "kueue"
+
 # Path to the Michelangelo Helm chart (relative to this file)
 _chart_dir = Path(__file__).parent.parent.parent.parent.parent / "helm" / "michelangelo"
 
@@ -45,6 +52,7 @@ _infra_ports = [
     "3000:30012",  # Grafana
     "9092:30015",  # Prometheus
     "5001:30013",  # MLflow Tracking Server
+    "3001:30016",  # Ray History Server
 ]
 
 # Infra ports owned by optionally-excluded services. When the user passes
@@ -264,6 +272,22 @@ def init_arguments(p: argparse.ArgumentParser):
         "inference-multicluster",
         help=("Create a multi-cluster inference server demo."),
     )
+    kueue_p = demo_sp.add_parser(
+        "kueue",
+        help=(
+            "Mark a registered compute cluster as Kueue-managed: install Kueue "
+            "on it, create the demo ClusterQueue/LocalQueue, and set "
+            "scheduler_type on its Cluster CR."
+        ),
+    )
+    kueue_p.add_argument(
+        "--compute-cluster-name",
+        default=_michelangelo_sandbox_kube_cluster_name,
+        help=(
+            "k3d cluster to Kueue-manage (default: the sandbox cluster itself, "
+            "which doubles as the default compute cluster)."
+        ),
+    )
 
     snapshot_p = sp.add_parser(
         "snapshot", help="Capture or restore Michelangelo CRD state."
@@ -408,6 +432,8 @@ def _sync(ns: argparse.Namespace):
     # Upgrade or install the control plane via Helm.
     # Infrastructure (mysql, cadence, minio, grafana, prometheus) is left running.
 
+    _ensure_mysql_running()
+    _ensure_minio_running()
     _refresh_mysql_schema()
 
     _ensure_credentials_secret()
@@ -496,6 +522,71 @@ def _sync(ns: argparse.Namespace):
         )
 
     _helm_wait(ns)
+
+
+def _manifest_pod_image(manifest: str, name: str) -> str:
+    """Return the first container image of the named Pod in a resources manifest."""
+    with open(_dir / "resources" / manifest) as f:
+        for doc in yaml.safe_load_all(f):
+            if doc and doc.get("kind") == "Pod" and doc["metadata"]["name"] == name:
+                return doc["spec"]["containers"][0]["image"]
+    return ""
+
+
+def _ensure_pod_running(name: str, manifest: str):
+    """Recreate a bare infrastructure pod that is dead or out of date.
+
+    mysql and minio are bare Pods, so nothing replaces them. A pod that was
+    evicted (phase Failed) or finished (Succeeded) stays dead, and a pod whose
+    manifest image changed keeps running the old image, even a crash-looping one
+    (which still reports phase Running). Later steps then fail in confusing ways:
+    `kubectl exec mysql` errors with "cannot exec into a container in a completed
+    pod", and uploads to MinIO's NodePort hang because the Service has no
+    backend. Their data lives on hostPath volumes, so recreating the pod keeps it.
+    """
+    result = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            "pod",
+            name,
+            "-o",
+            "jsonpath={.status.phase}|{.spec.containers[0].image}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    phase, _, image = result.stdout.strip().partition("|")
+    wanted = _manifest_pod_image(manifest, name)
+    if phase in ("Pending", "Running") and (not wanted or image == wanted):
+        return
+    if not phase:
+        reason = "missing"
+    elif phase not in ("Pending", "Running"):
+        reason = f"phase {phase}"
+    else:
+        reason = f"image {image} != {wanted}"
+    print(f"{name} pod needs recreating ({reason})...")
+    subprocess.run(
+        ["kubectl", "delete", "pod", name, "--ignore-not-found=true", "--wait=true"],
+        check=True,
+    )
+    _kube_apply(_dir / "resources" / manifest)
+    subprocess.run(
+        ["kubectl", "wait", "--for=condition=ready", f"pod/{name}", "--timeout=300s"],
+        check=True,
+    )
+
+
+def _ensure_mysql_running():
+    """Make sure the mysql pod is up before the schema refresh execs into it."""
+    _ensure_pod_running("mysql", "mysql.yaml")
+
+
+def _ensure_minio_running():
+    """Make sure the minio pod is up; pipeline registration uploads to it."""
+    _ensure_pod_running("minio", "minio.yaml")
 
 
 def _refresh_mysql_schema():
@@ -886,7 +977,7 @@ def _deploy_services(ns: argparse.Namespace):
         (
             "MinIO Console",
             "http://localhost:9090",
-            "[Username: minioadmin; Password: minioadmin]",
+            "[Username: michelangeloadmin; Password: michelangeloadmin]",
         )
     )
 
@@ -895,7 +986,7 @@ def _deploy_services(ns: argparse.Namespace):
     links.append(
         (
             "Ray History Server",
-            "http://localhost:3001",
+            "http://localhost:3001/select_cluster",
             "",
         )
     )
@@ -971,6 +1062,10 @@ def _deploy_services(ns: argparse.Namespace):
         # helm repo list returns non-zero exit status when no repositories
         # are configured
         helm_existing_repos = ""
+
+    # The History Server above is deployed even with --exclude ray, so its
+    # images are imported outside the KubeRay operator step.
+    _import_log_persistence_images()
 
     if "ray" not in ns.exclude:
         _create_kuberay_operator(helm_existing_repos)
@@ -1096,7 +1191,7 @@ def _create_kuberay_operator(helm_existing_repos):
         "kuberay-operator",
         "kuberay/kuberay-operator",
         "--version",
-        "1.4.2",
+        "1.7.1",
         "--namespace",
         "ray-system",
         "--create-namespace",
@@ -1105,45 +1200,83 @@ def _create_kuberay_operator(helm_existing_repos):
         "20m",
     )
 
-    _import_kuberay_images()
 
-
-_KUBERAY_IMAGES = [
-    "ghcr.io/michelangelo-ai/kuberay-collector:main",
-    "ghcr.io/michelangelo-ai/kuberay-historyserver:main",
+_LOG_PERSISTENCE_IMAGES = [
+    # KubeRay log persistence: collector sidecar + History Server API.
+    "quay.io/kuberay/collector:v1.7.1",
+    "quay.io/kuberay/historyserver:v1.7.1",
+    # History Server frontend (resources/history-server.yaml): nginx serves the
+    # Ray Dashboard build copied out of the Ray image. Keep the Ray tag on the
+    # version the collector targets so the dashboard matches the replayed API.
+    "rayproject/ray:2.55.0",
+    "nginx:1.27-alpine",
 ]
 
 
-def _import_kuberay_images():
-    """Pull kuberay images from GHCR and import them into k3d.
+def _import_log_persistence_images():
+    """Pull the Ray log-persistence images and import them into k3d.
 
+    Pulling on the host rather than letting the node do it keeps working
+    behind corporate TLS interception, where the k3d node trusts no extra CA.
+    When the pull fails, a copy already on the host is imported instead.
     Non-fatal: prints a warning on failure since the collector sidecar and
-    history server are optional for basic sandbox usage.
+    history server are optional for basic sandbox usage, and the pods use
+    imagePullPolicy IfNotPresent so the node still pulls what is missing.
     """
-    for image in _KUBERAY_IMAGES:
+    for image in _LOG_PERSISTENCE_IMAGES:
         print(f"Importing {image} into k3d...")
         pull = subprocess.run(
             ["docker", "pull", image],
             capture_output=True,
         )
         if pull.returncode != 0:
-            print(f"Warning: could not pull {image}. Skipping.")
-            continue
+            local = subprocess.run(
+                ["docker", "image", "inspect", image],
+                capture_output=True,
+            )
+            if local.returncode != 0:
+                print(f"Warning: could not pull {image}. Skipping.")
+                continue
+            print(f"Warning: could not pull {image}; importing the local copy.")
+        if _k3d_import_image(image):
+            print(f"Successfully imported {image} into k3d.")
+        else:
+            print(f"Warning: could not import {image} into k3d.")
+
+
+def _k3d_import_image(image: str) -> bool:
+    """Import a host image into the sandbox's k3d nodes; True on success.
+
+    ``k3d image import <image>`` exits 0 yet imports nothing when Docker uses
+    the containerd image store: it saves a multi-platform archive whose other
+    platforms were never pulled, and the nodes skip it. Saving only the
+    Docker server's platform to a tarball and importing that works with
+    either image store. Docker without ``docker save --platform`` falls back
+    to the plain import, which works with the classic image store.
+    """
+    platform = subprocess.run(
+        ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = str(Path(tmp) / "image.tar")
+        save = subprocess.run(
+            ["docker", "save", "--platform", platform, "-o", archive, image],
+            capture_output=True,
+        )
         result = subprocess.run(
             [
                 "k3d",
                 "image",
                 "import",
-                image,
+                archive if save.returncode == 0 else image,
                 "-c",
                 _michelangelo_sandbox_kube_cluster_name,
             ],
             capture_output=True,
         )
-        if result.returncode != 0:
-            print(f"Warning: could not import {image} into k3d.")
-        else:
-            print(f"Successfully imported {image} into k3d.")
+    return result.returncode == 0
 
 
 def _create_cadence_domain(links):
@@ -1233,7 +1366,12 @@ def _assert_sandbox_cluster_running():
 def _create_demo_crs(ns: argparse.Namespace):
     """Create demo Custom Resources (CRs) for the sandbox environment."""
     assert ns
-    if ns.demo_action not in ("pipeline", "inference", "inference-multicluster"):
+    if ns.demo_action not in (
+        "pipeline",
+        "inference",
+        "inference-multicluster",
+        "kueue",
+    ):
         raise ValueError(f"Unsupported demo action: {ns.demo_action}")
 
     _assert_sandbox_cluster_running()
@@ -1264,6 +1402,8 @@ def _create_demo_crs(ns: argparse.Namespace):
         _create_inference_demo_crs()
     elif ns.demo_action == "inference-multicluster":
         _create_inference_multicluster_demo_crs()
+    elif ns.demo_action == "kueue":
+        _create_kueue_demo_crs(ns)
     else:
         raise ValueError(f"Unsupported demo action: {ns.demo_action}")
 
@@ -1471,7 +1611,7 @@ def _ensure_credentials_secret():
     This is deliberately create-only: a sandbox VM that was pre-configured
     with non-default credentials (e.g. the GCP CI runner) keeps its own
     values across every ``ma sandbox sync`` run.  Local dev gets the
-    default minioadmin credentials from the YAML files on first create.
+    default michelangeloadmin credentials from the YAML files on first create.
     """
     for secret_name, yaml_file in [
         ("object-storage-credentials", "object-storage-credentials.yaml"),
@@ -1499,7 +1639,7 @@ def _sync_config_from_secret():
     """Patch michelangelo-config ConfigMap credentials from object-storage-credentials.
 
     Ray pods consume the michelangelo-config ConfigMap via envFrom. After the
-    ConfigMap is (re)applied from the YAML file (which contains minioadmin
+    ConfigMap is (re)applied from the YAML file (which contains michelangeloadmin
     defaults), this function overwrites the credential fields with whatever
     is actually in the object-storage-credentials Secret, so all consumers see
     the same credentials.
@@ -1550,13 +1690,19 @@ def _kube_apply(path: Path, context: Optional[str] = None):
     _exec(*args)
 
 
-def _apply_model_sync(is_name: str, context: Optional[str] = None):
+def _apply_model_sync(
+    is_name: str, namespace: str = "default", context: Optional[str] = None
+):
     """Apply the model-sync ConfigMap (Python script) and DaemonSet for one IS.
 
     Two-step apply:
     - (1) idempotently load resources/sync-models.py into the
     `model-sync-script` ConfigMap,
-    - (2) render IS_NAME into model-sync.yaml.tmpl and apply the resulting DaemonSet.
+    - (2) render IS_NAME/NAMESPACE into model-sync.yaml.tmpl and apply the resulting
+    DaemonSet, in the same namespace as the InferenceServer/Triton pods it
+    reconciles, so its ConfigMap volume mounts (${IS_NAME}-model-config) resolve
+    correctly and (via the POD_NAMESPACE Downward API env var) so it looks up the
+    Triton Service's endpoints in the right namespace.
     Waits for the resulting DaemonSet to roll out.
     """
     script_path = _dir / "resources" / "sync-models.py"
@@ -1575,6 +1721,8 @@ def _apply_model_sync(is_name: str, context: Optional[str] = None):
             "configmap",
             "model-sync-script",
             f"--from-file=sync-models.py={script_path}",
+            "-n",
+            namespace,
             "--dry-run=client",
             "-o",
             "yaml",
@@ -1591,7 +1739,7 @@ def _apply_model_sync(is_name: str, context: Optional[str] = None):
     )
 
     rendered = string.Template(template_path.read_text()).safe_substitute(
-        IS_NAME=is_name
+        IS_NAME=is_name, NAMESPACE=namespace
     )
     subprocess.run(
         [*base_kubectl, "apply", "-f", "-"],
@@ -1607,7 +1755,7 @@ def _apply_model_sync(is_name: str, context: Optional[str] = None):
             "status",
             "daemonset/model-sync",
             "-n",
-            "default",
+            namespace,
             "--timeout=120s",
             raise_error=True,
         )
@@ -1615,26 +1763,41 @@ def _apply_model_sync(is_name: str, context: Optional[str] = None):
         _err_exit(
             "Model-sync DaemonSet failed to become ready.\n"
             f"Check logs: kubectl {' '.join(base_kubectl[1:])} "
-            "logs daemonset/model-sync -n default"
+            f"logs daemonset/model-sync -n {namespace}"
         )
 
 
 def _deploy_model_sync_for_inference_server(is_yaml_path: Path, is_name: str):
     """Deploy model-sync to every cluster listed in the IS spec's clusterTargets.
 
-    For non-local clusters, also creates the prerequisite michelangelo-config
-    ConfigMap and aws-credentials Secret. The local sandbox cluster has these
-    from earlier sandbox setup.
+    Deploys into the same namespace as the InferenceServer CR itself (not always
+    "default" — e.g. pipeline-created inference servers like "bert-cola-is" live in
+    their own project namespace), since the DaemonSet's ConfigMap volume mount for
+    ${IS_NAME}-model-config only resolves within its own namespace.
+
+    Also creates the prerequisite michelangelo-config ConfigMap and aws-credentials
+    Secret in that namespace: for non-local clusters this is always required, and
+    for the local sandbox cluster it's only skippable when the target namespace is
+    "default", which already has these from earlier sandbox setup.
 
     Falls back to the local context if clusterTargets is missing or empty.
     """
     with open(is_yaml_path) as f:
         is_yaml = yaml.safe_load(f)
     cluster_targets = is_yaml.get("spec", {}).get("clusterTargets") or []
+    namespace = is_yaml.get("metadata", {}).get("namespace", "default")
 
     if not cluster_targets:
         print("⚠ No clusterTargets in IS spec, deploying model-sync to local cluster")
-        _apply_model_sync(is_name)
+        if namespace != "default":
+            _ensure_namespace_exists(namespace)
+            _create_config_in_compute_cluster(
+                _michelangelo_sandbox_kube_cluster_name, namespace=namespace
+            )
+            _create_aws_credentials_in_cluster(
+                _michelangelo_sandbox_kube_cluster_name, namespace=namespace
+            )
+        _apply_model_sync(is_name, namespace=namespace)
         return
 
     for target in cluster_targets:
@@ -1642,10 +1805,12 @@ def _deploy_model_sync_for_inference_server(is_yaml_path: Path, is_name: str):
         is_local = cluster_id == _michelangelo_sandbox_kube_cluster_name
         ctx = f"k3d-{cluster_id}"
         print(f"✅ Deploying model-sync to cluster '{cluster_id}'...")
-        if not is_local:
-            _create_config_in_compute_cluster(cluster_id)
-            _create_aws_credentials_in_cluster(cluster_id)
-        _apply_model_sync(is_name, context=ctx)
+        if not is_local or namespace != "default":
+            if namespace != "default":
+                _ensure_namespace_exists(namespace, context=ctx)
+            _create_config_in_compute_cluster(cluster_id, namespace=namespace)
+            _create_aws_credentials_in_cluster(cluster_id, namespace=namespace)
+        _apply_model_sync(is_name, namespace=namespace, context=ctx)
 
 
 def _kube_wait(pods: bool = True, jobs: bool = True, timeout: int = 600):
@@ -1843,7 +2008,7 @@ def _create_compute_cluster(cluster_name: str):
         "kuberay-operator",
         "kuberay/kuberay-operator",
         "--version",
-        "1.4.2",
+        "1.7.1",
         "--namespace",
         "ray-system",
         "--create-namespace",
@@ -1864,12 +2029,14 @@ def _create_compute_cluster(cluster_name: str):
     )
 
 
-def _create_config_in_compute_cluster(cluster_name: str):
+def _create_config_in_compute_cluster(cluster_name: str, namespace: str = "default"):
     """Create michelangelo-config ConfigMap in compute cluster."""
     config_path = _dir / "resources" / "michelangelo-config.yaml"
 
     with open(config_path) as f:
         config_data = yaml.safe_load(f)
+
+    config_data.setdefault("metadata", {})["namespace"] = namespace
 
     # Update MinIO endpoint to point to the control plane's MinIO within the shared
     # network k3d-michelangelo-sandbox-agent-0 is the hostname of the control plane's
@@ -1892,31 +2059,48 @@ def _create_config_in_compute_cluster(cluster_name: str):
             temp_config.name,
         )
 
-    print(f"Created michelangelo-config ConfigMap in cluster '{cluster_name}'")
-
-
-def _create_aws_credentials_in_cluster(cluster_name: str):
-    """Create aws-credentials Secret in compute cluster."""
-    _exec(
-        "kubectl",
-        "--context",
-        f"k3d-{cluster_name}",
-        "apply",
-        "-f",
-        str(_dir / "resources" / "aws-credentials.yaml"),
+    print(
+        f"Created michelangelo-config ConfigMap in cluster '{cluster_name}' "
+        f"namespace '{namespace}'"
     )
-    print(f"Created aws-credentials Secret in cluster '{cluster_name}'")
 
 
-def _ensure_namespace_exists(namespace: str):
-    """Ensure the namespace exists in the sandbox cluster."""
+def _create_aws_credentials_in_cluster(cluster_name: str, namespace: str = "default"):
+    """Create aws-credentials Secret in compute cluster."""
+    creds_path = _dir / "resources" / "aws-credentials.yaml"
+    with open(creds_path) as f:
+        creds_data = yaml.safe_load(f)
+    creds_data.setdefault("metadata", {})["namespace"] = namespace
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as temp_creds:
+        yaml.dump(creds_data, temp_creds)
+        temp_creds.flush()
+
+        _exec(
+            "kubectl",
+            "--context",
+            f"k3d-{cluster_name}",
+            "apply",
+            "-f",
+            temp_creds.name,
+        )
+
+    print(
+        f"Created aws-credentials Secret in cluster '{cluster_name}' "
+        f"namespace '{namespace}'"
+    )
+
+
+def _ensure_namespace_exists(namespace: str, context: Optional[str] = None):
+    """Ensure the namespace exists in the given cluster (sandbox cluster by default)."""
+    ctx = context or f"k3d-{_michelangelo_sandbox_kube_cluster_name}"
     try:
         # Check if namespace already exists
         subprocess.check_output(
             [
                 "kubectl",
                 "--context",
-                f"k3d-{_michelangelo_sandbox_kube_cluster_name}",
+                ctx,
                 "get",
                 "namespace",
                 namespace,
@@ -1929,16 +2113,16 @@ def _ensure_namespace_exists(namespace: str):
         _exec(
             "kubectl",
             "--context",
-            f"k3d-{_michelangelo_sandbox_kube_cluster_name}",
+            ctx,
             "create",
             "namespace",
             namespace,
         )
-        print(f"Created namespace '{namespace}' in the sandbox cluster.")
+        print(f"Created namespace '{namespace}' in cluster '{ctx}'.")
 
 
 # Given a cluster name, create a Cluster CRD in the sandbox cluster
-def _create_compute_cluster_crd(cluster_name: str):
+def _create_compute_cluster_crd(cluster_name: str, scheduler_type: str = ""):
     """Create a Cluster CRD for the Ray jobs cluster in the sandbox cluster."""
     # Ensure ma-system namespace exists
     _ensure_namespace_exists("ma-system")
@@ -1982,6 +2166,8 @@ def _create_compute_cluster_crd(cluster_name: str):
             }
         },
     }
+    if scheduler_type:
+        cluster_crd["spec"]["schedulerType"] = scheduler_type
 
     # Create a temporary file for the Cluster CRD
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as crd_file:
@@ -2655,6 +2841,63 @@ def _setup_istio_with_gateway_api(context: Optional[str] = None):
         )
 
     print(f"✅ Istio with Gateway API setup complete on {target_label}")
+
+
+def _create_kueue_demo_crs(ns: argparse.Namespace):
+    """Turn a registered compute cluster into a Kueue-managed one.
+
+    Installs Kueue on the target cluster (its default configuration already
+    enables the RayCluster integration), creates a demo ClusterQueue plus the
+    demo project's LocalQueue, and re-applies the cluster's Cluster CR with
+    scheduler_type: SCHEDULER_TYPE_KUEUE so the control plane labels
+    dispatched RayClusters with their LocalQueue.
+    """
+    cluster_name = ns.compute_cluster_name
+    context = f"k3d-{cluster_name}"
+
+    print(f"\n📦 Installing Kueue {_kueue_version} on {cluster_name}...")
+    _exec(
+        "helm",
+        "upgrade",
+        "--install",
+        "kueue",
+        "oci://registry.k8s.io/kueue/charts/kueue",
+        "--kube-context",
+        context,
+        "--version",
+        _kueue_version,
+        "--namespace",
+        "kueue-system",
+        "--create-namespace",
+        "--wait",
+        "--timeout",
+        "5m",
+    )
+
+    # Demo quota: one ClusterQueue for the cluster, one LocalQueue for the
+    # demo project, in the namespace where dispatched RayClusters land.
+    _exec(
+        "kubectl",
+        "--context",
+        context,
+        "apply",
+        "-f",
+        str(_kueue_demo_dir / "queues.yaml"),
+    )
+
+    # Mark the Cluster CR as Kueue-managed.
+    _create_compute_cluster_crd(cluster_name, scheduler_type="SCHEDULER_TYPE_KUEUE")
+
+    print("\n✅ Kueue demo setup complete!")
+    print(f"  • Kueue {_kueue_version} installed on {cluster_name}")
+    print("  • ClusterQueue 'cluster-queue' and LocalQueue 'ma-ma-dev-test' created")
+    print(
+        f"  • Cluster CR '{cluster_name}' marked scheduler_type: SCHEDULER_TYPE_KUEUE"
+    )
+    print()
+    print("Enable the backend on the control plane (the controllermgr restarts")
+    print("automatically on the config change):")
+    print("  ma sandbox sync --set controllermgr.jobs.scheduler.backend=kueue")
 
 
 def _create_pipeline_demo_crs():
