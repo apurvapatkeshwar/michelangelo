@@ -103,6 +103,35 @@ func TestESOProviderMissingSecretGuidance(t *testing.T) {
 	require.Contains(t, err.Error(), "ma-secrets/missing-ca")
 }
 
+func TestESOProviderMissingDataKey(t *testing.T) {
+	// The secret exists but lacks the "cadata" key entirely (e.g. the
+	// ExternalSecret's template was misconfigured). This must fail loudly
+	// rather than silently returning an empty credential.
+	kubeClient := newFakeClient(true,
+		credentialSecret("ca-secret", "ma-secrets", map[string][]byte{"not-cadata": []byte("fake-ca")}),
+		credentialSecret("token-secret", "ma-secrets", map[string][]byte{tokenKey: []byte("fake-token")}),
+	)
+	provider := NewESOProvider(kubeClient, ESOConfig{Namespace: "ma-secrets"})
+
+	_, err := provider.GetClientAuth(context.Background(), clusterTarget("ca-secret", "token-secret"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `has no "cadata" key`)
+}
+
+func TestESOProviderEmptyDataKey(t *testing.T) {
+	// The secret has the "cadata" key, but its value is empty. This must
+	// also fail loudly rather than silently returning an empty credential.
+	kubeClient := newFakeClient(true,
+		credentialSecret("ca-secret", "ma-secrets", map[string][]byte{caDataKey: []byte("")}),
+		credentialSecret("token-secret", "ma-secrets", map[string][]byte{tokenKey: []byte("fake-token")}),
+	)
+	provider := NewESOProvider(kubeClient, ESOConfig{Namespace: "ma-secrets"})
+
+	_, err := provider.GetClientAuth(context.Background(), clusterTarget("ca-secret", "token-secret"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `has no "cadata" key`)
+}
+
 func TestESOProviderNoKubernetesSpec(t *testing.T) {
 	provider := NewESOProvider(newFakeClient(true), ESOConfig{})
 
@@ -119,16 +148,70 @@ func TestESOProviderEmptySecretName(t *testing.T) {
 	require.Contains(t, err.Error(), "empty secret name")
 }
 
+// countingRESTMapper wraps a meta.RESTMapper and counts calls to
+// RESTMapping, the only method the ESO provider's operator check uses.
+type countingRESTMapper struct {
+	meta.RESTMapper
+	calls int
+}
+
+func (c *countingRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*meta.RESTMapping, error) {
+	c.calls++
+	return c.RESTMapper.RESTMapping(gk, versions...)
+}
+
 func TestESOProviderCachesOperatorCheck(t *testing.T) {
-	kubeClient := newFakeClient(true,
-		credentialSecret("ca-secret", secretsNamespace, map[string][]byte{caDataKey: []byte("fake-ca")}),
-		credentialSecret("token-secret", secretsNamespace, map[string][]byte{tokenKey: []byte("fake-token")}),
-	)
+	mapper := &countingRESTMapper{RESTMapper: newRESTMapper(true)}
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithRESTMapper(mapper).
+		WithObjects(
+			credentialSecret("ca-secret", secretsNamespace, map[string][]byte{caDataKey: []byte("fake-ca")}),
+			credentialSecret("token-secret", secretsNamespace, map[string][]byte{tokenKey: []byte("fake-token")}),
+		).
+		Build()
 	provider := NewESOProvider(kubeClient, ESOConfig{})
 
 	_, err := provider.GetClientAuth(context.Background(), clusterTarget("ca-secret", "token-secret"))
 	require.NoError(t, err)
-	// Second call takes the cached-verification path.
+	require.Equal(t, 1, mapper.calls)
+
+	// Second call must take the cached-verification path rather than
+	// querying the RESTMapper again.
+	_, err = provider.GetClientAuth(context.Background(), clusterTarget("ca-secret", "token-secret"))
+	require.NoError(t, err)
+	require.Equal(t, 1, mapper.calls)
+}
+
+func TestESOProviderFailedOperatorCheckNotCached(t *testing.T) {
+	corev1GV := schema.GroupVersion{Version: "v1"}
+	esoGV := schema.GroupVersion{Group: esoAPIGroup, Version: "v1beta1"}
+	// esoGV must be a known default version from construction, or
+	// RESTMapping will never consider it regardless of what's Add()-ed
+	// later; only the ExternalSecret *kind* mapping is installed late, to
+	// simulate the operator's CRDs appearing after the first check.
+	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{corev1GV, esoGV})
+	mapper.Add(corev1GV.WithKind("Secret"), meta.RESTScopeNamespace)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithRESTMapper(mapper).
+		WithObjects(
+			credentialSecret("ca-secret", secretsNamespace, map[string][]byte{caDataKey: []byte("fake-ca")}),
+			credentialSecret("token-secret", secretsNamespace, map[string][]byte{tokenKey: []byte("fake-token")}),
+		).
+		Build()
+	provider := NewESOProvider(kubeClient, ESOConfig{})
+
+	// The operator is not installed yet, so this must fail.
+	_, err := provider.GetClientAuth(context.Background(), clusterTarget("ca-secret", "token-secret"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "external secrets operator does not appear to be installed")
+
+	// Install the operator and retry. If the failed check had been
+	// cached, this would fail again even though the operator is now
+	// present.
+	mapper.Add(esoGV.WithKind("ExternalSecret"), meta.RESTScopeNamespace)
+
 	_, err = provider.GetClientAuth(context.Background(), clusterTarget("ca-secret", "token-secret"))
 	require.NoError(t, err)
 }

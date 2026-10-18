@@ -26,6 +26,12 @@ var _ SecretProvider = (*ESOProvider)(nil)
 // Manager, GCP Secret Manager, ...). The provider reads those synced Secrets
 // and fails with a clear error when the operator's CRDs are absent, so a
 // misconfigured deployment degrades loudly rather than mysteriously.
+//
+// The Secret read for a given cluster is named by that cluster's
+// `CaDataTag`/`TokenTag` fields, resolved within the single configured
+// namespace. Those fields are part of the Cluster spec, so anything with
+// write access to Clusters can select any Secret name in that namespace;
+// Cluster create/update should be restricted to trusted/admin callers.
 type ESOProvider struct {
 	k8sClusterClient kubernetes.Interface
 	namespace        string
@@ -73,8 +79,13 @@ func (p *ESOProvider) ensureOperator() error {
 			"install it or set secrets.provider to %q", ProviderESO, esoAPIGroup, ProviderSample)
 }
 
-// retrieveSecretData reads one key from an operator-synced Secret.
+// retrieveSecretData reads one key from an operator-synced Secret. It
+// returns an error if the key is absent or empty, rather than silently
+// returning an empty credential.
 func (p *ESOProvider) retrieveSecretData(ctx context.Context, secretName, dataKey string) (string, error) {
+	if secretName == "" {
+		return "", fmt.Errorf("empty secret name")
+	}
 	secret, err := p.k8sClusterClient.CoreV1().Secrets(p.namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -86,7 +97,14 @@ func (p *ESOProvider) retrieveSecretData(ctx context.Context, secretName, dataKe
 		}
 		return "", fmt.Errorf("failed to get %s: %w", dataKey, err)
 	}
-	return string(secret.Data[dataKey]), nil
+	data, ok := secret.Data[dataKey]
+	if !ok || len(data) == 0 {
+		return "", fmt.Errorf(
+			"secret %s/%s has no %q key (or its value is empty); check that the ExternalSecret's "+
+				"template populates it (kubectl get externalsecret -n %s)",
+			p.namespace, secretName, dataKey, p.namespace)
+	}
+	return string(data), nil
 }
 
 // GetClusterClientAuth retrieves the client authentication data for a given
@@ -103,12 +121,16 @@ func (p *ESOProvider) GetClusterClientAuth(ctx context.Context, cluster *v2pb.Cl
 	default:
 		return ClientAuth{}, fmt.Errorf("cluster type %s not supported", cluster.Spec.GetCluster())
 	}
+	rest := kubeClusterSpec.GetRest()
+	if rest == nil {
+		return ClientAuth{}, fmt.Errorf("cluster %q has no rest connection spec", cluster.GetName())
+	}
 
-	caDataDecoded, err := p.retrieveSecretData(ctx, kubeClusterSpec.Rest.CaDataTag, "cadata")
+	caDataDecoded, err := p.retrieveSecretData(ctx, rest.CaDataTag, "cadata")
 	if err != nil {
 		return ClientAuth{}, err
 	}
-	clientTokenDecoded, err := p.retrieveSecretData(ctx, kubeClusterSpec.Rest.TokenTag, "token")
+	clientTokenDecoded, err := p.retrieveSecretData(ctx, rest.TokenTag, "token")
 	if err != nil {
 		return ClientAuth{}, err
 	}

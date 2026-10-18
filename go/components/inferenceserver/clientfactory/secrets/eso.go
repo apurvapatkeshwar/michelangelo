@@ -57,6 +57,13 @@ var _ SecretProvider = (*ESOProvider)(nil)
 // Manager, GCP Secret Manager, ...). The provider reads those synced Secrets
 // and fails with a clear error when the operator's CRDs are absent, so a
 // misconfigured deployment degrades loudly rather than mysteriously.
+//
+// The Secret read for a given cluster is named by that ClusterTarget's
+// `CaDataTag`/`TokenTag` fields, resolved within the single configured
+// namespace. Those fields are part of the ClusterTarget spec, so anything
+// with write access to InferenceServers can select any Secret name in that
+// namespace; InferenceServer create/update should be restricted to
+// trusted/admin callers.
 type ESOProvider struct {
 	kubeClient client.Client
 	namespace  string
@@ -107,19 +114,34 @@ func (p *ESOProvider) GetClientAuth(ctx context.Context, cluster *v2pb.ClusterTa
 		return ClientAuth{}, fmt.Errorf("cluster %q has no kubernetes connection spec", cluster.GetClusterId())
 	}
 
-	caSecret, err := p.fetchSecret(ctx, cluster.GetKubernetes().GetCaDataTag())
+	caData, err := p.retrieveSecretData(ctx, cluster.GetKubernetes().GetCaDataTag(), caDataKey)
 	if err != nil {
 		return ClientAuth{}, fmt.Errorf("CA secret for cluster %q: %w", cluster.GetClusterId(), err)
 	}
-	tokenSecret, err := p.fetchSecret(ctx, cluster.GetKubernetes().GetTokenTag())
+	tokenData, err := p.retrieveSecretData(ctx, cluster.GetKubernetes().GetTokenTag(), tokenKey)
 	if err != nil {
 		return ClientAuth{}, fmt.Errorf("token secret for cluster %q: %w", cluster.GetClusterId(), err)
 	}
 
 	return ClientAuth{
-		CertificateAuthorityData: string(caSecret.Data[caDataKey]),
-		ClientTokenData:          string(tokenSecret.Data[tokenKey]),
+		CertificateAuthorityData: caData,
+		ClientTokenData:          tokenData,
 	}, nil
+}
+
+// retrieveSecretData fetches the named Secret and returns the value of
+// dataKey within it. It returns an error if the key is absent or empty,
+// rather than silently returning an empty credential.
+func (p *ESOProvider) retrieveSecretData(ctx context.Context, name, dataKey string) (string, error) {
+	secret, err := p.fetchSecret(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	data, ok := secret.Data[dataKey]
+	if !ok || len(data) == 0 {
+		return "", fmt.Errorf("secret %s/%s has no %q key (or its value is empty)", p.namespace, name, dataKey)
+	}
+	return string(data), nil
 }
 
 func (p *ESOProvider) fetchSecret(ctx context.Context, name string) (*corev1.Secret, error) {

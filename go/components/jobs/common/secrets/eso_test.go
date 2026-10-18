@@ -101,6 +101,57 @@ func TestESOProviderMissingSecretGuidance(t *testing.T) {
 	require.Contains(t, err.Error(), "ma-secrets/missing-ca")
 }
 
+func TestESOProviderMissingDataKey(t *testing.T) {
+	// The secret exists but lacks the "cadata" key entirely (e.g. the
+	// ExternalSecret's template was misconfigured). This must fail loudly
+	// rather than silently returning an empty credential.
+	fakeClientSet := newFakeClientSetWithESO(t,
+		&corev1.Secret{
+			ObjectMeta: v1.ObjectMeta{Name: "ca-secret", Namespace: "default"},
+			Data:       map[string][]byte{"not-cadata": []byte("fake-ca-data")},
+		},
+		credentialSecret("token-secret", "default", "token", "fake-token-data"),
+	)
+	provider := NewESOProvider(fakeClientSet, ESOConfig{}, nil)
+
+	_, err := provider.GetClusterClientAuth(context.Background(), kubeCluster("ca-secret", "token-secret"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `has no "cadata" key`)
+}
+
+func TestESOProviderEmptyDataKey(t *testing.T) {
+	// The secret has the "cadata" key, but its value is empty. This must
+	// also fail loudly rather than silently returning an empty credential.
+	fakeClientSet := newFakeClientSetWithESO(t,
+		credentialSecret("ca-secret", "default", "cadata", ""),
+		credentialSecret("token-secret", "default", "token", "fake-token-data"),
+	)
+	provider := NewESOProvider(fakeClientSet, ESOConfig{}, nil)
+
+	_, err := provider.GetClusterClientAuth(context.Background(), kubeCluster("ca-secret", "token-secret"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `has no "cadata" key`)
+}
+
+func TestESOProviderNilRestSpec(t *testing.T) {
+	// A Kubernetes cluster spec with no rest connection info must fail with
+	// a clear error, not panic on a nil pointer dereference.
+	fakeClientSet := newFakeClientSetWithESO(t)
+	provider := NewESOProvider(fakeClientSet, ESOConfig{}, nil)
+
+	cluster := &v2pb.Cluster{
+		ObjectMeta: v1.ObjectMeta{Name: "test-cluster", Namespace: "default"},
+		Spec: v2pb.ClusterSpec{
+			Cluster: &v2pb.ClusterSpec_Kubernetes{
+				Kubernetes: &v2pb.KubernetesSpec{},
+			},
+		},
+	}
+	_, err := provider.GetClusterClientAuth(context.Background(), cluster)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no rest connection spec")
+}
+
 func TestESOProviderUnsupportedClusterType(t *testing.T) {
 	fakeClientSet := newFakeClientSetWithESO(t)
 	provider := NewESOProvider(fakeClientSet, ESOConfig{}, nil)
@@ -164,7 +215,38 @@ func TestESOProviderCachesOperatorCheck(t *testing.T) {
 
 	_, err := provider.GetClusterClientAuth(context.Background(), kubeCluster("ca-secret", "token-secret"))
 	require.NoError(t, err)
-	// Second call takes the cached-verification path.
+
+	// Simulate the operator being uninstalled after the first check. If
+	// the verification were not cached, this call would now fail; it
+	// succeeding proves the cached result is being reused instead of
+	// re-querying discovery.
+	discovery, ok := fakeClientSet.Discovery().(*fakediscovery.FakeDiscovery)
+	require.True(t, ok)
+	discovery.Resources = nil
+
+	_, err = provider.GetClusterClientAuth(context.Background(), kubeCluster("ca-secret", "token-secret"))
+	require.NoError(t, err)
+}
+
+func TestESOProviderFailedOperatorCheckNotCached(t *testing.T) {
+	fakeClientSet := fakek8sclient.NewSimpleClientset(
+		credentialSecret("ca-secret", "default", "cadata", "fake-ca-data"),
+		credentialSecret("token-secret", "default", "token", "fake-token-data"),
+	)
+	provider := NewESOProvider(fakeClientSet, ESOConfig{}, nil)
+
+	// The operator is not installed yet, so this must fail.
+	_, err := provider.GetClusterClientAuth(context.Background(), kubeCluster("ca-secret", "token-secret"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "external secrets operator does not appear to be installed")
+
+	// Install the operator and retry. If the failed check had been
+	// cached, this would fail again even though the operator is now
+	// present.
+	discovery, ok := fakeClientSet.Discovery().(*fakediscovery.FakeDiscovery)
+	require.True(t, ok)
+	discovery.Resources = []*v1.APIResourceList{{GroupVersion: esoAPIGroup + "/v1beta1"}}
+
 	_, err = provider.GetClusterClientAuth(context.Background(), kubeCluster("ca-secret", "token-secret"))
 	require.NoError(t, err)
 }
