@@ -420,6 +420,10 @@ worker:
   # serviceAccounts.enabled, plus the runner ServiceAccounts
   # (apiserver.auth.runnerProjects) and the token-mint grant the chart
   # ships alongside this flag. Disabled, the worker sends no credential.
+  # The stock worker image includes worker.RunnerTokenModule, which this
+  # needs. A custom worker binary must include it too (enabled without it
+  # fails worker startup), and one that injects its own outbound middleware
+  # must leave it out and keep this disabled.
   runnerToken:
     enabled: false
     # Audiences requested for the minted tokens; when
