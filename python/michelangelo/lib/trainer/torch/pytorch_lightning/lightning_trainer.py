@@ -158,6 +158,12 @@ class LightningTrainerParam:
             custom loaders. The profiler's row-count validation is skipped
             because the dataset size is unknown. Defaults to ``None`` (use the
             Ray Data shards).
+        drop_last: Whether to drop the last incomplete batch of each epoch in the
+            training ``iter_torch_batches`` iterator. The validation iterator is
+            unaffected. A fractional ``limit_train_batches`` is resolved against
+            the count of full batches when set. Not applied to a
+            ``custom_dataloader``, which owns its own batching. Defaults to
+            ``False``.
 
     Raises:
         ValueError: At construction, if ``prefetch_batches`` is not an integer
@@ -185,10 +191,11 @@ class LightningTrainerParam:
     experiment_store: ExperimentStore | None = None
     profiler_sink: Callable | None = None
     custom_dataloader: CustomDataloaderParam | None = None
-    # prefetch_batches and upload_async are appended last so positional
-    # construction is unaffected.
+    # prefetch_batches, upload_async and drop_last are appended last so
+    # positional construction is unaffected.
     prefetch_batches: int = 1  # Ray Data default; 0 disables prefetching.
     upload_async: bool = False
+    drop_last: bool = False
 
     def __post_init__(self):
         """Validate new options, apply default ``num_epochs``, warn on deprecated fields."""
@@ -265,6 +272,7 @@ class LightningTrainer(TorchTrainer):
             trainer_param.batch_size,
             num_workers,
             "train",
+            drop_last=trainer_param.drop_last,
         )
         val_data, val_limit = _apply_batch_limit(
             val_data,

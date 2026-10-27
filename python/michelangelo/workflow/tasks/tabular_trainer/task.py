@@ -327,6 +327,7 @@ def _train_lightning(
     batch_size = int(hp.get("batch_size", 2))
     num_shuffle_batches = int(hp.get("num_shuffle_batches", 1))
     prefetch_batches = 1  # Ray Data default; override via BatchIterConfig
+    drop_last = False
     data_collate_fn = None
 
     if config.dataloading_config and config.dataloading_config.batch_iter_config:
@@ -344,6 +345,7 @@ def _train_lightning(
         batch_size = dl.batch_size
         num_shuffle_batches = dl.num_shuffle_batches
         prefetch_batches = dl.prefetch_batches
+        drop_last = dl.drop_last
         data_collate_fn = get_module_attr(dl.collate_fn) if dl.collate_fn else None
 
     # Mid-epoch checkpointing gate
@@ -465,6 +467,7 @@ def _train_lightning(
         num_shuffle_batches=num_shuffle_batches,
         prefetch_batches=prefetch_batches,
         upload_async=config.checkpoint_config.upload_async,
+        drop_last=drop_last,
         data_collate_fn=data_collate_fn,
         lightning_trainer_kwargs=lightning_trainer_kwargs,
         transfer_learning_spec=None,

@@ -415,6 +415,21 @@ class TestTrainTabularLightning(TestCase):
         kwargs = self._run_and_get_param_kwargs(config)
         self.assertTrue(kwargs["upload_async"])
 
+    def test_drop_last_defaults_to_false_without_batch_iter_config(self):
+        """Without a BatchIterConfig the partial batch is kept."""
+        kwargs = self._run_and_get_param_kwargs(make_tabular_config())
+        self.assertIs(kwargs["drop_last"], False)
+
+    def test_batch_iter_config_drop_last_is_forwarded(self):
+        """BatchIterConfig.drop_last reaches LightningTrainerParam."""
+        config = make_tabular_config(
+            dataloading_config=DataloadingConfig(
+                batch_iter_config=BatchIterConfig(batch_size=16, drop_last=True)
+            ),
+        )
+        kwargs = self._run_and_get_param_kwargs(config)
+        self.assertIs(kwargs["drop_last"], True)
+
     def test_comet_tracker_sets_logger_kwargs(self):
         """CometConfig resolves to the build_comet_logger dotted path + kwargs."""
         config = make_tabular_config(

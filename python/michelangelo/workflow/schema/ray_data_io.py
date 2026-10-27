@@ -151,15 +151,24 @@ class BatchIterConfig:
             ``iter_torch_batches`` for both the training and validation
             iterators. Must be ``>= 0``; ``0`` disables prefetching. Defaults
             to ``1``, which is the Ray Data default.
+        drop_last: Whether to drop the last incomplete batch of each epoch.
+            Forwarded as ``drop_last`` to the training ``iter_torch_batches``
+            iterator only; the validation iterator is unaffected. When a
+            fractional ``limit_train_batches`` is used, the batch count it is
+            applied to excludes the dropped partial batch; integer limits are
+            unaffected. Has no effect when a custom dataloader is configured.
+            Defaults to ``False`` (keep the partial batch).
 
     Raises:
         ConfigurationError: If ``prefetch_batches`` is not an integer or is
-            negative.
+            negative, or if ``drop_last`` is not a bool.
 
     Example:
         >>> config = BatchIterConfig(batch_size=64, prefetch_batches=4)
         >>> config.prefetch_batches
         4
+        >>> BatchIterConfig(batch_size=64, drop_last=True).drop_last
+        True
     """
 
     batch_size: int
@@ -167,9 +176,10 @@ class BatchIterConfig:
     collate_fn: str | None = None
     # Appended last so positional construction is unaffected.
     prefetch_batches: int = 1
+    drop_last: bool = False
 
     def __post_init__(self) -> None:
-        """Validate that ``prefetch_batches`` is a non-negative integer."""
+        """Validate ``prefetch_batches`` (int >= 0) and ``drop_last`` (bool)."""
         if (
             isinstance(self.prefetch_batches, bool)
             or not isinstance(self.prefetch_batches, int)
@@ -178,6 +188,10 @@ class BatchIterConfig:
             raise ConfigurationError(
                 f"prefetch_batches must be an integer >= 0, got "
                 f"{self.prefetch_batches!r}. Use 0 to disable prefetching."
+            )
+        if not isinstance(self.drop_last, bool):
+            raise ConfigurationError(
+                f"BatchIterConfig.drop_last must be a bool, got {self.drop_last!r}."
             )
 
 

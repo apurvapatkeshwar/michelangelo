@@ -149,6 +149,7 @@ def train(train_dv: DatasetVariable, val_dv: DatasetVariable):
 | `experiment_store` | `None` | Enables opt-in auto-resume — see [Auto-resume](#auto-resume-across-runs) |
 | `profiler_sink` | `None` | Ships profiler output to an experiment tracker |
 | `custom_dataloader` | `None` | Replaces the Ray Data dataloaders with your own factory — see [Custom dataloaders](#custom-dataloaders) |
+| `drop_last` | `False` | Drop the last incomplete training batch of each epoch (validation unaffected). With a fractional `limit_train_batches`, the fraction is applied to the count of full batches |
 
 :::warning
 `num_epochs` is deprecated and logs a warning when set. Use `lightning_trainer_kwargs={"max_epochs": N}` instead.

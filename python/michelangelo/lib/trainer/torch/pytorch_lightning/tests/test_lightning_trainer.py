@@ -83,7 +83,7 @@ class TestLightningTrainerParam:
         import dataclasses
 
         names = [f.name for f in dataclasses.fields(LightningTrainerParam)]
-        assert names[-2:] == ["prefetch_batches", "upload_async"]
+        assert names[-3:] == ["prefetch_batches", "upload_async", "drop_last"]
 
     def test_prefetch_and_upload_async_reach_loop_config(self):
         """The new options are forwarded to workers via ``train_loop_config``."""
