@@ -141,19 +141,26 @@ class TestResolveStrategy:
         )
         with (
             patch.dict("sys.modules", {mp_module: None}),
-            pytest.raises(ValueError, match="requires pytorch-lightning >= 2.3"),
+            pytest.raises(ValueError, match=r"requires pytorch-lightning >= 2\.3"),
         ):
             _resolve_strategy("fsdp2")
 
-    def test_none_forwards_strategy_kwargs(self):
-        """``strategy_kwargs`` are forwarded when ``None`` auto-selects."""
-        ctx = MagicMock()
-        ctx.get_world_size.return_value = 1
-        with (
-            patch("ray.train.get_context", return_value=ctx),
-            patch(f"{_UTIL_MODULE}.RaySingleDeviceStrategy") as mock_cls,
-        ):
+    def test_none_with_strategy_kwargs_raises(self):
+        """``strategy_kwargs`` without a string ``strategy`` is rejected."""
+        with pytest.raises(TypeError, match="strategy_kwargs can only be used"):
             _resolve_strategy(None, strategy_kwargs={"process_group_backend": "gloo"})
+
+    def test_instance_with_strategy_kwargs_raises(self):
+        """``strategy_kwargs`` alongside a ``Strategy`` instance is rejected."""
+        with pytest.raises(TypeError, match="strategy_kwargs can only be used"):
+            _resolve_strategy(
+                RayDDPStrategy(), strategy_kwargs={"process_group_backend": "gloo"}
+            )
+
+    def test_string_forwards_strategy_kwargs(self):
+        """``strategy_kwargs`` are forwarded to a string-selected strategy."""
+        with patch(f"{_UTIL_MODULE}.RayDDPStrategy") as mock_cls:
+            _resolve_strategy("ddp", strategy_kwargs={"process_group_backend": "gloo"})
         mock_cls.assert_called_once_with(process_group_backend="gloo")
 
     def test_invalid_strategy_kwargs_type_raises(self):
@@ -704,6 +711,38 @@ class TestResolveCallbacks:
         callbacks, _ = _resolve_callbacks(None, per_node_callback_kwargs={})
         assert callbacks[-1] is mock_per_node.return_value
 
+    def test_upload_async_forwarded_to_default_callback(
+        self, patched_ray_report_callbacks
+    ):
+        """``upload_async`` is handed to the data-parallel report callback."""
+        mock_default, _ = patched_ray_report_callbacks
+        _resolve_callbacks(None, upload_async=True)
+        assert mock_default.call_args.kwargs["upload_async"] is True
+
+    def test_upload_async_defaults_false(self, patched_ray_report_callbacks):
+        """Without opt-in the report callback is built with ``upload_async=False``."""
+        mock_default, _ = patched_ray_report_callbacks
+        _resolve_callbacks(None)
+        assert mock_default.call_args.kwargs["upload_async"] is False
+
+    def test_upload_async_ignored_with_warning_for_per_node(
+        self, patched_ray_report_callbacks
+    ):
+        """The per-node callback ignores ``upload_async`` and a warning is logged."""
+        _, mock_per_node = patched_ray_report_callbacks
+        with patch(f"{_UTIL_MODULE}._logger") as mock_logger:
+            _resolve_callbacks(None, per_node_callback_kwargs={}, upload_async=True)
+        mock_logger.warning.assert_called_once()
+        assert "upload_async" not in mock_per_node.call_args.kwargs
+
+    def test_no_warning_for_per_node_without_upload_async(
+        self, patched_ray_report_callbacks
+    ):
+        """No warning is logged for per-node reporting when async is not requested."""
+        with patch(f"{_UTIL_MODULE}._logger") as mock_logger:
+            _resolve_callbacks(None, per_node_callback_kwargs={})
+        mock_logger.warning.assert_not_called()
+
     def test_invalid_top_level_type_raises(self):
         """A non-str/Callback/list input raises ``TypeError``."""
         with pytest.raises(TypeError, match="callbacks must be"):
@@ -712,7 +751,18 @@ class TestResolveCallbacks:
     def test_invalid_callback_kwargs_raises(self):
         """``callback_kwargs`` must be a dict."""
         with pytest.raises(TypeError, match="callback_kwargs must be"):
-            _resolve_callbacks(None, callback_kwargs=["not", "a", "dict"])
+            _resolve_callbacks("some.Callback", callback_kwargs=["not", "a", "dict"])
+
+    def test_callback_kwargs_without_callbacks_raises(self):
+        """``callback_kwargs`` with ``callbacks=None`` is rejected."""
+        with pytest.raises(TypeError, match="callback_kwargs can only be used"):
+            _resolve_callbacks(None, callback_kwargs={"x": 1})
+
+    @pytest.mark.parametrize("make", [lambda: Callback(), lambda: [Callback()]])
+    def test_callback_kwargs_with_non_str_callbacks_raises(self, make):
+        """``callback_kwargs`` with a Callback instance or list is rejected."""
+        with pytest.raises(TypeError, match="callback_kwargs can only be used"):
+            _resolve_callbacks(make(), callback_kwargs={"x": 1})
 
     def test_invalid_per_node_callback_kwargs_raises(self):
         """``per_node_callback_kwargs`` must be a dict."""

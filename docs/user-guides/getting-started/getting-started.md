@@ -227,9 +227,9 @@ python -m michelangelo_examples.california_housing.pipelines.pytorch_train.pipel
   remote-run \
   --image docker.io/library/michelangelo-examples:local \
   --storage-url s3://michelangelo/workflows \
-  --environ AWS_ENDPOINT_URL=http://minio:9091 \
-  --environ AWS_ACCESS_KEY_ID=minioadmin \
-  --environ AWS_SECRET_ACCESS_KEY=minioadmin \
+  --environ AWS_ENDPOINT_URL=http://objectstore:9091 \
+  --environ AWS_ACCESS_KEY_ID=michelangeloadmin \
+  --environ AWS_SECRET_ACCESS_KEY=michelangeloadmin \
   --environ REGISTRY_ENDPOINT=michelangelo-apiserver:15566 \
   --yes
 ```

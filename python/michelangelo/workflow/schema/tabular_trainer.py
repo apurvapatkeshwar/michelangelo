@@ -7,6 +7,7 @@ and its backends. Mirrors the structure of ``michelangelo.workflow.schema.pusher
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar
@@ -37,6 +38,8 @@ __all__ = [
     "TabularTrainerConfig",
     "TrackerConfig",
     "TransferLearningSpecConfig",
+    "column_names",
+    "normalize_columns",
 ]
 
 
@@ -78,20 +81,155 @@ class ColumnConfig:
     """Schema descriptor for a single model input, output, or label column.
 
     Attributes:
-        data_type: PyTorch dtype string, e.g. ``"torch.float32"``.
+        data_type: PyTorch dtype string, e.g. ``"torch.float32"``, or
+            ``"string"`` for text and bytes columns, which are kept as-is and
+            not cast to a number. An unsupported value is rejected when the
+            model schema or sample data is built, with an error that lists the
+            supported values.
         shape: Tensor shape *excluding* the batch dimension, e.g. ``[128]``
             for a 128-element embedding. Defaults to ``[]``, i.e. a scalar
             column -- the common tabular case.
+        name: Column name. Required when the column is an entry of a list-form
+            column spec (``input_columns``, ``output_columns``, ``labels``);
+            optional and ignored (the dict key is the name) in dict form.
+            The codec always encodes this field (as ``None`` when unset), so a
+            config encoded by an SDK with this field cannot be decoded by a
+            worker image whose ``ColumnConfig`` predates it; keep the SDK and
+            the worker image on the same version.
 
     Example:
         >>> ColumnConfig(data_type="torch.float32", shape=[128])
-        ColumnConfig(data_type='torch.float32', shape=[128])
-        >>> ColumnConfig(data_type="torch.float32")
-        ColumnConfig(data_type='torch.float32', shape=[])
+        ColumnConfig(data_type='torch.float32', shape=[128], name=None)
+        >>> ColumnConfig(data_type="torch.float32", name="age")
+        ColumnConfig(data_type='torch.float32', shape=[], name='age')
     """
 
     data_type: str
     shape: list[int] = field(default_factory=list)
+    name: str | None = None
+
+
+def _coerce_entry(entry: Any, label: str) -> ColumnConfig:
+    """Return ``entry`` as a ``ColumnConfig``, accepting plain mappings.
+
+    Mappings are accepted because list entries can arrive as plain dicts after
+    a YAML or protobuf ``Struct`` round-trip.
+
+    Args:
+        entry: A ``ColumnConfig`` or a mapping of its fields.
+        label: Location of the entry (e.g. ``input_columns[0]``), for error
+            messages.
+
+    Returns:
+        The entry as a ``ColumnConfig``.
+
+    Raises:
+        ConfigurationError: If the entry is neither a ``ColumnConfig`` nor a
+            mapping with valid ``ColumnConfig`` fields.
+    """
+    if isinstance(entry, ColumnConfig):
+        return entry
+    if isinstance(entry, Mapping):
+        try:
+            return ColumnConfig(**entry)
+        except TypeError as e:
+            raise ConfigurationError(f"{label} is not a valid column spec: {e}") from e
+    raise ConfigurationError(
+        f"{label} must be a ColumnConfig, got {type(entry).__name__}."
+    )
+
+
+def normalize_columns(
+    columns: dict[str, ColumnConfig] | list[ColumnConfig],
+    field_name: str = "columns",
+) -> list[ColumnConfig]:
+    """Normalize a column spec to an ordered list of named ``ColumnConfig``.
+
+    Dict form is converted by iterating in insertion order and copying each
+    key into ``name``. List form keeps its order. Prefer the list form: a
+    ``dict`` loses its order when it passes through a protobuf ``Struct``, and
+    the order of these columns defines the model input/output schema.
+
+    Args:
+        columns: Dict of ``name -> ColumnConfig`` or list of named
+            ``ColumnConfig``.
+        field_name: Config field being normalized, for error messages.
+
+    Returns:
+        A new list of ``ColumnConfig`` with ``name`` set on every entry.
+
+    Raises:
+        ConfigurationError: If a name is empty, not a string or has leading or
+            trailing whitespace, a name is duplicated, a dict key disagrees
+            with its entry's ``name``, or an entry is not a ``ColumnConfig``.
+
+    Example:
+        >>> normalize_columns({"age": ColumnConfig("torch.float32")}, "input_columns")
+        [ColumnConfig(data_type='torch.float32', shape=[], name='age')]
+    """
+    if isinstance(columns, Mapping):
+        entries: list[ColumnConfig] = []
+        for key, value in columns.items():
+            cfg = _coerce_entry(value, f"{field_name}[{key!r}]")
+            if cfg.name is not None and cfg.name != key:
+                raise ConfigurationError(
+                    f"{field_name}[{key!r}] has conflicting name {cfg.name!r}; "
+                    "omit 'name' in dict form or make it match the key."
+                )
+            entries.append(ColumnConfig(cfg.data_type, list(cfg.shape), key))
+    elif isinstance(columns, (list, tuple)):
+        entries = [
+            _coerce_entry(entry, f"{field_name}[{i}]")
+            for i, entry in enumerate(columns)
+        ]
+    else:
+        raise ConfigurationError(
+            f"{field_name} must be a dict or a list of ColumnConfig, "
+            f"got {type(columns).__name__}."
+        )
+
+    seen: set[str] = set()
+    for i, cfg in enumerate(entries):
+        if not isinstance(cfg.name, str) or not cfg.name.strip():
+            raise ConfigurationError(
+                f"{field_name}[{i}] must have a non-empty string 'name', "
+                f"got {cfg.name!r}."
+            )
+        if cfg.name != cfg.name.strip():
+            raise ConfigurationError(
+                f"{field_name}[{i}] name {cfg.name!r} has leading or trailing "
+                "whitespace; remove it."
+            )
+        if cfg.name in seen:
+            raise ConfigurationError(
+                f"{field_name} contains duplicate column name {cfg.name!r}."
+            )
+        seen.add(cfg.name)
+    return entries
+
+
+def column_names(
+    columns: dict[str, ColumnConfig] | list[ColumnConfig],
+    field_name: str = "columns",
+) -> list[str]:
+    """Return the ordered column names of a dict- or list-form column spec.
+
+    Args:
+        columns: Dict of ``name -> ColumnConfig`` or list of named
+            ``ColumnConfig``.
+        field_name: Config field, for error messages.
+
+    Returns:
+        Column names in spec order.
+
+    Raises:
+        ConfigurationError: See :func:`normalize_columns`.
+
+    Example:
+        >>> column_names([ColumnConfig("torch.long", name="a")])
+        ['a']
+    """
+    return [cfg.name for cfg in normalize_columns(columns, field_name)]  # type: ignore[misc]
 
 
 @dataclass
@@ -325,7 +463,9 @@ class CheckpointConfig:
     for future mid-epoch checkpointing (``save_every_n_steps``,
     ``random_seed``). Both additions are gated in the dispatcher — setting
     ``save_every_n_steps`` raises ``NotImplementedError`` at runtime until
-    the mid-epoch checkpoint planner is ported.
+    the mid-epoch checkpoint planner is ported. A further field,
+    ``upload_async``, opts in to overlapping the epoch-end checkpoint upload
+    with training.
 
     Attributes:
         num_to_keep: Maximum number of checkpoints to retain. ``None`` keeps
@@ -339,11 +479,23 @@ class CheckpointConfig:
             ``NotImplementedError`` in the dispatcher.
         random_seed: Optional shuffle seed for chunk-based mid-epoch reads.
             Currently gated with ``save_every_n_steps``.
+        upload_async: When ``True``, upload the epoch-end checkpoint on a
+            background thread managed by Ray Train instead of blocking
+            training until the upload finishes. Ray removes the local
+            checkpoint directory once the upload completes and flushes
+            pending uploads before training finishes; an upload failure is
+            raised by Ray Train rather than swallowed. The upload destination
+            is the run's ``storage_path``, so any filesystem supported by
+            Ray Train works. Requires a Ray version that provides
+            ``ray.train.CheckpointUploadMode``; on older Ray a warning is
+            logged and the default synchronous upload is used. Applies to the
+            data-parallel epoch-end checkpoint only. Defaults to ``False``.
 
     Raises:
         ConfigurationError: If ``save_every_n_steps`` is set to a value
             less than 1. Set it to ``None`` (the default) to disable
-            mid-epoch checkpointing.
+            mid-epoch checkpointing. Also raised if ``upload_async`` is not
+            a bool.
 
     Example:
         >>> CheckpointConfig(num_to_keep=3, checkpoint_score_attribute="val_loss",
@@ -356,13 +508,18 @@ class CheckpointConfig:
     checkpoint_score_order: CheckpointScoreOrder = CheckpointScoreOrder.MAX
     save_every_n_steps: int | None = None
     random_seed: int | None = None
+    upload_async: bool = False
 
     def __post_init__(self) -> None:
-        """Validate save_every_n_steps is a positive integer when set."""
+        """Validate save_every_n_steps and upload_async."""
         if self.save_every_n_steps is not None and self.save_every_n_steps < 1:
             raise ConfigurationError(
                 f"save_every_n_steps must be >= 1, got {self.save_every_n_steps}."
                 " Set it to None to disable mid-epoch checkpointing."
+            )
+        if not isinstance(self.upload_async, bool):
+            raise ConfigurationError(
+                f"upload_async must be a bool, got {self.upload_async!r}."
             )
 
 
@@ -550,15 +707,22 @@ class CustomTrainerConfig:
 class LightningTrainerConfig:
     """Configuration for the PyTorch Lightning training backend.
 
-    All column maps (``input_columns``, ``output_columns``, ``labels``) use
-    column name as key and ``ColumnConfig`` as value.
+    ``input_columns``, ``output_columns`` and ``labels`` accept either a list
+    of ``ColumnConfig`` (each with ``name`` set) or a dict of
+    ``name -> ColumnConfig``. The order of ``input_columns`` and
+    ``output_columns`` defines the model input/output schema order (``labels``
+    order is not used by the model schema; list form is accepted for
+    consistency). Use the list form: a dict loses its key order when it passes
+    through a protobuf ``Struct``, so a multi-column dict can silently reorder
+    model inputs and outputs. Dict form is kept for backward compatibility.
     ``metadata_columns`` names columns read from Parquet for logging and
     callbacks but excluded from the model schema.
 
     Attributes:
         model_class: Dotted import path to a ``LightningModule`` subclass.
-        input_columns: Feature columns fed to the model.
-        output_columns: Model output columns included in the model schema.
+        input_columns: Feature columns fed to the model, in schema order.
+        output_columns: Model output columns included in the model schema,
+            in schema order.
         labels: Target/label columns.
         metadata_columns: Columns read for logging; excluded from schema.
         checkpoint_config: Checkpoint retention settings.
@@ -582,17 +746,17 @@ class LightningTrainerConfig:
         ... )
         >>> cfg = LightningTrainerConfig(
         ...     model_class="myproject.models.TabularNet",
-        ...     input_columns={"age": ColumnConfig("torch.float32", [1])},
-        ...     output_columns={"score": ColumnConfig("torch.float32", [1])},
-        ...     labels={"clicked": ColumnConfig("torch.long", [1])},
+        ...     input_columns=[ColumnConfig("torch.float32", [1], name="age")],
+        ...     output_columns=[ColumnConfig("torch.float32", [1], name="score")],
+        ...     labels=[ColumnConfig("torch.long", [1], name="clicked")],
         ...     metadata_columns=["user_id"],
         ... )
     """
 
     model_class: str
-    input_columns: dict[str, ColumnConfig]
-    output_columns: dict[str, ColumnConfig]
-    labels: dict[str, ColumnConfig]
+    input_columns: dict[str, ColumnConfig] | list[ColumnConfig]
+    output_columns: dict[str, ColumnConfig] | list[ColumnConfig]
+    labels: dict[str, ColumnConfig] | list[ColumnConfig]
     metadata_columns: list[str]
     checkpoint_config: CheckpointConfig = field(default_factory=CheckpointConfig)
     model_kwargs: dict | None = None
@@ -603,6 +767,16 @@ class LightningTrainerConfig:
     experiment_tracker: ExperimentTrackerConfig | None = None
     transfer_learning_spec: TransferLearningSpecConfig | None = None
     incremental_training_mode: IncrementalTrainingModeConfig | None = None
+
+    def __post_init__(self) -> None:
+        """Validate column specs at construction time.
+
+        Raises:
+            ConfigurationError: If a column spec has an empty or duplicate
+                name, or an entry that is not a ``ColumnConfig``.
+        """
+        for field_name in ("input_columns", "output_columns", "labels"):
+            normalize_columns(getattr(self, field_name), field_name)
 
 
 @dataclass

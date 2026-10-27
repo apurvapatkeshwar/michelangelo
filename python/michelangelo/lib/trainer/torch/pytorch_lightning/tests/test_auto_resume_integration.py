@@ -23,7 +23,9 @@ Ray-enabled CI job, by setting ``MICHELANGELO_RUN_RAY_INTEGRATION_TESTS=1``.
 
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 import sys
 
 import pytest
@@ -126,8 +128,57 @@ def ray_cluster():
         ray.shutdown()
 
 
-def _train(storage_path, name, epochs, store):
-    """Run one training job and return its result dict."""
+class _ReportSpy(pl.Callback):
+    """Record the kwargs of every ``ray.train.report`` call made in the worker.
+
+    Installed in ``on_train_start`` so it wraps the report function before the
+    Ray report callback runs; each call appends one JSON line to ``log_path``.
+    """
+
+    def __init__(self, log_path):
+        self.log_path = str(log_path)
+
+    def on_train_start(self, trainer, pl_module):
+        import json
+
+        import ray.train as ray_train
+
+        original = ray_train.report
+        log_path = self.log_path
+
+        def spy(*args, **kwargs):
+            mode = kwargs.get("checkpoint_upload_mode")
+            with open(log_path, "a") as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "mode": getattr(mode, "name", None),
+                            "delete_local": kwargs.get(
+                                "delete_local_checkpoint_after_upload"
+                            ),
+                            "has_checkpoint": kwargs.get("checkpoint") is not None,
+                        }
+                    )
+                    + "\n"
+                )
+            return original(*args, **kwargs)
+
+        ray_train.report = spy
+
+
+def _read_reports(log_path):
+    """Return the parsed JSON records written by ``_ReportSpy``."""
+    import json
+
+    with open(log_path) as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def _train(storage_path, name, epochs, store, extra_callbacks=(), **param_overrides):
+    """Run one training job and return its result dict.
+
+    Extra ``param_overrides`` are forwarded to ``LightningTrainerParam``.
+    """
     dataset = ray.data.from_items(
         [{"x": [float(i), float(i + 1)], "y": float(i)} for i in range(8)]
     )
@@ -139,9 +190,13 @@ def _train(storage_path, name, epochs, store):
         batch_size=4,
         lightning_trainer_kwargs={
             "max_epochs": epochs,
-            "callbacks": [ModelCheckpoint(save_top_k=2, monitor="val_loss")],
+            "callbacks": [
+                ModelCheckpoint(save_top_k=2, monitor="val_loss"),
+                *extra_callbacks,
+            ],
         },
         experiment_store=store,
+        **param_overrides,
     )
     trainer = LightningTrainer(
         trainer_param=param,
@@ -149,6 +204,69 @@ def _train(storage_path, name, epochs, store):
         scaling_config=ray.train.ScalingConfig(num_workers=1, use_gpu=False),
     )
     return trainer.train()
+
+
+class TestPrefetchAndAsyncUploadIntegration:
+    """End-to-end prefetch and async checkpoint upload against a real Ray cluster."""
+
+    def test_async_upload_and_prefetch_complete_with_checkpoints(
+        self, ray_cluster, tmp_path
+    ):
+        """Training with both options finishes and every epoch checkpoint lands."""
+        if not hasattr(ray.train, "CheckpointUploadMode"):
+            pytest.skip("installed Ray has no native async checkpoint upload")
+        spy_log = tmp_path / "async_reports.jsonl"
+        result = _train(
+            tmp_path,
+            "async_run",
+            epochs=2,
+            store=None,
+            extra_callbacks=[_ReportSpy(spy_log)],
+            prefetch_batches=3,
+            upload_async=True,
+        )
+        assert result["metrics"]["epoch"] == 1
+        # One checkpoint per epoch, uploaded to the run's storage path.
+        ckpt_files = list((tmp_path / "async_run").rglob("checkpoint.ckpt"))
+        assert len(ckpt_files) == 2
+        # Every report used Ray's native ASYNC upload mode.
+        reports = _read_reports(spy_log)
+        assert len(reports) == 2
+        assert all(r["mode"] == "ASYNC" for r in reports)
+        assert all(r["delete_local"] is True for r in reports)
+
+    def test_sync_upload_does_not_request_async_mode(self, ray_cluster, tmp_path):
+        """Without ``upload_async`` no upload-mode kwargs reach ``ray.train.report``."""
+        spy_log = tmp_path / "sync_reports.jsonl"
+        result = _train(
+            tmp_path,
+            "sync_run",
+            epochs=2,
+            store=None,
+            extra_callbacks=[_ReportSpy(spy_log)],
+        )
+        assert result["metrics"]["epoch"] == 1
+        assert len(list((tmp_path / "sync_run").rglob("checkpoint.ckpt"))) == 2
+        reports = _read_reports(spy_log)
+        assert len(reports) == 2
+        assert all(r["mode"] is None for r in reports)
+
+    def test_same_identity_rerun_resumes_with_async_upload(self, ray_cluster, tmp_path):
+        """A same-identity re-run with ``upload_async=True`` resumes past epoch 0."""
+        if not hasattr(ray.train, "CheckpointUploadMode"):
+            pytest.skip("installed Ray has no native async checkpoint upload")
+        store = FsspecExperimentStore()
+        first = _train(tmp_path, "async_resume", 1, store, upload_async=True)
+        assert first["metrics"]["epoch"] == 0
+        second = _train(tmp_path, "async_resume", 3, store, upload_async=True)
+        assert second["metrics"]["epoch"] == 2
+
+    def test_prefetch_zero_disables_prefetching_and_trains(self, ray_cluster, tmp_path):
+        """``prefetch_batches=0`` is accepted by Ray Data and training completes."""
+        result = _train(
+            tmp_path, "no_prefetch_run", epochs=1, store=None, prefetch_batches=0
+        )
+        assert result["metrics"]["epoch"] == 0
 
 
 class TestAutoResumeIntegration:
@@ -185,3 +303,95 @@ class TestAutoResumeIntegration:
         # Seeded from run A (which ended at epoch 1 / step 4) and continued.
         assert run_b["metrics"]["epoch"] == 3
         assert run_b["metrics"]["step"] > run_a["metrics"]["step"]
+
+    def test_mlflow_store_seeds_resume_when_native_checkpoint_is_gone(
+        self, ray_cluster, tmp_path, caplog
+    ):
+        """``MlflowExperimentStore`` genuinely drives resume, not Ray's native path.
+
+        A literal same-identity re-run (as in
+        ``test_same_identity_rerun_resumes_without_crash``) resumes via Ray
+        Train V2's own native run-directory restoration regardless of which
+        ``ExperimentStore`` is configured, or even with none at all -- on its
+        own it cannot prove the store's ``locate_resumable()`` did anything.
+        This test removes that confound: after the first run, the native Ray
+        experiment directory is physically deleted and its checkpoint files
+        copied elsewhere, so native restoration is provably impossible on the
+        re-run (``ray.train.get_checkpoint()`` must return ``None``). The
+        store is then re-pointed at the copy via ``track()`` -- the same
+        public API the trainer itself calls.
+
+        The load-bearing assertion is *not* the final result's
+        ``checkpoint_path``: by the end of a multi-epoch re-run, a fresh
+        checkpoint has been written back under the run's own native
+        directory regardless of where it resumed from, so that path is under
+        the relocated copy only momentarily and isn't a reliable signal (an
+        earlier draft of this test asserted on it and failed even though the
+        resume was genuine -- see the review discussion on #1872). Instead
+        this asserts on ``LightningTrainer``'s own driver-side log line,
+        which fires exactly once, before training starts, with the resolved
+        seed path: if it names the relocated copy, ``locate_resumable()``
+        found it there, and since the original directory no longer exists on
+        disk, it could only have come from ``MlflowExperimentStore`` round
+        -tripping through a real (local, file-backed) MLflow tracking store.
+        """
+        pytest.importorskip("mlflow")
+        from michelangelo.lib.trainer.torch.pytorch_lightning.experiment_store_mlflow import (
+            MlflowExperimentStore,
+        )
+
+        mlflow_dir = tmp_path / "mlflow"
+        mlflow_dir.mkdir()
+        store = MlflowExperimentStore(
+            tracking_uri=f"file://{mlflow_dir}", experiment_name="test-resume"
+        )
+
+        storage_root = tmp_path / "orig"
+        storage_root.mkdir()
+        first = _train(storage_root, "resume_run", epochs=1, store=store)
+        assert first["metrics"]["epoch"] == 0
+
+        native_dir = storage_root / "resume_run"
+        assert native_dir.exists()
+
+        # Relocate the checkpoint and delete the original: native Ray
+        # restoration reads from `{storage_path}/{name}` directly, so once
+        # that directory is gone, `ray.train.get_checkpoint()` is guaranteed
+        # to return None on the re-run below.
+        relocated_dir = tmp_path / "relocated" / "resume_run_copy"
+        relocated_dir.parent.mkdir()
+        shutil.copytree(native_dir, relocated_dir)
+        shutil.rmtree(native_dir)
+        assert not native_dir.exists()
+
+        # Re-point the store's newest marker at the relocated copy -- this
+        # simulates the store's durable record surviving even though Ray's
+        # own directory doesn't.
+        store.track(
+            storage_path=str(storage_root),
+            run_name="resume_run",
+            experiment_path=str(relocated_dir),
+        )
+
+        logger_name = (
+            "michelangelo.lib.trainer.torch.pytorch_lightning.lightning_trainer"
+        )
+        with caplog.at_level(logging.INFO, logger=logger_name):
+            second = _train(storage_root, "resume_run", epochs=3, store=store)
+        assert second["metrics"]["epoch"] == 2  # continued past epoch 0
+
+        seed_logs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == logger_name
+            and "Auto-resume: will seed from checkpoint" in r.message
+        ]
+        assert seed_logs, (
+            "expected LightningTrainer to log a resolved auto-resume seed "
+            "checkpoint; got no such log record -- MlflowExperimentStore."
+            "locate_resumable() may not have been consulted at all"
+        )
+        assert "relocated" in seed_logs[-1], (
+            "the resolved seed checkpoint should be the one MlflowExperimentStore "
+            f"located under the relocated copy, got: {seed_logs[-1]}"
+        )

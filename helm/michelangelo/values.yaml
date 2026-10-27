@@ -47,13 +47,17 @@ metadataStorage:
 # -----------------------------------------------------------------------------
 objectStorage:
   # REQUIRED. S3-compatible endpoint.
-  # Examples: "s3.amazonaws.com", "storage.googleapis.com", "minio:9000"
+  # Examples: "s3.amazonaws.com", "storage.googleapis.com", "minio:9000",
+  # or a self-hosted SeaweedFS S3 gateway (default port 8333), e.g.
+  # "<seaweedfs-s3-service>.<namespace>.svc.cluster.local:8333" (the Service
+  # name comes from your SeaweedFS release; check `kubectl get svc`).
   endpoint: ""
 
-  # TLS. Set false only for in-cluster MinIO without TLS termination.
+  # TLS. Set false only for an in-cluster object store without TLS termination
+  # (e.g. a self-hosted MinIO or SeaweedFS instance).
   secure: true
 
-  # AWS region. Used by S3, GCS HMAC, and MinIO. The chart sets AWS_REGION
+  # AWS region. Used by S3, GCS HMAC, MinIO, and SeaweedFS. The chart sets AWS_REGION
   # in every service that talks to object storage.
   region: us-east-1
 
@@ -124,7 +128,7 @@ images:
     repository: ghcr.io/michelangelo-ai/controllermgr
     tag: ""
   envoy:            envoyproxy/envoy:v1.29-latest
-  kuberayCollector: ghcr.io/michelangelo-ai/kuberay-collector:main
+  kuberayCollector: quay.io/kuberay/collector:v1.7.1
 
   # IfNotPresent (default), Always, or Never. Use Always when pinning to
   # mutable tags like ":main" in development.
@@ -433,37 +437,27 @@ controllermgr:
 
   # Workflow client extras (controllermgr-only).
   workflowClient:
-    # Cadence Web URL template. Empty by default; set in values-k3d.yaml for
-    # the local sandbox or in production to your own Cadence/Temporal UI.
+    # Cadence/Temporal Web URL template, e.g.
+    # "http://cadence-web:8088/domains/{{.Domain}}/workflows/{{.ExecutionID}}/{{.RunID}}".
+    # Empty by default; not currently set in values-k3d.yaml for the local
+    # sandbox (unlike this comment previously implied) -- set it there or in
+    # production to point at your own Cadence/Temporal UI.
     executionUrlFormat: ""
 
   # Ray cluster log persistence via the KubeRay collector sidecar.
   # Mirrors the Go config path: jobs.k8sengine.mapper.logPersistence
-  # When enabled, the controllermgr injects a kuberay-collector container into
-  # every RayCluster head + worker pod to stream logs into S3-compatible storage.
+  # When enabled, the controllermgr injects a "collector" container into every
+  # RayCluster head + worker pod to stream logs into S3-compatible storage.
   # The History Server can then replay the Ray Dashboard for torn-down clusters.
+  #
+  # The sidecar is the official upstream release -- see images.kuberayCollector
+  # (quay.io/kuberay/collector:v1.7.1); Michelangelo no longer builds its own.
+  # It runs the image entrypoint and is configured purely by environment
+  # variables: no command override, no PostStart hook.
+  # Objects land under
+  # {pathPrefix}/cluster-history/raycluster/{namespace}/{cluster}/{session}/{node}/
   # Ref: https://github.com/ray-project/kuberay/tree/master/historyserver
   jobs:
-    # Job admission backend. Mirrors the Go config path: jobs.scheduler
-    scheduler:
-      # "default": the in-process scheduler assigns and dispatches directly.
-      # "kueue": jobs headed for compute clusters marked with
-      # scheduler_type: SCHEDULER_TYPE_KUEUE are validated against their
-      # project's Kueue LocalQueue before dispatch, and the dispatched
-      # RayCluster carries the kueue.x-k8s.io/queue-name label so Kueue on the
-      # compute cluster gang-admits it. Clusters without the marker behave
-      # exactly as "default".
-      backend: default
-      kueue:
-        # LocalQueue naming convention; "{project}" is replaced with the
-        # job's project. Empty uses the built-in default "ma-{project}".
-        localQueueTemplate: ""
-        # kueue.x-k8s.io API version on the compute clusters, for the
-        # LocalQueue existence check. Empty uses the built-in default
-        # "v1beta2" (Kueue v0.15+); set "v1beta1" for older Kueue releases.
-        apiVersion: ""
-        # Per-project LocalQueue overrides, e.g. {team-a: shared-queue}.
-        localQueueOverrides: {}
     k8sengine:
       mapper:
         logPersistence:
@@ -488,13 +482,27 @@ controllermgr:
           # Secret (michelangelo.objectStorageSecretName) when empty.
           credentialsSecret: ""
 
-          # Set S3DISABLE_SSL=true on the collector. Enable for in-cluster MinIO; disable for OCI/S3.
+          # Set S3DISABLE_SSL=true on the collector. Enable for an in-cluster object store (MinIO, SeaweedFS); disable for OCI/S3.
           s3DisableSSL: true
+
+          # RAY_DASHBOARD_AGGREGATOR_AGENT_EXPOSABLE_EVENT_TYPES on every Ray
+          # container. Empty uses the built-in default "ALL", which requires
+          # Ray >= 2.54 (the v1.7 collector targets Ray >= 2.55). Michelangelo
+          # does not own the Ray runtime image -- it comes from the user's task
+          # spec -- so for Ray < 2.54 set the explicit list instead:
+          # "TASK_DEFINITION_EVENT,TASK_LIFECYCLE_EVENT,ACTOR_TASK_DEFINITION_EVENT,TASK_PROFILE_EVENT,DRIVER_JOB_DEFINITION_EVENT,DRIVER_JOB_LIFECYCLE_EVENT,ACTOR_DEFINITION_EVENT,ACTOR_LIFECYCLE_EVENT,NODE_DEFINITION_EVENT,NODE_LIFECYCLE_EVENT"
+          exposableEventTypes: ""
 
           # Go text/template for the human-browsable log URL written to RayClusterStatus.LogUrl.
           # Available vars: {{.Bucket}}, {{.PathPrefix}}, {{.ClusterName}}, {{.RayLocalNamespace}}.
           # Empty string disables log_url emission.
-          # Example (sandbox MinIO console): "http://localhost:9090/browser/{{.Bucket}}/{{.PathPrefix}}/{{.ClusterName}}_{{.RayLocalNamespace}}/"
+          # Example (History Server deep link, live or replayed dashboard; see values-k3d.yaml):
+          #   "http://localhost:3001/enter_cluster/{{.RayLocalNamespace}}/raycluster/{{.ClusterName}}/#/overview"
+          # Example (MinIO console, raw files only):
+          #   "http://localhost:9090/browser/{{.Bucket}}/{{.PathPrefix}}/cluster-history/raycluster/{{.RayLocalNamespace}}/{{.ClusterName}}/"
+          # SeaweedFS has no equivalent bucket-browser URL in the sandbox (its
+          # all-in-one mode ships no UI); use the History Server link above, or
+          # your SeaweedFS filer UI URL if you run one.
           logURLFormat: ""
 
   resources: {}
