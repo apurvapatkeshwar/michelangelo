@@ -1,5 +1,5 @@
 ---
-last_verified: 2026-10-14
+last_verified: 2026-10-15
 ---
 
 # Authentication & Identity
@@ -10,29 +10,90 @@ This guide is for platform operators and cluster administrators configuring auth
 
 ## What ships by default
 
-The stock Michelangelo AI API server (`go/cmd/apiserver`) wires `auth.AuthModule`, which reads the `apiserver.auth` config key and picks an implementation by `mode`. The default (`mode` unset or `dummy`) allows every request and installs no authentication middleware, so out of the box the API server does **not** authenticate or authorize callers. Setting `apiserver.auth.mode: k8s-rbac` turns on bearer-token authentication and Kubernetes RBAC authorization; see [Enabling Kubernetes RBAC mode](#enabling-kubernetes-rbac-mode).
+The stock Michelangelo AI API server (`go/cmd/apiserver`) wires `auth.AuthModule`, which reads the `apiserver.auth` config key and picks an implementation by `mode`. The default (`mode` unset or `dummy`) allows every request and installs no authentication middleware, so out of the box the API server does **not** authenticate or authorize callers. Setting `apiserver.auth.mode: k8s-rbac` (a Helm value; see [Enabling k8s-rbac mode](#enabling-k8s-rbac-mode)) turns on:
 
-The Helm chart renders no `auth` block: there is no `apiserver.auth.*` Helm value, and no `rbacEnabled` / `sessionTokenExpiry` setting. To enable authentication you supply the API server's configuration yourself.
+- **User authentication** — end users present OIDC ID tokens (issued by your identity provider) as bearer tokens on API requests
+- **Service authentication** — internal callers (the worker) present Kubernetes ServiceAccount tokens, which the API server validates through the TokenReview API
 
-Until you enable authentication, protect the API surface at the network layer: keep the API server, Envoy, and UI off the public internet, restrict access with Ingress and NetworkPolicy rules (see [Network & Ingress](./network.md)), and put an authenticating proxy or ingress in front of the UI if you expose it.
+Authorization for both is delegated to Kubernetes RBAC: every request becomes a `SubjectAccessReview`, so access is granted with ordinary `RoleBinding`s on the Michelangelo resources.
 
-Authentication in Michelangelo AI is built from two independent, pluggable layers in the `go/auth` package:
+Until you enable it, protect the API surface at the network layer: keep the API server, Envoy, and UI off the public internet, restrict access with Ingress and NetworkPolicy rules (see [Network & Ingress](./network.md)), and put an authenticating proxy or ingress in front of the UI if you expose it.
 
-1. **Transport authentication** (`go/auth/authn.go`). `auth.NewInboundMiddleware` is a YARPC inbound middleware that requires an `authorization: Bearer <token>` header, verifies it with a deployment-specific `Authenticator`, optionally restricts callers to an allowlist of service names (`AllowedServices`), and stores the verified `Principal` on the request context. It is installed only when an `Authenticator` is provided. For outbound calls, `auth.NewBearerOutboundMiddleware` attaches a token from a `TokenSource`.
-2. **Handler authorization**. The generated API handlers call the `auth.Auth` interface (`UserAuthenticated`, `UserAuthorized`). `DummyAuth` allows everything and is the default. `auth.NewK8sRBACAuth` adapts a `k8s.io/apiserver` authorizer to this interface so decisions can be made with Kubernetes RBAC.
+Under the hood, this is built from two independent, pluggable layers in the `go/auth` package:
+
+1. **Transport authentication** (`go/auth/authn.go`). `auth.NewInboundMiddleware` is a YARPC inbound middleware that requires an `authorization: Bearer <token>` header, verifies it with an `Authenticator` (the OIDC verifier below, and/or ServiceAccount TokenReview), optionally restricts callers to an allowlist of service names, and stores the verified `Principal` on the request context. For outbound calls, `auth.NewBearerOutboundMiddleware` attaches a token from a `TokenSource`.
+2. **Handler authorization**. The generated API handlers call the `auth.Auth` interface (`UserAuthenticated`, `UserAuthorized`). `auth.NewK8sRBACAuth` adapts a `k8s.io/apiserver` authorizer to this interface so decisions are made with Kubernetes RBAC.
 
 The built-in path needs **configuration only, no rebuild**: in `k8s-rbac` mode the stock API server assembles both layers itself (OIDC and/or ServiceAccount token authentication, RBAC authorization), and the stock worker attaches per-project tokens when `worker.runnerToken` is enabled (see [Service Authentication](#service-authentication-internal)). A custom binary (or image) is needed only for a different `Authenticator` or `TokenSource`.
 
-**Custom Authenticator or TokenSource (advanced)**: The API server (`DispatcherParams.InboundMiddleware`) and the worker (`Params.OutboundMiddleware`) take these middlewares as optional `fx` dependencies, wired in the same way as described in [Notification Delivery Setup](../notifications.md#step-2-implement-delivery). Because `auth.AuthModule` and the worker module now provide those slots themselves, a custom middleware must replace that provider rather than add a second one; `fx` rejects two providers of the same type.
+**Custom Authenticator or TokenSource (advanced)**: The API server (`DispatcherParams.InboundMiddleware`) and the worker (`Params.OutboundMiddleware`) take these middlewares as optional `fx` dependencies, wired in the same way as described in [Notification Delivery Setup](../notifications.md#step-2-implement-delivery). `auth.AuthModule` provides the API server's slot itself, so a custom inbound middleware must replace that provider rather than add a second one; `fx` rejects two providers of the same type. The worker is different: its slot is filled by the opt-in `RunnerTokenModule` (included by the stock `go/cmd/worker`), not by the worker module. A deployment that supplies its own outbound middleware leaves `RunnerTokenModule` out and keeps `worker.runnerToken.enabled: false`; see [Service Authentication](#service-authentication-internal).
 
-## OIDC token verification
+## Auth modes
 
-`go/auth/oidc` provides an OIDC ID-token verifier (`oidc.New`) that returns a `k8s.io/apiserver` token authenticator. `auth.FromTokenAuthenticator` adapts it for `NewInboundMiddleware`. The verifier takes this configuration. In `k8s-rbac` mode, set these keys under `apiserver.auth.oidc` (see [Enabling Kubernetes RBAC mode](#enabling-kubernetes-rbac-mode)); a custom wiring can also load them and call `oidc.New` directly:
+The API server has two modes, selected by `apiserver.auth.mode` in the Helm values:
+
+- `dummy` (default) — every request is allowed; neither layer above is installed. This is the shipped behavior; nothing changes for existing deployments.
+- `k8s-rbac` — both layers are wired in: bearer tokens are required and verified, and each request is authorized through Kubernetes RBAC.
+
+**Enable enforcement only after your clients can send tokens.** The Web UI does not acquire OIDC tokens on its own today: unless you front Envoy with an auth proxy (for example `oauth2-proxy`) that injects an `Authorization: Bearer <id-token>` header, enabling `k8s-rbac` will lock the UI out — including reads. gRPC/CLI clients must likewise attach the header to every call.
+
+**Transport security.** Bearer tokens are sent as plain `Authorization` headers with no additional encryption of their own, so `k8s-rbac` mode must only run behind TLS: terminate TLS at (or in front of) Envoy so the token never travels over an unencrypted connection. Do not enable `k8s-rbac` on a deployment that serves plain HTTP.
+
+**Rolling back.** Set `apiserver.auth.mode: dummy` **and** `worker.runnerToken.enabled: false`, then run `helm upgrade`: the chart refuses to render with runner tokens enabled outside `k8s-rbac` mode. The API server returns to the permissive default on its next rollout.
+
+## Enabling k8s-rbac mode
+
+Configure everything through Helm values and run `helm upgrade`; the API server picks up the new ConfigMap automatically (its Deployment is annotated with the config checksum).
+
+```yaml
+apiserver:
+  auth:
+    mode: k8s-rbac
+    oidc:
+      issuerUrl: https://accounts.your-idp.com
+      audiences: ["michelangelo"]   # accepted values of the token's aud claim (any-of)
+      usernameClaim: email          # JWT claim used as the RBAC username
+      groupsClaim: groups           # JWT claim used for group-based RBAC
+    serviceAccounts:
+      enabled: true                 # accept ServiceAccount tokens (see below)
+      audiences: ["michelangelo"]
+    sarCache:
+      allowTTL: 10s                 # authorization decision cache; 0s disables
+      denyTTL: 10s
+```
+
+Notes:
+
+- The API server fetches `<issuerUrl>/.well-known/openid-configuration` at startup and **fails fast if the issuer is unreachable or misconfigured** — check the apiserver logs if the pod does not become ready after enabling OIDC.
+- Tokens are verified on every request: signature (against the issuer's JWKS, restricted to `oidc.supportedSigningAlgs` -- RS256 and ES256 by default), issuer, audience, and expiry. There is no separate session to configure; session lifetime is your IdP's token lifetime.
+- Once enforcement is on, users without a `RoleBinding` are denied access to all resources.
+- Authorization decisions are cached for `sarCache.allowTTL` / `denyTTL` (default 10s each), so a revoked `RoleBinding` can be honored for up to that window. Set a TTL to `0s` to disable that cache at the cost of one `SubjectAccessReview` per request.
+- `oidc.clockSkewLeeway` (default 30s, maximum 5m) bounds the accepted clock skew when validating token expiry and not-before claims.
+- `issuerUrl` must be `https://`; plain `http://` is only accepted for a loopback address, which is only ever useful for local testing against a throwaway issuer.
+
+Also in `k8s-rbac` mode:
+
+- At least one of `oidc.issuerUrl` and `serviceAccounts.enabled: true` must be set (the chart's `validations.yaml` and the API server both enforce it).
+- Verified tokens are cached for 10 seconds. This isn't configurable, so a revoked token can keep working for up to 10 seconds.
+- ServiceAccount callers authenticate as `system:serviceaccount:<namespace>:<name>`.
+
+**Order of operations.** Switching to `k8s-rbac` rejects every caller that doesn't present a valid bearer token, including the worker. Before you set `mode`:
+
+1. List your project namespaces in `apiserver.auth.runnerProjects` (the chart creates the `michelangelo-runner` ServiceAccount and RoleBinding in each).
+2. Create RoleBindings for your users (see [Granting Access with RBAC](#granting-access-with-rbac)).
+3. Enable `worker.runnerToken` (see [Service Authentication](#service-authentication-internal)).
+4. Set `mode: k8s-rbac`.
+
+Try the change in a non-production cluster first.
+
+### OIDC configuration reference
+
+`go/auth/oidc` provides an OIDC ID-token verifier (`oidc.New`) that returns a `k8s.io/apiserver` token authenticator. `auth.FromTokenAuthenticator` adapts it for `NewInboundMiddleware`. The verifier takes this configuration. In `k8s-rbac` mode, set these keys under `apiserver.auth.oidc` in the Helm values (see [Enabling k8s-rbac mode](#enabling-k8s-rbac-mode)); a custom wiring can also load them and call `oidc.New` directly:
 
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `issuerUrl` | required | OIDC issuer. Must be `https://` (plain `http` only for loopback hosts). Discovery is fetched from `/.well-known/openid-configuration` and the token's `iss` must match exactly |
-| `caBundleFile` | none | PEM file of extra CA certificates trusted for the issuer (private IdP behind an internal CA) |
+| `caBundleFile` | none | PEM file of extra CA certificates trusted for the issuer (private IdP behind an internal CA) — see below |
 | `audiences` | none | Accepted values of the token's `aud` claim |
 | `usernameClaim` | `email` | Claim used as the caller's username. With `email`, `email_verified` must be true unless `allowUnverifiedEmail` is set |
 | `allowUnverifiedEmail` | `false` | Opt out of the `email_verified` requirement |
@@ -42,128 +103,85 @@ The built-in path needs **configuration only, no rebuild**: in `k8s-rbac` mode t
 | `supportedSigningAlgs` | `RS256`, `ES256` | Allowed JWT signing algorithms |
 | `clockSkewLeeway` | `30s` | Leeway for `exp` / `nbf`; must not be negative or exceed 5 minutes |
 
-```yaml
-issuerUrl: https://accounts.your-idp.com
-audiences:
-  - michelangelo
-usernameClaim: email
-groupsClaim: groups
-```
+### Choosing a usernameClaim: `email` vs `sub`
 
-Token lifetime and refresh are governed by your identity provider, not by Michelangelo AI.
+The default, `email`, is convenient because it's human-readable in `RoleBinding` subjects and audit logs, but it's only as trustworthy as the IdP's `email_verified` claim -- so the apiserver requires that claim to be `true` whenever `usernameClaim` is `email`, and denies the request otherwise. If your IdP doesn't reliably set `email_verified` (some SSO/SAML-to-OIDC bridges don't), set `oidc.allowUnverifiedEmail: true` to opt out -- but only after confirming your IdP cannot be tricked into issuing a token for an email address the holder doesn't control.
 
-## Enabling Kubernetes RBAC mode
+Set `usernameClaim: sub` instead for an identity that's opaque (usually a GUID or similar, not human-readable) but stable and IdP-assigned regardless of email verification -- a reasonable default if your audit tooling can resolve `sub` values back to people some other way, or if your IdP's email verification story is unclear.
 
-Set `apiserver.auth` in the API server's configuration.
+Either way, pick a claim that is both unique per person and verified by the IdP (not user-editable) -- its value is used directly as the RBAC username in every `SubjectAccessReview` and `RoleBinding` subject, so a claim two people could share, or one a user could change, undermines per-user authorization.
 
-:::warning
-Switching to `k8s-rbac` rejects every caller that doesn't present a valid bearer token, including the worker. Do these in order before you set `mode`:
+### Preventing claim collisions with Kubernetes built-in identities
 
-1. Add the ClusterRole rules and the per-project `michelangelo-runner` ServiceAccount from [Prerequisites the chart doesn't provide](#prerequisites-the-chart-doesnt-provide).
-2. Create Roles and RoleBindings for your users (see [Granting Access with RBAC](#granting-access-with-rbac)).
-3. Enable `worker.runnerToken` (see [Per-project worker identity](#per-project-worker-identity)).
-4. Set `mode: k8s-rbac`.
+Kubernetes reserves the `system:` prefix for its own built-in identities (`system:masters`, `system:serviceaccount:...`, etc.). If your IdP could ever issue a username or group claim value starting with `system:` -- unlikely with `email`, more plausible with `sub` or a custom claim -- the apiserver rejects that token outright rather than letting it collide with a built-in identity in an RBAC decision. Set `oidc.usernamePrefix` / `oidc.groupsPrefix` (for example `"oidc:"`) to avoid ever hitting that rejection: every username/group is prefixed before it reaches RBAC, so your `RoleBinding` subjects need the same prefix (e.g. `oidc:alice@example.com`).
 
-Try the change in a non-production cluster first.
-:::
+### Connecting to a private IdP (internal CA)
+
+The apiserver's OIDC discovery and JWKS fetches use the system root CA pool. A private IdP behind an internal CA (common for self-hosted Dex or Keycloak) needs that CA trusted explicitly -- today that means setting `CABundleFile` in the apiserver's auth config directly (a PEM file path), since the chart does not yet have a values-driven way to mount a custom CA bundle into the apiserver pod; this is tracked as a follow-up to this chart's support for OIDC. Until then, `oidc.issuerUrl` must be reachable via a CA the system pool already trusts (e.g. a public IdP, or an internal one issued by your organization's CA if it's in the base image's trust store).
+
+## Connecting an Identity Provider (OIDC)
+
+Michelangelo AI accepts ID tokens from any OIDC-compliant identity provider. How users *obtain* tokens is up to your front door (an auth proxy in front of Envoy, or your CLI's login tooling); the API server only validates what arrives in the `Authorization` header. Configure the issuer and accepted audiences:
+
+### Okta
 
 ```yaml
-apiserver:
-  auth:
-    mode: k8s-rbac
-    oidc:                      # human callers; keys as in OIDC token verification above
-      issuerUrl: https://accounts.your-idp.com
-      audiences:
-        - michelangelo
-    serviceAccounts:           # in-cluster callers, verified with TokenReview
-      enabled: true
-      audiences:               # optional; passed to TokenReview
-        - michelangelo-apiserver
-    sarCache:                  # SubjectAccessReview decision cache
-      allowTTL: 10s
-      denyTTL: 10s
+oidc:
+  issuerUrl: https://your-org.okta.com
+  audiences: ["<client-id-from-okta>"]
 ```
 
-| `mode` | Behavior |
-|--------|----------|
-| unset or `dummy` | Every request is allowed and no authentication middleware is installed. This is the default, suitable for local development or network-isolated clusters only |
-| `k8s-rbac` | Every call must carry an `authorization: Bearer <token>` header. The token is verified as an OIDC ID token and/or a Kubernetes ServiceAccount token (TokenReview). Each call is then authorized with a SubjectAccessReview against the `michelangelo.api` API group |
-| anything else | The API server fails to start with `unknown auth mode`. There is no silent fallback to allow-all |
+### Google Workspace
 
-In `k8s-rbac` mode:
+```yaml
+oidc:
+  issuerUrl: https://accounts.google.com
+  audiences: ["<client-id>.apps.googleusercontent.com"]
+  usernameClaim: email
+```
 
-- At least one of `oidc.issuerUrl` and `serviceAccounts.enabled: true` must be set, or the API server fails to start.
-- OIDC discovery runs at startup with a 30-second timeout, so an unreachable or misconfigured issuer fails startup instead of denying every request later.
-- Verified tokens are cached for 10 seconds. This isn't configurable, so a revoked token can keep working for up to 10 seconds.
-- SubjectAccessReview decisions are cached separately for allows (`sarCache.allowTTL`) and denies (`sarCache.denyTTL`). Each defaults to 10 seconds; an explicit `0` disables that cache.
-- Because authorization uses the `michelangelo.api` API group, the Roles in [Granting Access with RBAC](#granting-access-with-rbac) apply as written. ServiceAccount callers authenticate as `system:serviceaccount:<namespace>:<name>`.
+Google ID tokens carry no group membership claim. Do not set `groupsClaim` to `hd` (the hosted-domain string): it is the same value for every account in the domain, so a `Group` RoleBinding keyed on it would match the entire workspace, not a specific team. Grant access with per-user `RoleBinding` subjects instead (see [Granting Access with RBAC](#granting-access-with-rbac)), or manage groups outside Google Workspace (for example Okta or Azure AD) if group-based RBAC is required.
 
-**Rolling back**: Set `mode: dummy` (or remove the `auth` block) and restart the API server. `worker.runnerToken` can stay enabled, because `dummy` mode installs no inbound middleware and ignores the header.
+### Azure Active Directory
 
-### Prerequisites the chart doesn't provide
+```yaml
+oidc:
+  issuerUrl: https://login.microsoftonline.com/<tenant-id>/v2.0
+  audiences: ["<application-client-id>"]
+  usernameClaim: preferred_username   # or email, if your tenant issues it
+  groupsClaim: groups
+```
 
-The Helm chart does not set any of this up for you:
+`upn` is not included in Azure AD v2.0 ID tokens by default; `preferred_username` or `email` is reliably present instead. Also note that `groups` yields the members' object IDs (GUIDs), not display names — `Group` RoleBinding subjects must match those IDs exactly.
 
-1. **No Helm values.** The API server ConfigMap (`templates/core/apiserver-configmap.yaml`) renders no `auth` block, and the worker ConfigMap renders no `runnerToken`. There are no `values.yaml` keys for either. Supply your own configuration, for example a ConfigMap of your own or an overriding `base.yaml`.
-2. **Missing RBAC rules.** The API server and worker run as one shared ServiceAccount (the chart's `serviceAccount`, named after the release by default). The chart's ClusterRole (`templates/rbac/clusterrole.yaml`) grants it none of the following, so add them yourself:
+### Keycloak
 
-   | Rule | Needed by |
-   |------|-----------|
-   | `create` on `subjectaccessreviews` (`authorization.k8s.io`) | API server, `mode: k8s-rbac` |
-   | `create` on `tokenreviews` (`authentication.k8s.io`) | API server, `serviceAccounts.enabled: true` |
-   | `create` on `serviceaccounts/token` (core) | Worker, `worker.runnerToken.enabled: true` |
+```yaml
+oidc:
+  issuerUrl: https://keycloak.your-domain.com/realms/<realm-name>
+  audiences: ["michelangelo"]
+```
 
-   ```yaml
-   apiVersion: rbac.authorization.k8s.io/v1
-   kind: ClusterRole
-   metadata:
-     name: michelangelo-auth
-   rules:
-     - apiGroups: ["authorization.k8s.io"]
-       resources: ["subjectaccessreviews"]
-       verbs: ["create"]
-     - apiGroups: ["authentication.k8s.io"]
-       resources: ["tokenreviews"]
-       verbs: ["create"]
-     - apiGroups: [""]
-       resources: ["serviceaccounts/token"]
-       verbs: ["create"]
-   ---
-   apiVersion: rbac.authorization.k8s.io/v1
-   kind: ClusterRoleBinding
-   metadata:
-     name: michelangelo-auth
-   subjects:
-     - kind: ServiceAccount
-       name: <michelangelo-service-account>   # kubectl get sa -n <release-namespace>
-       namespace: <release-namespace>
-   roleRef:
-     kind: ClusterRole
-     name: michelangelo-auth
-     apiGroup: rbac.authorization.k8s.io
-   ```
-
-3. **No `michelangelo-runner` ServiceAccount.** If you enable `worker.runnerToken`, neither the chart nor the project API hook creates the per-project ServiceAccount it mints tokens for. See [Service Authentication](#service-authentication-internal).
+Keycloak is commonly self-hosted behind an internal CA; see [Connecting to a private IdP](#connecting-to-a-private-idp-internal-ca) above if so. If you've set `usernameClaim: sub` (Keycloak's `sub` is a stable GUID per user, unaffected by email verification), consider also setting `usernamePrefix` so the resulting RBAC username stays unambiguous.
 
 ## Multi-Factor Authentication
 
-MFA is enforced at the IdP level, not within Michelangelo AI. Configure MFA policies in your identity provider's admin console; tokens that reach Michelangelo AI have already completed the IdP flow.
+MFA is enforced at the IdP level, not within Michelangelo AI. Configure MFA policies in your identity provider's admin console; users must complete the full IdP flow — including MFA — to obtain the ID token they present to Michelangelo AI.
 
 ## Granting Access with RBAC
 
-When authorization is backed by Kubernetes RBAC (`apiserver.auth.mode: k8s-rbac`, or a custom wiring of `auth.NewK8sRBACAuth`), or when users access Michelangelo AI resources directly with `kubectl`, users need a `RoleBinding` or `ClusterRoleBinding` on the `michelangelo.api` resources. Define the Roles yourself, for example (see also [Model Registry](../components/model-registry.md#step-3-configure-rbac)):
+In `k8s-rbac` mode the chart installs two ClusterRoles covering the Michelangelo API resources:
+
+- `michelangelo-viewer` — `get` and `list`
+- `michelangelo-editor` — `get`, `list`, `create`, `update`, `delete`, `deletecollection`
+
+Bind them per project namespace with a `RoleBinding`, or cluster-wide with a `ClusterRoleBinding`. The subject names must match what the token's claims produce: `User` names match the `usernameClaim` value, `Group` names match entries in the `groupsClaim` value (including any `groupsPrefix`).
+
+Users who access Michelangelo AI resources directly with `kubectl` need the same bindings (see also [Model Registry](../components/model-registry.md#step-3-configure-rbac)).
+
+### Grant a user read access to a project namespace
 
 ```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: michelangelo-viewer
-  namespace: ml-team-project
-rules:
-  - apiGroups: ["michelangelo.api"]
-    resources: ["*"]
-    verbs: ["get", "list", "watch"]
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -171,15 +189,33 @@ metadata:
   namespace: ml-team-project
 subjects:
 - kind: User
-  name: alice@your-company.com   # Must match the username produced by your authenticator
+  name: alice@your-company.com   # Must match the value of usernameClaim in the JWT
   apiGroup: rbac.authorization.k8s.io
 roleRef:
-  kind: Role
+  kind: ClusterRole
   name: michelangelo-viewer
   apiGroup: rbac.authorization.k8s.io
 ```
 
-For group-based access, use `kind: Group` with a name matching a value in the groups claim (including any `groupsPrefix`). Use `RoleBinding` to scope access to a specific namespace. Use `ClusterRoleBinding` only for platform administrators who need cross-namespace access.
+### Grant a team edit access via group membership
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ml-team-editors
+  namespace: ml-team-project
+subjects:
+- kind: Group
+  name: ml-team                  # Must match a value of groupsClaim in the JWT
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: michelangelo-editor
+  apiGroup: rbac.authorization.k8s.io
+```
+
+Use `RoleBinding` to scope access to a specific namespace. Use `ClusterRoleBinding` only for platform administrators who need cross-namespace access — a `List` request without a namespace is authorized as a cluster-wide list and requires one.
 
 ## Multi-Tenant Namespace Isolation
 
@@ -209,18 +245,21 @@ This allows traffic within the team's namespace and from the Michelangelo AI con
 
 ## Service Authentication (Internal)
 
-**Worker to API server**: The chart points the worker at the in-cluster API server Service (`worker.address`, port `apiserver.port`). The worker's Go config also accepts `worker.useTLS`, which makes the worker dial the API server over TLS using the system trust store and the host in `address`. The chart does not render `useTLS`, so enabling it requires supplying your own worker configuration. Pod-level TLS on the API server is controlled by `apiserver.tls.enabled` and `apiserver.tls.secretName`.
+**Worker → API server**: the worker's pipeline activities run as a **per-project runner identity**, not as a single platform-wide worker identity. For an activity targeting project namespace `ns`, the worker requests a short-lived token for the `michelangelo-runner` ServiceAccount in `ns` (via the Kubernetes `TokenRequest` API) and attaches it as the bearer token. The API server validates it with a `TokenReview` — the chart binds the platform ServiceAccount to the built-in `system:auth-delegator` ClusterRole for this — and authorizes it as `system:serviceaccount:<ns>:michelangelo-runner` against that namespace's `RoleBinding` only. A caller who can trigger a run in project A therefore gets at most the runner's rights in A.
 
-```yaml
-worker:
-  address: michelangelo-apiserver.<release-namespace>.svc.cluster.local:15566
-  maApiServiceName: ma-apiserver
-  useTLS: true   # only if the API server is reachable over TLS at this address
-```
+To enable it:
 
-### Per-project worker identity
+1. List your project namespaces in `apiserver.auth.runnerProjects`; the chart creates the `michelangelo-runner` ServiceAccount and a `michelangelo-editor` RoleBinding in each.
+2. Set `worker.runnerToken.enabled: true`; the chart also grants the worker permission to mint runner tokens: `create` on `serviceaccounts/token`, restricted with `resourceNames: ["michelangelo-runner"]` and bound only in each `runnerProjects` namespace (not cluster-wide). With this on, the stock worker wires `auth.NewBearerOutboundMiddleware` itself (through `RunnerTokenModule`; see [Custom worker binaries](#service-authentication-internal) below) -- there's nothing further to inject.
+3. Keep `apiserver.auth.serviceAccounts.enabled: true`, and if you set `serviceAccounts.audiences`, list one of them in `worker.runnerToken.audiences`.
 
-With `apiserver.auth.mode: k8s-rbac`, the worker's calls need a bearer token too. Enable `worker.runnerToken` in the worker's configuration; this requires `serviceAccounts.enabled: true` on the API server. With `k8s-rbac` and `runnerToken` disabled (and no custom `TokenSource`), the worker sends no token, so every worker call is rejected and pipeline runs and triggers fail.
+With `worker.runnerToken.enabled: false` (the default) the worker sends no credential, which only works in `dummy` mode. A project namespace missing its runner ServiceAccount or RoleBinding fails pipelines in that project only, with an activity error naming the missing object.
+
+This is a separate concern from transport encryption: `worker.useTLS` makes the worker dial the API server over TLS using the system trust store (pair it with `apiserver.tls.enabled` / `apiserver.tls.secretName` on the API server side). Do not set `useTLS: false` in production, independent of whether `k8s-rbac` mode is on.
+
+The worker caches each minted token until one minute before it expires, and a call that carries no project namespace fails rather than going out unauthenticated. With `k8s-rbac` and `runnerToken` disabled (and no custom `TokenSource`), every worker call is rejected, so pipeline runs and triggers fail.
+
+The worker's configuration, which the chart renders from the `worker.runnerToken.*` Helm values:
 
 ```yaml
 worker:
@@ -231,36 +270,7 @@ worker:
     ttl: 1h           # optional; 0 uses the cluster default; Kubernetes enforces a 10m minimum
 ```
 
-When enabled, the worker mints a short-lived token for the `michelangelo-runner` ServiceAccount in **each project's namespace** (TokenRequest API), caches it until one minute before it expires, and attaches it to the calls it makes for that project. The API server then authorizes each call against that namespace's RoleBindings instead of a platform-wide worker identity. A call that carries no project namespace fails rather than going out unauthenticated.
-
-Before you enable it:
-
-- Grant the chart's ServiceAccount `create` on `serviceaccounts/token` (see [Prerequisites the chart doesn't provide](#prerequisites-the-chart-doesnt-provide)).
-- Create the `michelangelo-runner` ServiceAccount in **every** project namespace, plus a RoleBinding granting it what pipeline runs need on the `michelangelo.api` resources (define the Role as in the example under [Granting Access with RBAC](#granting-access-with-rbac)). Neither the chart nor the project API hook creates it:
-
-  ```yaml
-  apiVersion: v1
-  kind: ServiceAccount
-  metadata:
-    name: michelangelo-runner
-    namespace: ml-team-project
-  ---
-  apiVersion: rbac.authorization.k8s.io/v1
-  kind: RoleBinding
-  metadata:
-    name: michelangelo-runner
-    namespace: ml-team-project
-  subjects:
-    - kind: ServiceAccount
-      name: michelangelo-runner
-      namespace: ml-team-project
-  roleRef:
-    kind: Role
-    name: <role-for-pipeline-runs>   # a Role you define; see Granting Access with RBAC
-    apiGroup: rbac.authorization.k8s.io
-  ```
-
-A custom `TokenSource` is still possible: build an `auth.NewBearerOutboundMiddleware` from it and use it in place of the worker module's runner-token middleware.
+**Custom worker binaries.** Runner tokens are opt-in at the binary level as well as in config. The stock worker (`go/cmd/worker`) includes `workermod.RunnerTokenModule`, which provides the runner-token outbound middleware, so the chart works as is. A deployment with its own worker `main` must include `RunnerTokenModule` to use `worker.runnerToken`: setting `enabled: true` without it fails worker startup with `worker.runnerToken.enabled is true but worker.RunnerTokenModule is not installed`, rather than silently sending no token. Conversely, a deployment that injects its own `middleware.UnaryOutbound` (for example an identity-mesh token) must leave `RunnerTokenModule` out, because the module and a custom middleware compete for the same `fx` slot; it keeps `worker.runnerToken.enabled: false`. To use a custom `TokenSource` instead, build an `auth.NewBearerOutboundMiddleware` from it and provide that in place of the module.
 
 ### Controller manager to compute cluster
 
@@ -284,6 +294,7 @@ Do not allow users or services to directly access etcd or object storage (S3/Min
 | `token verification failed` or `authentication failed` | Issuer or audience mismatch, or an expired token |
 | `<user> cannot <verb> <kind> in namespace "<namespace>"` | The caller has no Role or RoleBinding granting that verb on the `michelangelo.api` resource in that namespace |
 | `runnertoken: outbound call has no project namespace on the context` | A worker call carried no project namespace, so no runner token could be minted |
+| Worker fails to start with `worker.runnerToken.enabled is true but worker.RunnerTokenModule is not installed` | A custom worker `main` enables `runnerToken` without including `workermod.RunnerTokenModule`. Add the module, or set `runnerToken.enabled: false` if you provide your own outbound middleware |
 
 ## What's Next
 
