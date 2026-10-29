@@ -25,10 +25,10 @@ data:
       awsSecretAccessKey: ${AWS_SECRET_ACCESS_KEY}
       awsEndpointUrl: {{ required "objectStorage.endpoint is required — see helm/michelangelo/README.md#values-reference" .Values.objectStorage.endpoint | quote }}
       secure: {{ .Values.objectStorage.secure }}
-    {{- if .Values.gcsStorage.enabled }}
+    {{- if include "michelangelo.gcsEnabled" . }}
 
     gcs:
-      {{- if .Values.gcsStorage.existingSecret }}
+      {{- if include "michelangelo.gcsExistingSecret" . }}
       credentialsFile: /etc/gcs/credentials.json
       {{- end }}
       {{- if .Values.gcsStorage.endpoint }}

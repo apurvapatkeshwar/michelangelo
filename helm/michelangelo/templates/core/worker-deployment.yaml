@@ -39,7 +39,7 @@ spec:
           volumeMounts:
             - name: worker-config
               mountPath: /config
-            {{- if and .Values.gcsStorage.enabled .Values.gcsStorage.existingSecret }}
+            {{- if include "michelangelo.gcsExistingSecret" . }}
             - name: gcs-credentials
               mountPath: /etc/gcs
               readOnly: true
@@ -52,10 +52,15 @@ spec:
         - name: worker-config
           configMap:
             name: {{ include "michelangelo.componentFullname" (dict "context" . "component" "worker-config") }}
-        {{- if and .Values.gcsStorage.enabled .Values.gcsStorage.existingSecret }}
+        {{- if include "michelangelo.gcsExistingSecret" . }}
         - name: gcs-credentials
           secret:
-            secretName: {{ .Values.gcsStorage.existingSecret | quote }}
+            secretName: {{ include "michelangelo.gcsExistingSecret" . | quote }}
+            # Project only the credentials key so no other Secret keys reach the pod.
+            items:
+              - key: credentials.json
+                path: credentials.json
+            defaultMode: 0440
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

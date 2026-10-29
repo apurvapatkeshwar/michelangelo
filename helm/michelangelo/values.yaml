@@ -81,17 +81,25 @@ objectStorage:
 # -----------------------------------------------------------------------------
 gcsStorage:
   # Render GCS client configuration. With GKE workload identity,
-  # `enabled: true` alone is enough: credentials resolve via Application
-  # Default Credentials and no keys are stored in the cluster.
+  # `enabled: true` alone is enough once workload identity is set up:
+  # annotate the Kubernetes ServiceAccount (`serviceAccount.annotations`,
+  # `iam.gke.io/gcp-service-account`) and grant the Google service account
+  # a storage role via an IAM binding. Credentials then resolve via
+  # Application Default Credentials and no keys are stored in the cluster.
   enabled: false
 
   # Optional. Name of a pre-existing Secret with a `credentials.json` key
   # holding a GCP service account JSON key, mounted read-only at
-  # /etc/gcs/credentials.json. Leave empty to use Application Default
-  # Credentials (recommended).
+  # /etc/gcs/credentials.json (only that key is projected). Leave empty to
+  # use Application Default Credentials (recommended). Ignored while
+  # `enabled: false`. Cannot be combined with `anonymous: true`.
+  # Create the Secret before installing:
+  #   kubectl create secret generic <name> --from-file=credentials.json=<path>
   existingSecret: ""
 
   # Optional. Custom storage endpoint (private Google access or an emulator).
+  # Must start with `https://` unless `anonymous: true`; plain-http endpoints
+  # are for emulators only and require `anonymous: true`.
   endpoint: ""
 
   # Optional. Disable authentication. Public buckets and emulators only.
