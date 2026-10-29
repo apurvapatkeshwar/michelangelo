@@ -60,7 +60,6 @@ spec:
             items:
               - key: credentials.json
                 path: credentials.json
-            defaultMode: 0440
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
