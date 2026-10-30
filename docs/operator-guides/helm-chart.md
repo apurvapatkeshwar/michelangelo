@@ -129,7 +129,7 @@ objectStorage:
 
 ### Use native GCS storage
 
-The worker and controller manager can read and write `gs://` paths through a native GCS backend. It is additive: `objectStorage` is still required today (`objectStorage.endpoint` and the object-storage Secret), so supply those values even for a GCS-only install.
+The worker and controller manager can read `gs://` paths (read-only; writes are not supported) through a native GCS backend. It is additive: `objectStorage` is still required today (`objectStorage.endpoint` and the object-storage Secret), so supply those values even for a GCS-only install.
 
 ```yaml
 gcsStorage:
