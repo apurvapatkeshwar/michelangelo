@@ -136,7 +136,7 @@ gcsStorage:
   enabled: true
 ```
 
-- **Application Default Credentials / workload identity (recommended).** `enabled: true` alone is enough once workload identity is set up: annotate the Kubernetes ServiceAccount (`serviceAccount.annotations`, `iam.gke.io/gcp-service-account`) and grant the Google service account a storage role through an IAM binding.
+- **Application Default Credentials / workload identity (recommended).** `enabled: true` alone is enough once workload identity is set up: annotate the Kubernetes ServiceAccount (`serviceAccount.annotations`, `iam.gke.io/gcp-service-account`) and grant the Google service account a storage role through an IAM binding. The chart uses a single ServiceAccount for all of its pods, so this binding applies to every component (apiserver, UI, Envoy, controller manager, worker), not only the worker and controller manager. Grant the Google service account only the storage permissions it needs.
 - **Service account key.** Create the Secret first, then reference it with `gcsStorage.existingSecret`. Only the `credentials.json` key is mounted, at `/etc/gcs/credentials.json`:
 
   ```bash
