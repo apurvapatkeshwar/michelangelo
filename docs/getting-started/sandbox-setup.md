@@ -43,27 +43,39 @@ Before you begin, make sure you have the following installed. Install commands b
 
 > **Docker daemon note:** `docker info` (the verify command above) requires the Docker daemon to be running — unlike `docker --version`, which only checks the binary. If `docker info` fails, start Docker Desktop or Colima before continuing.
 
+> **Poetry install note (macOS, python.org builds):** if the Poetry install command aborts with `ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED]`, your interpreter has no CA bundle wired into `ssl` — python.org framework builds ship one but do not install it. Run the bundled installer once, then retry:
+>
+> ```bash
+> "/Applications/Python 3.11/Install Certificates.command"
+> ```
+>
+> Alternatively, `brew install poetry` avoids the issue entirely.
+
 ### Colima resource requirements (macOS only)
 
 If you are on macOS and using Colima as your Docker runtime, the default VM resources are too limited for the sandbox. Start Colima with at least:
 
 ```bash
-colima start --cpu 4 --memory 8 --disk 60
+colima start --cpu 6 --memory 12 --disk 100
 ```
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
 | CPU cores | 4 | 6 |
-| Memory (GB) | 8 | 12 |
+| Memory (GiB) | 12 | 12 |
 | Disk (GB) | 60 | 100 |
 
 > **Warning:** Starting Colima with the default settings (2 CPU, 2 GB RAM) will cause pods to crash or fail to schedule. Always pass explicit resource flags.
+
+> **Memory is not a soft limit.** `--memory 8` yields `Total Memory: 7.737GiB` (the flag is GiB), and at that size the `bert_cola` example in `python/examples/` fails: its data-prep task succeeds, then the training task is killed by Ray's memory monitor with `Task was killed due to the node running low on memory ... 7.35GB / 7.74GB (0.950357), which exceeds the memory usage threshold of 0.95`. The same pipeline succeeds unchanged at `--memory 12`. Because the VM needs 12 GiB and macOS needs the rest, a 16 GB host is effectively the floor for running the bundled examples.
+
+> **Apple Silicon:** add `--vz-rosetta` to your `colima start` command. Colima defaults to `rosetta: false`, and some published images run amd64 binaries that fall back to QEMU emulation, where the Go runtime can die with `fatal error: fault` — typically seen as `michelangelo-apiserver` in `CrashLoopBackOff`.
 
 If Colima is already running with insufficient resources, stop it and restart with the new settings:
 
 ```bash
 colima stop
-colima start --cpu 4 --memory 8 --disk 60
+colima start --cpu 6 --memory 12 --disk 100
 ```
 
 ### Configure `host.docker.internal`
@@ -96,14 +108,10 @@ Once prerequisites and Python dependencies are installed:
 # 1. Activate the Poetry virtual environment (from <repo-root>/python)
 source .venv/bin/activate
 
-# 2. Build local-only images required by the sandbox
-cd <repo-root>
-bash scripts/kuberay/build-kuberay-images.sh
-
-# 3. Create the sandbox (30–60 min on first run; images are cached after)
+# 2. Create the sandbox (30–60 min on first run; images are cached after)
 ma sandbox create
 
-# 4. Verify everything works by running the demo pipeline
+# 3. Verify everything works by running the demo pipeline
 ma sandbox demo pipeline
 ```
 
@@ -111,9 +119,19 @@ ma sandbox demo pipeline
 
 > **Note on image pull times:** During `ma sandbox create`, several pods will sit in `ContainerCreating` for several minutes while images are pulled (some images are 500–800 MB). This is normal. The relevant question is whether pods are making progress — check with `kubectl get pods -w` and look for status transitions. Only act if a pod stays in `ImagePullBackOff` or `CrashLoopBackOff` for more than a few minutes.
 
+> **Note on KubeRay images:** All Ray components come from public registries and are pulled automatically — the operator from the `kuberay-operator` Helm chart `1.7.1`, and the History Server and Ray log `collector` sidecar from the official `quay.io/kuberay/historyserver:v1.7.1` and `quay.io/kuberay/collector:v1.7.1` images. There is no local build step for any of them.
+
 ### Choosing a workflow engine
 
 `ma sandbox create` defaults to **Cadence**, which is the recommended choice for most users — it's the most-tested path and matches the examples in this guide. Pass `--workflow temporal` only if you specifically want to develop or test against Temporal (for example, if your team is migrating to it). The two engines are interchangeable from a workflow-author perspective; the choice mainly affects which web UI and CLI you use.
+
+### Choosing an object storage backend
+
+`ma sandbox create` defaults to **MinIO**. Pass `--object-store seaweedfs` to run [SeaweedFS](https://github.com/seaweedfs/seaweedfs) instead — both are S3-compatible, so pipelines that read/write via `objectStorage.endpoint` work identically against either backend. SeaweedFS's sandbox deployment runs its lightweight all-in-one mode (no admin/browsing UI); it's intended for exercising the S3 API path, not for browsing objects interactively.
+
+Whichever backend you pick, in-cluster clients reach it at `objectstore:9091` (the `objectstore` Service). Each backend keeps its own data (`/shared/minio-data` for MinIO, `/shared/objectstore-data` for SeaweedFS), so switching backends starts with an empty store; to switch, run `ma sandbox delete` and `ma sandbox create --object-store <backend>`.
+
+**Upgrading an existing sandbox:** earlier versions named this Service `minio`. `ma sandbox sync` now creates `objectstore`, keeps a `minio` alias so existing `minio:9091` endpoints still resolve, and refreshes the `michelangelo-config` ConfigMap. Update any custom config or `--environ AWS_ENDPOINT_URL=http://minio:9091` to `objectstore:9091`; the alias is only a compatibility bridge.
 
 ### Verifying success
 
@@ -154,6 +172,7 @@ ma sandbox create [OPTIONS]
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--workflow cadence\|temporal` | Choose workflow engine | `cadence` |
+| `--object-store minio\|seaweedfs` | Choose object storage backend | `minio` |
 | `--exclude [services]` | Exclude services: `apiserver`, `controllermgr`, `ui`, `worker`, `prometheus`, `grafana` | none |
 | `--create-compute-cluster` | Create an additional Ray compute cluster for distributed jobs | disabled |
 | `--compute-cluster-name <name>` | Custom name for the compute cluster | auto-generated |
@@ -178,7 +197,7 @@ ma sandbox create --exclude ui --create-compute-cluster
 ma sandbox sync
 ```
 
-Redeploys services into an existing cluster, skipping cluster creation and image import. Use this to recover from a partially failed `create` — for example, if operator deployments timed out but the cluster itself was created successfully.
+Redeploys services into an existing cluster, skipping cluster creation and image import. Pass the same `--object-store` you created the cluster with; `sync` refuses to run if the cluster has the other backend. Use this to recover from a partially failed `create` — for example, if operator deployments timed out but the cluster itself was created successfully.
 
 If `ma sandbox create` fails and you see `Failed to create cluster ... already exists` when you try again, run `ma sandbox sync` instead. See [Recovering from a failed create](#recovering-from-a-failed-create) below.
 
@@ -291,13 +310,26 @@ See [Recovering from a failed create](#recovering-from-a-failed-create) for the 
 
 ### `history-server` stuck in `ImagePullBackOff`
 
-The `kuberay-historyserver` image is not available in any public registry — it must be built locally before running `ma sandbox create`. If you skipped the build step:
+Once the cluster is up, the Ray Dashboard for your Ray clusters is served by the History Server pod at [http://localhost:3001/select_cluster](http://localhost:3001/select_cluster) — host port `3001` maps to its NodePort `30016`. Every Ray task step on a pipeline run page links straight into it through `RayCluster.status.logUrl` (`http://localhost:3001/enter_cluster/<namespace>/raycluster/<cluster>/#/overview`): while the cluster is running that is the live dashboard, afterwards it is the replay built from the persisted logs. If the URL does not respond, check the pod first.
+
+The pod runs three images with no local build step: the official `quay.io/kuberay/historyserver:v1.7.1` API from quay.io, plus `rayproject/ray:2.55.0` (an init container copies the Ray Dashboard frontend out of it) and `nginx:1.27-alpine` (serves that frontend and proxies the API) from Docker Hub. `ma sandbox create` pulls all of them on the host and imports them into k3d, so a node that cannot reach a registry still starts them. An `ImagePullBackOff` here means an image was neither imported nor pullable by the node. Check the pull error, then confirm whether the host itself has access:
 
 ```bash
-cd <repo-root>
-bash scripts/kuberay/build-kuberay-images.sh
-ma sandbox sync   # redeploy without recreating the cluster
+kubectl describe pod -l app=history-server | grep -A 5 "Events"
+docker pull quay.io/kuberay/historyserver:v1.7.1
+docker pull rayproject/ray:2.55.0
+docker pull nginx:1.27-alpine
 ```
+
+If the `docker pull` also fails, the problem is host or proxy network access to the registry rather than anything sandbox-specific. Once the pull works, redeploy without recreating the cluster:
+
+```bash
+ma sandbox sync
+```
+
+The Ray `collector` sidecar pulls `quay.io/kuberay/collector:v1.7.1` from the same registry and fails the same way.
+
+> **Ray version:** The History Server only has something to replay if the `collector` sidecar captured it. The v1.7 collector expects **Ray 2.55 or newer** in your task image, and its default `"ALL"` event-type filter is rejected by Ray before 2.54. On an older Ray image the sidecar still collects file logs, but Ray event export does not work, so the replay is incomplete — no task, actor, or job event timeline. Set `logPersistence.exposableEventTypes` to the explicit event list instead.
 
 ### `Progress deadline exceeded` from operator installs
 
@@ -368,8 +400,8 @@ kubectl describe pod <pod-name> | grep -A 5 "Events"
 ```
 
 Common causes:
-- **Network issues**: Ensure Docker can reach `ghcr.io` (try `docker pull ghcr.io/michelangelo-ai/worker:latest`)
-- **Local-only image not built**: If `history-server` is the failing pod, see [`history-server` stuck in `ImagePullBackOff`](#history-server-stuck-in-imagepullbackoff) above
+- **Network issues**: Ensure Docker can reach `ghcr.io` (try `docker pull ghcr.io/michelangelo-ai/worker:latest`) and `quay.io`, which serves the KubeRay History Server and collector images
+- **Registry unreachable**: If `history-server` is the failing pod, see [`history-server` stuck in `ImagePullBackOff`](#history-server-stuck-in-imagepullbackoff) above
 
 ### Worker crashes with `Namespace default is not found` (Temporal only)
 
@@ -394,7 +426,12 @@ A service is starting but immediately crashing. Check its logs:
 kubectl logs <pod-name>
 ```
 
-If a single service is wedged, the simplest recovery is to delete the pod and let Kubernetes recreate it:
+Before escalating, rule out the two causes that deleting and recreating will **not** fix:
+
+- **Architecture mismatch.** If the log ends in `fatal error: fault` or a `runtime.sigpanic` stack trace, the container is running a binary built for another architecture under emulation. Compare the binary against the node: `kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.architecture}'`, then extract the image's entrypoint and check it with `file`. On Apple Silicon, start Colima with `--vz-rosetta`.
+- **Memory.** If the pod is OOM-killed (`kubectl describe pod <pod-name>` shows `Reason: OOMKilled`, or Ray reports `Task was killed due to the node running low on memory`), the VM is too small — see [Colima resource requirements](#colima-resource-requirements-macos-only).
+
+If neither applies, the pod may simply be wedged. The simplest recovery is to delete it and let Kubernetes recreate it:
 
 ```bash
 kubectl delete pod <pod-name>
@@ -438,5 +475,5 @@ Add those exports to your `~/.zshrc` to make them permanent.
 ## What's next?
 
 - **Build your first pipeline** -- Follow [Getting Started with ML Pipelines](../user-guides/getting-started/getting-started.md) to create a training workflow (~30 min)
-- **Explore example projects** -- Try [California Housing XGBoost (`xgb_train`)](https://github.com/michelangelo-ai/michelangelo-examples/tree/main/src/michelangelo_examples/california_housing/pipelines/xgb_train) or [California Housing PyTorch Lightning (`pytorch_train`)](https://github.com/michelangelo-ai/michelangelo-examples/tree/main/src/michelangelo_examples/california_housing/pipelines/pytorch_train) in [michelangelo-examples](https://github.com/michelangelo-ai/michelangelo-examples), [BERT Text Classification](https://github.com/michelangelo-ai/michelangelo/tree/main/python/examples/bert_cola), or [GPT Fine-tuning](https://github.com/michelangelo-ai/michelangelo/tree/main/python/examples/gpt_oss_20b_finetune)
+- **Explore example projects** -- Try [California Housing XGBoost (`xgb_train`)](https://github.com/michelangelo-ai/michelangelo-examples/tree/main/src/michelangelo_examples/california_housing/pipelines/xgb_train), [California Housing PyTorch Lightning (`pytorch_train`)](https://github.com/michelangelo-ai/michelangelo-examples/tree/main/src/michelangelo_examples/california_housing/pipelines/pytorch_train), or [GPT Fine-tuning](https://github.com/michelangelo-ai/michelangelo-examples/tree/main/src/michelangelo_examples/gpt_oss_20b_finetune/pipelines/train) in [michelangelo-examples](https://github.com/michelangelo-ai/michelangelo-examples), or [BERT Text Classification](https://github.com/michelangelo-ai/michelangelo/tree/main/python/examples/bert_cola)
 - **Learn the CLI** -- See the [CLI Reference](../user-guides/reference/cli.md) for managing pipelines and projects

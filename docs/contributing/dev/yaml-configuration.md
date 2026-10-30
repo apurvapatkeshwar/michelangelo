@@ -17,7 +17,7 @@ YAML is used throughout the repo for build configuration, CI/CD pipelines, linti
 | `go/.golangci.yml` | Go linting rules for golangci-lint: enabled linters, per-linter settings, excluded paths |
 | `.github/codecov.yml` | Codecov settings for test coverage reporting |
 | `.github/workflows/` | GitHub Actions CI/CD pipelines — build, test, lint, docs |
-| `.bazelversion` | Pins the Bazel version for the repo (currently 7.4.1) |
+| `.bazelversion` | Pins the Bazel version for the repo (currently 8.8.0) |
 
 ## Go Linting (golangci-lint)
 
@@ -56,12 +56,16 @@ Kubernetes resource definitions (Deployments, Services, ConfigMaps) for local sa
 
 ## Helm Chart Values
 
-The Michelangelo AI Helm chart lives in `helm/michelangelo/`. Key files:
+Michelangelo's Helm charts live in `helm/michelangelo/` for the control plane and `helm/michelangelo-llm-gateway/` for the independently released LiteLLM data plane. Key files:
 
 | File | Purpose |
 |------|---------|
 | `helm/michelangelo/values.yaml` | Production defaults |
 | `helm/michelangelo/values-k3d.yaml` | Local k3d overrides for development |
+| `helm/michelangelo-llm-gateway/values.yaml` | LLM gateway wrapper defaults and pinned upstream values |
+| `helm/michelangelo-llm-gateway/examples/values-gcp.yaml` | LLM gateway GCP example |
+| `helm/michelangelo-llm-gateway/examples/values-gcp-standard.yaml` | Standard GKE Workload Identity placement overlay |
+| `helm/michelangelo-llm-gateway/README.md` | LLM gateway installation, security, and release guide |
 
 See the [Platform Setup guide](../../operator-guides/setup/platform-setup.md) for Helm configuration details.
 

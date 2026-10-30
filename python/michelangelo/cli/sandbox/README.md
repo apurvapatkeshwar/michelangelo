@@ -34,6 +34,8 @@ ma sandbox --help
 | `ma sandbox stop` | Stop the k3d cluster (preserves data) |
 | `ma sandbox demo pipeline` | Run the pipeline demo against a running sandbox |
 | `ma sandbox demo inference` | Run the inference demo against a running sandbox |
+| `ma sandbox snapshot create` | Capture every Michelangelo CRD in the cluster to `snapshots/<timestamp>/` |
+| `ma sandbox snapshot restore <timestamp>` | Replay a previously captured snapshot into the cluster |
 
 ## Architecture
 
@@ -98,6 +100,17 @@ To skip Cadence, use `--workflow temporal` instead — Cadence is bundled with t
 ma sandbox create --include-experimental fluent-bit mlflow
 ```
 
+## Snapshotting Sandbox State
+
+`ma sandbox snapshot create` captures every Michelangelo custom resource (`Project`, `Pipeline`, `Model`, etc. — anything under the `michelangelo.api` group) in the cluster to `snapshots/<timestamp>/`, one YAML file per kind. Volatile fields (`resourceVersion`, `uid`, `ownerReferences`, etc.) are stripped so the snapshot can be re-applied cleanly; `status` is kept for reference.
+
+```bash
+ma sandbox snapshot create
+ma sandbox snapshot restore 20260807-143000
+```
+
+This is useful for capturing "here's what reproduces this issue" for a test plan or PR description — the resulting directory can be committed alongside a bug report, or just kept locally and restored later. It's scoped to CRDs only: MinIO artifacts, MySQL rows, Secrets/ConfigMaps, and workflow engine history are not captured.
+
 ## Pinning Image Tags
 
 By default the control plane images (`apiserver`, `worker`, `ui`, `controllermgr`) track `main`. Use `--set` to pin them to a specific released version instead — for example, to validate a release candidate:
@@ -123,7 +136,7 @@ ma sandbox create \
 | Cadence gRPC frontend | localhost:7833 | Only when `--workflow cadence` — port-forwarded automatically (`svc/michelangelo-cadence-frontend`) |
 | Cadence TChannel (CLI) | localhost:7933 | Only when `--workflow cadence` — port-forwarded automatically; used by the `cadence` CLI |
 | Temporal Web | http://localhost:8080 | Only when `--workflow temporal` — port-forwarded automatically (`svc/temporaltest-web`) |
-| MinIO Console | http://localhost:9090 | minioadmin / minioadmin |
+| MinIO Console | http://localhost:9090 | michelangeloadmin / michelangeloadmin |
 | Grafana | http://localhost:3000 | admin / admin |
 | Prometheus | http://localhost:9092 | |
 

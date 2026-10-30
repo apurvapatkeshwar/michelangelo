@@ -16,6 +16,7 @@ For a fresh deployment, follow this recommended reading order:
 | Guide | Description |
 |-------|-------------|
 | [Helm Chart](helm-chart.md) | Install the Michelangelo AI control plane with Helm — chart layout, values reference, and migration phases |
+| [LLM Gateway Helm Chart](https://github.com/michelangelo-ai/michelangelo/tree/main/helm/michelangelo-llm-gateway) | Install LiteLLM as a separately released Michelangelo data plane |
 | [Platform Setup](setup/platform-setup.md) | ConfigMaps and key fields for API server, controller manager, worker, and UI/Envoy |
 | [Network & Ingress](setup/network.md) | Envoy proxy, Ingress setup, TLS with cert-manager, and multi-cluster connectivity |
 | [Authentication](setup/authentication.md) | OIDC identity provider setup, RBAC, session configuration, multi-tenant isolation |
@@ -76,3 +77,4 @@ Michelangelo AI is designed to run alongside existing ML infrastructure. The gui
 |-------|-------------|
 | [API Framework](api-framework.md) | Architecture overview of the Michelangelo AI API and control plane |
 | [SQL Key Concepts and Terms](sql-key-concepts-and-terms.md) | Metadata schema, table naming, indexed fields, and SQL query patterns |
+| [gRPC API Reference](../api-reference/grpc/conventions.md) | Full RPC and field reference for all 15 resource services, generated from `proto/api/v2/` |

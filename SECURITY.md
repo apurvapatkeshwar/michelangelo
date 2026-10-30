@@ -6,9 +6,9 @@ The following versions of the project are currently supported with security upda
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.7.x   | :white_check_mark: |
-| 0.6.x   | :white_check_mark: |
-| < 0.6   | :x:                |
+| 0.12.x  | :white_check_mark: |
+| 0.11.x  | :white_check_mark: |
+| < 0.11  | :x:                |
 
 ## Reporting a Vulnerability
 

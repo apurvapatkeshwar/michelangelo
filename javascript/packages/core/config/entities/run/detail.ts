@@ -1,6 +1,10 @@
 import { CellType } from '#core/components/cell/constants';
 import { TASK_STATE } from '#core/components/views/execution/constants';
-import { SHARED_RUN_CELL_CONFIG } from './shared';
+import { formatElapsedSeconds } from '#core/utils/time-utils';
+import { RunConfigurationPage } from './run-configuration-page';
+import { RunInfoPage } from './run-info-page';
+import { SHARED_RUN_CELL_CONFIG, STEP_STATE_COLOR_MAP, STEP_STATE_TEXT_MAP } from './shared';
+import { PipelineRunStepState } from './types';
 
 import type { DetailViewConfig } from '#core/components/views/types';
 
@@ -8,6 +12,12 @@ export const RUN_DETAIL_CONFIG: DetailViewConfig = {
   type: 'detail',
   metadata: SHARED_RUN_CELL_CONFIG,
   pages: [
+    {
+      id: 'information',
+      label: 'Information',
+      type: 'custom',
+      component: RunInfoPage,
+    },
     {
       id: 'steps',
       label: 'Steps',
@@ -23,12 +33,12 @@ export const RUN_DETAIL_CONFIG: DetailViewConfig = {
           heading: 'displayName',
           metadata: [
             {
-              id: 'startTime.seconds',
+              id: 'startTime',
               label: 'Start time',
               type: CellType.DATE,
             },
             {
-              id: 'endTime.seconds',
+              id: 'endTime',
               label: 'End time',
               type: CellType.DATE,
             },
@@ -36,19 +46,8 @@ export const RUN_DETAIL_CONFIG: DetailViewConfig = {
               id: 'duration',
               label: 'Duration',
               type: CellType.TEXT,
-              accessor: (record: {
-                startTime: { seconds: string };
-                endTime: { seconds: string };
-              }) => {
-                if (record.startTime?.seconds && record.endTime?.seconds) {
-                  const start = parseInt(record.startTime.seconds) * 1000;
-                  const end = parseInt(record.endTime.seconds) * 1000;
-                  const durationMs = end - start;
-                  const durationSec = Math.round(durationMs / 1000);
-                  return `${durationSec}s`;
-                }
-                return null;
-              },
+              accessor: (record: { startTime?: string; endTime?: string }) =>
+                formatElapsedSeconds(record.startTime, record.endTime),
             },
             {
               id: 'logUrl',
@@ -58,24 +57,8 @@ export const RUN_DETAIL_CONFIG: DetailViewConfig = {
               id: 'state',
               label: 'Status',
               type: CellType.STATE,
-              stateTextMap: {
-                0: 'Pending',
-                1: 'Pending',
-                2: 'Running',
-                3: 'Success',
-                4: 'Killed',
-                5: 'Failed',
-                6: 'Skipped',
-              },
-              stateColorMap: {
-                0: 'gray',
-                1: 'blue',
-                2: 'blue',
-                3: 'green',
-                4: 'red',
-                5: 'red',
-                6: 'gray',
-              },
+              stateTextMap: STEP_STATE_TEXT_MAP,
+              stateColorMap: STEP_STATE_COLOR_MAP,
             },
             {
               id: 'retry',
@@ -104,25 +87,31 @@ export const RUN_DETAIL_CONFIG: DetailViewConfig = {
             markdown: false,
           },
         ],
-        stateBuilder: (record: { state: number }) => {
+        stateBuilder: (record: { state: PipelineRunStepState }) => {
           switch (record.state) {
-            case 1:
+            case PipelineRunStepState.PENDING:
               return TASK_STATE.PENDING;
-            case 2:
+            case PipelineRunStepState.RUNNING:
               return TASK_STATE.RUNNING;
-            case 3:
+            case PipelineRunStepState.SUCCEEDED:
               return TASK_STATE.SUCCESS;
-            case 4:
+            case PipelineRunStepState.KILLED:
               return TASK_STATE.ERROR;
-            case 5:
+            case PipelineRunStepState.FAILED:
               return TASK_STATE.ERROR;
-            case 6:
+            case PipelineRunStepState.SKIPPED:
               return TASK_STATE.SKIPPED;
             default:
               return TASK_STATE.PENDING;
           }
         },
       },
+    },
+    {
+      id: 'configuration',
+      label: 'Pipeline Configuration',
+      type: 'custom',
+      component: RunConfigurationPage,
     },
   ],
 };

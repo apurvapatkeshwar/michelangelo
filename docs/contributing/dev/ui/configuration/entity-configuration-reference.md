@@ -4,7 +4,8 @@ Entities define data models and their properties within a phase. Each entity rep
 
 **Entities define:**
 - URL routing within a phase (`/<phase>/runs`, `/<phase>/pipelines`)
-- Available views for the entity (list view, detail view, forms)
+- Available views for the entity (list view, detail view)
+- Actions on its records, and an optional "Create …" button
 - Connection to backend services (protobuf service mapping)
 - Entity availability (active, disabled)
 
@@ -13,10 +14,13 @@ Entities define data models and their properties within a phase. Each entity rep
 | Property | Type | Description | Required |
 |----------|------|-------------|----------|
 | `id` | `string` | Unique identifier within the phase, used in URL routing | ✅ Yes |
-| `name` | `string` | Display name for the entity (plural, lowercase recommended) | ✅ Yes |
+| `name` | `string` | Lowercase canonical display name (plural); title-cased at render time in nav | ✅ Yes |
 | `service` | `string` | Name of the protobuf service this entity maps to | ✅ Yes |
 | `state` | `PhaseEntityState` | Controls entity availability | ✅ Yes |
-| `views` | `ViewConfig[]` | Array of view configurations (list, detail, form) | ✅ Yes |
+| `revisioned` | `boolean` | Render the detail view from a Revision snapshot instead of the live record (see [Revisioned Entities](./detail-view-configuration-reference.md#revisioned-entities)) | No |
+| `views` | `ViewConfig[]` | View configurations: a list view and a detail view | ✅ Yes |
+| `actions` | `ActionConfigSchema[]` | Actions rendered in list-view rows and the detail header (see [Action Configuration Reference](./action-configuration-reference.md)) | No |
+| `createAction` | `CreateActionConfig` | A "Create …" button in the list table's action bar | No |
 
 ## Entity States
 
@@ -33,7 +37,7 @@ The `state` property controls individual entity behavior within a phase:
 // From: config/entities/run/run.ts
 export const RUN_ENTITY_CONFIG: PhaseEntityConfig = {
   id: 'runs',
-  name: 'Pipeline Runs',
+  name: 'runs',
   service: 'pipelineRun',
   state: 'active',
   views: [RUN_LIST_CONFIG, RUN_DETAIL_CONFIG],
@@ -50,10 +54,25 @@ export const RUN_ENTITY_CONFIG: PhaseEntityConfig = {
 - Convention: plural, lowercase, hyphenated (e.g., `runs`, `pipelines`, `feature-groups`)
 
 ### `name`
-- Display name shown in navigation and headers
+- The **lowercase canonical** display name for the entity. Store it lowercase; casing is applied at render time, not in config
 - Recommended: plural, descriptive
-- Examples: `"Pipeline Runs"`, `"Pipelines"`, `"Trained Models"`
-- Can be intentionally not pluralized for special cases (e.g., `"Feature Consistency"`)
+- Examples: `"runs"`, `"pipelines"`, `"trained models"`
+- Can be intentionally not pluralized for special cases (e.g., `"feature consistency"`)
+
+Nav chrome — breadcrumbs, left-nav, phase tabs, page H1s — renders the name through
+`formatEntityName(name, 'nav')`, which title-cases each space-separated word, so
+`'trained models'` displays as **Trained Models**. Everywhere else the lowercase value
+is itself the correct display form, which is why it reads naturally mid-sentence
+("no runs found"). Pre-casing the config value is invisible in nav — `formatEntityName`
+leaves existing capitals alone, so it's idempotent there — which is exactly why the
+mistake is easy to miss: it looks right in the tabs and breaks the sentence case
+everywhere else.
+
+:::note
+This applies to entity `name` only. Phase `name` in `config/phases/` stays Title Case
+(`'Train & Evaluate'`, `'Prepare & Analyze Data'`) — phases are not passed through
+`formatEntityName`.
+:::
 
 ### `service`
 - Maps to the root protobuf field name of the backend service
@@ -65,13 +84,40 @@ export const RUN_ENTITY_CONFIG: PhaseEntityConfig = {
 
 ### `views`
 - Array of view configurations defining how the entity is presented
+- `ViewConfig` is `ListViewConfig | DetailViewConfig`; there's no form view. Forms are React components opened from actions (see [Form Reference](./form-reference.md))
+- The list view must be `views[0]`: the phase page builds the entity table from `views[0].tableConfig`
+- The detail page uses the first view with `type: 'detail'` (see [Detail View Configuration Reference](./detail-view-configuration-reference.md))
+
+### `revisioned`
+- Set it only for entities whose records carry a `status.latestRevision` pointer. The built-in `pipelines` entity sets it
+
+### `actions` and `createAction`
+- `actions` render in every list-view row (overflow menu) and in the detail header
+- On the list view, entity `actions` **replace** any `actions` in the list view's `tableConfig`
+- `createAction` opens a component that owns its own submit flow
+- See [Action Configuration Reference](./action-configuration-reference.md)
 
 ## View Configuration
 
 Views define how entities are presented. See [Cell Types Reference](./cell-type-reference.md) for column/field configuration.
 
-- **List views**: `config/entities/*/list.ts` - Table columns with cells
-- **Detail views**: `config/entities/*/detail.ts` - Metadata header + content pages
+- **List views**: `config/entities/*/list.ts` - Table columns with cells (see [Table Configuration Reference](./table-configuration-reference.md))
+- **Detail views**: `config/entities/*/detail.ts` - Metadata header + content pages (see [Detail View Configuration Reference](./detail-view-configuration-reference.md))
+
+## Built-in Entities
+
+These entity configs ship in `config/entities/` and are wired into phases in `config/phases/`:
+
+| `id` | `name` | `service` | Phases | Notes |
+|------|--------|-----------|--------|-------|
+| `pipelines` | `pipelines` | `pipeline` | train, retrain, deploy (data: disabled) | `revisioned: true`; actions: Run, Run trigger, Delete |
+| `runs` | `runs` | `pipelineRun` | train, retrain, deploy (data: disabled) | Action: Retry |
+| `triggers` | `triggers` | `triggerRun` | train, retrain, deploy | Actions: Kill, Rerun |
+| `models` | `trained models` | `model` | train | No actions |
+| `targets` | `targets` | `inferenceServer` | deploy | Inference servers; `createAction`: Create target |
+| `deployments` | `deployments` | `deployment` | deploy | Actions: Update deployment, Retire, Delete; `createAction`: Create deployment |
+
+Phases also list placeholder entities with `state: 'disabled'` and `views: []`: `datasources` (data), and `evaluations` and `notebooks` (train).
 
 ## Common Patterns
 
@@ -109,7 +155,7 @@ service PipelineRunService {
 // Entity config
 {
   id: 'runs',
-  name: 'Pipeline Runs',
+  name: 'runs',
   service: 'pipelineRun', // ← Must match root field name
   // ...
 }
@@ -126,8 +172,12 @@ The configuration system uses this mapping to:
 
 **View configurations:** [javascript/packages/core/components/views/types.ts](https://github.com/michelangelo-ai/michelangelo/blob/main/javascript/packages/core/components/views/types.ts) - `ListViewConfig`, `DetailViewConfig` interfaces
 
+**Built-in entities:** [javascript/packages/core/config/entities/](https://github.com/michelangelo-ai/michelangelo/tree/main/javascript/packages/core/config/entities) and [javascript/packages/core/config/phases/](https://github.com/michelangelo-ai/michelangelo/tree/main/javascript/packages/core/config/phases)
+
 ## Related Documentation
 
 - [Phase Configuration Reference](./phase-configuration-reference.md) - Configure phases that contain entities
 - [Cell Types Reference](./cell-type-reference.md) - Configure columns and fields in views
+- [Detail View Configuration Reference](./detail-view-configuration-reference.md) - Configure the detail view
+- [Action Configuration Reference](./action-configuration-reference.md) - Configure `actions` and `createAction`
 - [Configuration API](./configuration-api.md) - overview of configuration system

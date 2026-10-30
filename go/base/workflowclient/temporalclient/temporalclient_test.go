@@ -7,18 +7,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cadence-workflow/starlark-worker/temporal"
 	clientInterface "github.com/michelangelo-ai/michelangelo/go/base/workflowclient/interface"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	commonV1 "go.temporal.io/api/common/v1"
 	temporalEnumsV1 "go.temporal.io/api/enums/v1"
+	failureV1 "go.temporal.io/api/failure/v1"
+	historyV1 "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
 	workflowV1 "go.temporal.io/api/workflow/v1"
 	workflowserviceV1 "go.temporal.io/api/workflowservice/v1"
 	temporalClient "go.temporal.io/sdk/client"
 	temporalConverter "go.temporal.io/sdk/converter"
 	temporalMocks "go.temporal.io/sdk/mocks"
+	"go.uber.org/zap"
 )
+
+// _catchUpFrom is a fixed point in the past used by the schedule catch-up tests.
+var _catchUpFrom = time.Now().Add(-3 * time.Hour).UTC().Truncate(time.Second)
 
 func TestStartWorkflow(t *testing.T) {
 	testCases := []struct {
@@ -66,11 +73,12 @@ func TestStartWorkflow(t *testing.T) {
 
 func TestGetWorkflowExecutionInfo(t *testing.T) {
 	testCases := []struct {
-		name              string
-		mockFunc          func(mockTemporalClient *temporalMocks.Client)
-		errMsg            string
-		expectedStatus    clientInterface.WorkflowExecutionStatus
-		expectedExecution *clientInterface.WorkflowExecution
+		name                   string
+		mockFunc               func(mockTemporalClient *temporalMocks.Client)
+		errMsg                 string
+		expectedStatus         clientInterface.WorkflowExecutionStatus
+		expectedExecution      *clientInterface.WorkflowExecution
+		expectedFailureMessage string
 	}{
 		{
 			name: "unspecified",
@@ -120,9 +128,111 @@ func TestGetWorkflowExecutionInfo(t *testing.T) {
 					},
 					nil,
 				)
+				iter := temporalMocks.NewHistoryEventIterator(t)
+				iter.On("HasNext").Return(true).Once()
+				iter.On("Next").Return(&historyV1.HistoryEvent{
+					EventType: temporalEnumsV1.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+					Attributes: &historyV1.HistoryEvent_WorkflowExecutionFailedEventAttributes{
+						WorkflowExecutionFailedEventAttributes: &historyV1.WorkflowExecutionFailedEventAttributes{
+							Failure: &failureV1.Failure{Message: "got an unexpected keyword argument"},
+						},
+					},
+				}, nil).Once()
+				iter.On("HasNext").Return(false)
+				mockTemporalClient.On("GetWorkflowHistory", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(iter)
 			},
-			expectedStatus:    clientInterface.WorkflowExecutionStatusFailed,
-			expectedExecution: &clientInterface.WorkflowExecution{},
+			expectedStatus:         clientInterface.WorkflowExecutionStatusFailed,
+			expectedExecution:      &clientInterface.WorkflowExecution{},
+			expectedFailureMessage: "got an unexpected keyword argument",
+		},
+		{
+			// The starlark-worker library (used by our pipeline workflows) reports
+			// application errors via workflow.NewCustomError(ctx, code, err.Error()),
+			// which stores the generic code (e.g. "invalid-argument") in Message and the
+			// actual descriptive text in Details, encoded with its own custom
+			// DataConverter. GetWorkflowExecutionInfo must prefer that decoded detail
+			// over the generic Message.
+			name: "failed with application error details",
+			mockFunc: func(mockTemporalClient *temporalMocks.Client) {
+				mockTemporalClient.On("DescribeWorkflowExecution", mock.Anything, mock.Anything, mock.Anything).Return(
+					&workflowserviceV1.DescribeWorkflowExecutionResponse{
+						WorkflowExecutionInfo: &workflowV1.WorkflowExecutionInfo{
+							Status: temporalEnumsV1.WORKFLOW_EXECUTION_STATUS_FAILED,
+						},
+					},
+					nil,
+				)
+				detailPayload, err := (temporal.DataConverter{Logger: zap.NewNop()}).ToPayload(
+					`function pipeline_220 got an unexpected keyword argument "task_1_d"`,
+				)
+				require.NoError(t, err)
+				iter := temporalMocks.NewHistoryEventIterator(t)
+				iter.On("HasNext").Return(true).Once()
+				iter.On("Next").Return(&historyV1.HistoryEvent{
+					EventType: temporalEnumsV1.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+					Attributes: &historyV1.HistoryEvent_WorkflowExecutionFailedEventAttributes{
+						WorkflowExecutionFailedEventAttributes: &historyV1.WorkflowExecutionFailedEventAttributes{
+							Failure: &failureV1.Failure{
+								Message: "invalid-argument",
+								FailureInfo: &failureV1.Failure_ApplicationFailureInfo{
+									ApplicationFailureInfo: &failureV1.ApplicationFailureInfo{
+										Details: &commonV1.Payloads{Payloads: []*commonV1.Payload{detailPayload}},
+									},
+								},
+							},
+						},
+					},
+				}, nil).Once()
+				iter.On("HasNext").Return(false)
+				mockTemporalClient.On("GetWorkflowHistory", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(iter)
+			},
+			expectedStatus:         clientInterface.WorkflowExecutionStatusFailed,
+			expectedExecution:      &clientInterface.WorkflowExecution{},
+			expectedFailureMessage: `function pipeline_220 got an unexpected keyword argument "task_1_d"`,
+		},
+		{
+			name: "terminated",
+			mockFunc: func(mockTemporalClient *temporalMocks.Client) {
+				mockTemporalClient.On("DescribeWorkflowExecution", mock.Anything, mock.Anything, mock.Anything).Return(
+					&workflowserviceV1.DescribeWorkflowExecutionResponse{
+						WorkflowExecutionInfo: &workflowV1.WorkflowExecutionInfo{
+							Status: temporalEnumsV1.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+						},
+					},
+					nil,
+				)
+				iter := temporalMocks.NewHistoryEventIterator(t)
+				iter.On("HasNext").Return(true).Once()
+				iter.On("Next").Return(&historyV1.HistoryEvent{
+					EventType: temporalEnumsV1.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED,
+					Attributes: &historyV1.HistoryEvent_WorkflowExecutionTerminatedEventAttributes{
+						WorkflowExecutionTerminatedEventAttributes: &historyV1.WorkflowExecutionTerminatedEventAttributes{
+							Reason: "trigger killed",
+						},
+					},
+				}, nil).Once()
+				iter.On("HasNext").Return(false)
+				mockTemporalClient.On("GetWorkflowHistory", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(iter)
+			},
+			expectedStatus:         clientInterface.WorkflowExecutionStatusTerminated,
+			expectedExecution:      &clientInterface.WorkflowExecution{},
+			expectedFailureMessage: "trigger killed",
+		},
+		{
+			name: "timed out",
+			mockFunc: func(mockTemporalClient *temporalMocks.Client) {
+				mockTemporalClient.On("DescribeWorkflowExecution", mock.Anything, mock.Anything, mock.Anything).Return(
+					&workflowserviceV1.DescribeWorkflowExecutionResponse{
+						WorkflowExecutionInfo: &workflowV1.WorkflowExecutionInfo{
+							Status: temporalEnumsV1.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+						},
+					},
+					nil,
+				)
+			},
+			expectedStatus:         clientInterface.WorkflowExecutionStatusTimedOut,
+			expectedExecution:      &clientInterface.WorkflowExecution{},
+			expectedFailureMessage: "Workflow execution timed out",
 		},
 		{
 			name: "error",
@@ -149,6 +259,7 @@ func TestGetWorkflowExecutionInfo(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, testCase.expectedStatus, status.Status)
 				require.Equal(t, testCase.expectedExecution, status.Execution)
+				require.Equal(t, testCase.expectedFailureMessage, status.FailureMessage)
 			}
 		})
 	}
@@ -584,6 +695,115 @@ func TestCreateScheduleForCron(t *testing.T) {
 			expectedRunID: "",
 			errMsg:        "",
 		},
+		{
+			name: "success - past catch-up start backfills missed occurrences",
+			options: clientInterface.StartWorkflowOptions{
+				ID:           "catchup-workflow",
+				TaskList:     "test-task-list",
+				CronSchedule: "0 * * * *",
+				CatchUpFrom:  _catchUpFrom,
+			},
+			workflowName: "test-workflow-name",
+			args:         []interface{}{"arg1"},
+			mockFunc: func(mockClient *temporalMocks.Client, mockScheduleClient *temporalMocks.ScheduleClient, mockScheduleHandle *temporalMocks.ScheduleHandle) {
+				mockClient.On("ScheduleClient").Return(mockScheduleClient)
+				mockScheduleClient.On("GetHandle", mock.Anything, "catchup-workflow-schedule").Return(mockScheduleHandle)
+				mockScheduleHandle.On("Describe", mock.Anything).Return(nil, fmt.Errorf("schedule not found"))
+				// The schedule keeps its steady-state SKIP policy; only the backfill
+				// request overrides overlap to BUFFER_ALL.
+				mockScheduleClient.On("Create", mock.Anything, mock.MatchedBy(func(options temporalClient.ScheduleOptions) bool {
+					return options.Overlap == temporalEnumsV1.SCHEDULE_OVERLAP_POLICY_SKIP &&
+						options.Spec.StartAt.IsZero()
+				})).Return(mockScheduleHandle, nil)
+				mockScheduleHandle.On("Backfill", mock.Anything, mock.MatchedBy(func(options temporalClient.ScheduleBackfillOptions) bool {
+					if len(options.Backfill) != 1 {
+						return false
+					}
+					backfill := options.Backfill[0]
+					return backfill.Start.Equal(_catchUpFrom) &&
+						backfill.End.After(_catchUpFrom) &&
+						backfill.Overlap == temporalEnumsV1.SCHEDULE_OVERLAP_POLICY_BUFFER_ALL
+				})).Return(nil)
+			},
+			expectedID:    "catchup-workflow-schedule",
+			expectedRunID: "",
+			errMsg:        "",
+		},
+		{
+			name: "catch-up skipped when schedule starts paused",
+			options: clientInterface.StartWorkflowOptions{
+				ID:           "paused-catchup-workflow",
+				TaskList:     "test-task-list",
+				CronSchedule: "0 * * * *",
+				CatchUpFrom:  _catchUpFrom,
+				StartPaused:  true,
+			},
+			workflowName: "test-workflow-name",
+			args:         []interface{}{"arg1"},
+			mockFunc: func(mockClient *temporalMocks.Client, mockScheduleClient *temporalMocks.ScheduleClient, mockScheduleHandle *temporalMocks.ScheduleHandle) {
+				mockClient.On("ScheduleClient").Return(mockScheduleClient)
+				mockScheduleClient.On("GetHandle", mock.Anything, "paused-catchup-workflow-schedule").Return(mockScheduleHandle)
+				mockScheduleHandle.On("Describe", mock.Anything).Return(nil, fmt.Errorf("schedule not found"))
+				mockScheduleClient.On("Create", mock.Anything, mock.Anything).Return(mockScheduleHandle, nil)
+				// No Backfill expectation: the strict mock fails the test if it is called.
+			},
+			expectedID:    "paused-catchup-workflow-schedule",
+			expectedRunID: "",
+			errMsg:        "",
+		},
+		{
+			name: "error - backfill failure is surfaced",
+			options: clientInterface.StartWorkflowOptions{
+				ID:           "failing-catchup-workflow",
+				TaskList:     "test-task-list",
+				CronSchedule: "0 * * * *",
+				CatchUpFrom:  _catchUpFrom,
+			},
+			workflowName: "test-workflow-name",
+			args:         []interface{}{"arg1"},
+			mockFunc: func(mockClient *temporalMocks.Client, mockScheduleClient *temporalMocks.ScheduleClient, mockScheduleHandle *temporalMocks.ScheduleHandle) {
+				mockClient.On("ScheduleClient").Return(mockScheduleClient)
+				mockScheduleClient.On("GetHandle", mock.Anything, "failing-catchup-workflow-schedule").Return(mockScheduleHandle)
+				mockScheduleHandle.On("Describe", mock.Anything).Return(nil, fmt.Errorf("schedule not found"))
+				mockScheduleClient.On("Create", mock.Anything, mock.Anything).Return(mockScheduleHandle, nil)
+				mockScheduleHandle.On("Backfill", mock.Anything, mock.Anything).Return(fmt.Errorf("backfill rejected"))
+			},
+			errMsg: "is live but catch-up",
+		},
+		{
+			name: "success - window maps to StartAt/EndAt and catch-up stops at the window end",
+			options: clientInterface.StartWorkflowOptions{
+				ID:              "windowed-workflow",
+				TaskList:        "test-task-list",
+				CronSchedule:    "0 * * * *",
+				ScheduleStartAt: _catchUpFrom,
+				ScheduleEndAt:   _catchUpFrom.Add(time.Hour), // closed, entirely in the past
+				CatchUpFrom:     _catchUpFrom,
+			},
+			workflowName: "test-workflow-name",
+			args:         []interface{}{"arg1"},
+			mockFunc: func(mockClient *temporalMocks.Client, mockScheduleClient *temporalMocks.ScheduleClient, mockScheduleHandle *temporalMocks.ScheduleHandle) {
+				mockClient.On("ScheduleClient").Return(mockScheduleClient)
+				mockScheduleClient.On("GetHandle", mock.Anything, "windowed-workflow-schedule").Return(mockScheduleHandle)
+				mockScheduleHandle.On("Describe", mock.Anything).Return(nil, fmt.Errorf("schedule not found"))
+				mockScheduleClient.On("Create", mock.Anything, mock.MatchedBy(func(options temporalClient.ScheduleOptions) bool {
+					return options.Spec.StartAt.Equal(_catchUpFrom) &&
+						options.Spec.EndAt.Equal(_catchUpFrom.Add(time.Hour))
+				})).Return(mockScheduleHandle, nil)
+				mockScheduleHandle.On("Backfill", mock.Anything, mock.MatchedBy(func(options temporalClient.ScheduleBackfillOptions) bool {
+					if len(options.Backfill) != 1 {
+						return false
+					}
+					backfill := options.Backfill[0]
+					// The replay must not run past the window's own end, even though now is later.
+					return backfill.Start.Equal(_catchUpFrom) &&
+						backfill.End.Equal(_catchUpFrom.Add(time.Hour))
+				})).Return(nil)
+			},
+			expectedID:    "windowed-workflow-schedule",
+			expectedRunID: "",
+			errMsg:        "",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -883,4 +1103,40 @@ func TestUpdateTrigger(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A failed backfill must report the schedule that was nonetheless created. Returning a
+// bare error would tell the caller the start failed, and the caller would mark the
+// TriggerRun terminal while the schedule kept firing with nothing reconciling it.
+func TestCreateScheduleReturnsLiveScheduleWhenBackfillFails(t *testing.T) {
+	mockClient := temporalMocks.NewClient(t)
+	mockScheduleClient := temporalMocks.NewScheduleClient(t)
+	mockScheduleHandle := temporalMocks.NewScheduleHandle(t)
+
+	mockClient.On("ScheduleClient").Return(mockScheduleClient)
+	mockScheduleClient.On("GetHandle", mock.Anything, "orphan-check-schedule").Return(mockScheduleHandle)
+	mockScheduleHandle.On("Describe", mock.Anything).Return(nil, fmt.Errorf("schedule not found"))
+	mockScheduleClient.On("Create", mock.Anything, mock.Anything).Return(mockScheduleHandle, nil)
+	mockScheduleHandle.On("Backfill", mock.Anything, mock.Anything).Return(fmt.Errorf("backfill rejected"))
+
+	client := &TemporalClient{Client: mockClient, Provider: "temporal", Domain: "default"}
+
+	result, err := client.createScheduleForCron(context.Background(), clientInterface.StartWorkflowOptions{
+		ID:           "orphan-check",
+		TaskList:     "test-task-list",
+		CronSchedule: "0 * * * *",
+		CatchUpFrom:  _catchUpFrom,
+	}, "test-workflow-name")
+
+	require.Error(t, err)
+	require.NotNil(t, result, "the schedule exists, so the caller must be told about it")
+	require.Equal(t, "orphan-check-schedule", result.ID)
+
+	// Typed so the caller can distinguish "created but not caught up" from "failed to create".
+	var catchUpErr *clientInterface.CatchUpError
+	require.ErrorAs(t, err, &catchUpErr)
+	require.Equal(t, "orphan-check-schedule", catchUpErr.ScheduleID)
+	require.True(t, _catchUpFrom.Equal(catchUpErr.CatchUpFrom),
+		"the unreplayed window must be reported so an operator can close it")
+	require.ErrorContains(t, catchUpErr.Err, "backfill rejected", "underlying cause must stay unwrappable")
 }

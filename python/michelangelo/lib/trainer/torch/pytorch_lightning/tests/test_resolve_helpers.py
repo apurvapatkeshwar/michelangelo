@@ -14,6 +14,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 from pytorch_lightning.loggers import Logger
 from ray.train.lightning import (
@@ -22,6 +23,7 @@ from ray.train.lightning import (
 )
 
 from michelangelo.lib.trainer.torch.pytorch_lightning._private.util import (
+    RaySingleDeviceStrategy,
     _accepts_run_id,
     _is_deepspeed_strategy,
     _is_model_parallel_strategy,
@@ -29,6 +31,7 @@ from michelangelo.lib.trainer.torch.pytorch_lightning._private.util import (
     _resolve_callbacks,
     _resolve_logger,
     _resolve_plugins,
+    _resolve_single_device,
     _resolve_strategy,
     build_comet_logger,
     build_mlflow_logger,
@@ -45,9 +48,34 @@ _UTIL_MODULE = "michelangelo.lib.trainer.torch.pytorch_lightning._private.util"
 class TestResolveStrategy:
     """Strategy name / instance → Ray-Lightning Strategy resolution."""
 
-    def test_none_defaults_to_ddp(self):
-        """``None`` resolves to :class:`RayDDPStrategy`."""
-        assert isinstance(_resolve_strategy(None), RayDDPStrategy)
+    def test_none_with_world_size_gt1_defaults_to_ddp(self):
+        """``None`` with world_size > 1 resolves to :class:`RayDDPStrategy`."""
+        ctx = MagicMock()
+        ctx.get_world_size.return_value = 2
+        with patch("ray.train.get_context", return_value=ctx):
+            assert isinstance(_resolve_strategy(None), RayDDPStrategy)
+
+    def test_none_with_world_size_1_defaults_to_single_device(self):
+        """``None`` with world_size == 1 resolves to :class:`RaySingleDeviceStrategy`."""
+        ctx = MagicMock()
+        ctx.get_world_size.return_value = 1
+        with (
+            patch("ray.train.get_context", return_value=ctx),
+            patch(f"{_UTIL_MODULE}.RaySingleDeviceStrategy") as mock_cls,
+        ):
+            result = _resolve_strategy(None)
+        mock_cls.assert_called_once_with()
+        assert result is mock_cls.return_value
+
+    @pytest.mark.parametrize(
+        "name", ["single_device", "Single_Device", "SINGLE_DEVICE"]
+    )
+    def test_single_device_string_resolves_case_insensitively(self, name):
+        """The string ``"single_device"`` routes to ``RaySingleDeviceStrategy``."""
+        with patch(f"{_UTIL_MODULE}.RaySingleDeviceStrategy") as mock_cls:
+            result = _resolve_strategy(name)
+        mock_cls.assert_called_once_with()
+        assert result is mock_cls.return_value
 
     @pytest.mark.parametrize("name", ["ddp", "DDP", "Ddp"])
     def test_ddp_string_resolves_case_insensitively(self, name):
@@ -113,14 +141,100 @@ class TestResolveStrategy:
         )
         with (
             patch.dict("sys.modules", {mp_module: None}),
-            pytest.raises(ValueError, match="requires pytorch-lightning >= 2.3"),
+            pytest.raises(ValueError, match=r"requires pytorch-lightning >= 2\.3"),
         ):
             _resolve_strategy("fsdp2")
+
+    def test_none_with_strategy_kwargs_raises(self):
+        """``strategy_kwargs`` without a string ``strategy`` is rejected."""
+        with pytest.raises(TypeError, match="strategy_kwargs can only be used"):
+            _resolve_strategy(None, strategy_kwargs={"process_group_backend": "gloo"})
+
+    def test_instance_with_strategy_kwargs_raises(self):
+        """``strategy_kwargs`` alongside a ``Strategy`` instance is rejected."""
+        with pytest.raises(TypeError, match="strategy_kwargs can only be used"):
+            _resolve_strategy(
+                RayDDPStrategy(), strategy_kwargs={"process_group_backend": "gloo"}
+            )
+
+    def test_string_forwards_strategy_kwargs(self):
+        """``strategy_kwargs`` are forwarded to a string-selected strategy."""
+        with patch(f"{_UTIL_MODULE}.RayDDPStrategy") as mock_cls:
+            _resolve_strategy("ddp", strategy_kwargs={"process_group_backend": "gloo"})
+        mock_cls.assert_called_once_with(process_group_backend="gloo")
 
     def test_invalid_strategy_kwargs_type_raises(self):
         """``strategy_kwargs`` must be a dict."""
         with pytest.raises(TypeError, match="strategy_kwargs must be"):
             _resolve_strategy("ddp", strategy_kwargs=["not", "a", "dict"])
+
+
+# -----------------------------------------------------------------------------
+# _resolve_single_device
+# -----------------------------------------------------------------------------
+
+
+class TestResolveSingleDevice:
+    """Device resolution: MPS > CUDA > CPU."""
+
+    def test_cpu_fallback(self):
+        """Falls back to CPU when no accelerator is available."""
+        with (
+            patch("torch.backends.mps.is_available", return_value=False),
+            patch("torch.cuda.is_available", return_value=False),
+        ):
+            assert _resolve_single_device() == torch.device("cpu")
+
+    def test_mps_preferred_over_cpu(self):
+        """MPS is selected when available and CUDA is not."""
+        with (
+            patch("torch.backends.mps.is_available", return_value=True),
+            patch("torch.cuda.is_available", return_value=False),
+        ):
+            assert _resolve_single_device() == torch.device("mps")
+
+    def test_cuda_uses_ray_device(self):
+        """CUDA delegates to ``ray.train.torch.get_device()`` for the GPU index."""
+        cuda_device = torch.device("cuda", 3)
+        with (
+            patch("torch.backends.mps.is_available", return_value=False),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("ray.train.torch.get_device", return_value=cuda_device),
+        ):
+            assert _resolve_single_device() == cuda_device
+
+    def test_mps_preferred_over_cuda(self):
+        """MPS takes priority over CUDA (matches Lightning's order)."""
+        with (
+            patch("torch.backends.mps.is_available", return_value=True),
+            patch("torch.cuda.is_available", return_value=True),
+        ):
+            assert _resolve_single_device() == torch.device("mps")
+
+
+# -----------------------------------------------------------------------------
+# RaySingleDeviceStrategy
+# -----------------------------------------------------------------------------
+
+
+class TestRaySingleDeviceStrategy:
+    """RaySingleDeviceStrategy delegates device to ``_resolve_single_device``."""
+
+    def test_root_device_from_resolve(self):
+        """``root_device`` matches what ``_resolve_single_device`` returns."""
+        with patch(
+            f"{_UTIL_MODULE}._resolve_single_device", return_value=torch.device("mps")
+        ):
+            strategy = RaySingleDeviceStrategy()
+        assert strategy.root_device == torch.device("mps")
+
+    def test_cpu_device(self):
+        """Works with CPU device."""
+        with patch(
+            f"{_UTIL_MODULE}._resolve_single_device", return_value=torch.device("cpu")
+        ):
+            strategy = RaySingleDeviceStrategy()
+        assert strategy.root_device == torch.device("cpu")
 
 
 # -----------------------------------------------------------------------------
@@ -189,7 +303,7 @@ class TestIsDeepSpeedStrategy:
 
 
 class TestPrepareTrainerForRay:
-    """Ray trainer preparation, tolerating FSDP2."""
+    """Ray trainer preparation, tolerating FSDP2 and RaySingleDeviceStrategy."""
 
     _IS_MP = f"{_UTIL_MODULE}._is_model_parallel_strategy"
 
@@ -198,6 +312,7 @@ class TestPrepareTrainerForRay:
     def test_non_model_parallel_defers_to_ray(self, mock_prepare, _mock_is_mp):
         """Non-MP strategies delegate to ``ray.train.lightning.prepare_trainer``."""
         trainer = MagicMock()
+        trainer.strategy = RayDDPStrategy()
         result = _prepare_trainer_for_ray(trainer)
         mock_prepare.assert_called_once_with(trainer)
         assert result is mock_prepare.return_value
@@ -224,6 +339,31 @@ class TestPrepareTrainerForRay:
         trainer = MagicMock()
         trainer.strategy.cluster_environment = None
         assert _prepare_trainer_for_ray(trainer) is trainer
+
+    def test_single_device_strategy_bypasses_ray_prepare(self):
+        """``RaySingleDeviceStrategy`` bypasses Ray's strategy whitelist check."""
+        with patch(
+            f"{_UTIL_MODULE}._resolve_single_device", return_value=torch.device("cpu")
+        ):
+            strategy = RaySingleDeviceStrategy()
+        trainer = MagicMock()
+        trainer.strategy = strategy
+        with patch("ray.train.lightning.prepare_trainer") as mock_prepare:
+            result = _prepare_trainer_for_ray(trainer)
+        mock_prepare.assert_not_called()
+        assert result is trainer
+
+    def test_single_device_strategy_with_wrong_cluster_env_raises(self):
+        """``RaySingleDeviceStrategy`` with an unexpected cluster environment raises."""
+        with patch(
+            f"{_UTIL_MODULE}._resolve_single_device", return_value=torch.device("cpu")
+        ):
+            strategy = RaySingleDeviceStrategy()
+        strategy.cluster_environment = object()
+        trainer = MagicMock()
+        trainer.strategy = strategy
+        with pytest.raises(RuntimeError, match="RayLightningEnvironment"):
+            _prepare_trainer_for_ray(trainer)
 
 
 # -----------------------------------------------------------------------------
@@ -571,6 +711,38 @@ class TestResolveCallbacks:
         callbacks, _ = _resolve_callbacks(None, per_node_callback_kwargs={})
         assert callbacks[-1] is mock_per_node.return_value
 
+    def test_upload_async_forwarded_to_default_callback(
+        self, patched_ray_report_callbacks
+    ):
+        """``upload_async`` is handed to the data-parallel report callback."""
+        mock_default, _ = patched_ray_report_callbacks
+        _resolve_callbacks(None, upload_async=True)
+        assert mock_default.call_args.kwargs["upload_async"] is True
+
+    def test_upload_async_defaults_false(self, patched_ray_report_callbacks):
+        """Without opt-in the report callback is built with ``upload_async=False``."""
+        mock_default, _ = patched_ray_report_callbacks
+        _resolve_callbacks(None)
+        assert mock_default.call_args.kwargs["upload_async"] is False
+
+    def test_upload_async_ignored_with_warning_for_per_node(
+        self, patched_ray_report_callbacks
+    ):
+        """The per-node callback ignores ``upload_async`` and a warning is logged."""
+        _, mock_per_node = patched_ray_report_callbacks
+        with patch(f"{_UTIL_MODULE}._logger") as mock_logger:
+            _resolve_callbacks(None, per_node_callback_kwargs={}, upload_async=True)
+        mock_logger.warning.assert_called_once()
+        assert "upload_async" not in mock_per_node.call_args.kwargs
+
+    def test_no_warning_for_per_node_without_upload_async(
+        self, patched_ray_report_callbacks
+    ):
+        """No warning is logged for per-node reporting when async is not requested."""
+        with patch(f"{_UTIL_MODULE}._logger") as mock_logger:
+            _resolve_callbacks(None, per_node_callback_kwargs={})
+        mock_logger.warning.assert_not_called()
+
     def test_invalid_top_level_type_raises(self):
         """A non-str/Callback/list input raises ``TypeError``."""
         with pytest.raises(TypeError, match="callbacks must be"):
@@ -579,7 +751,18 @@ class TestResolveCallbacks:
     def test_invalid_callback_kwargs_raises(self):
         """``callback_kwargs`` must be a dict."""
         with pytest.raises(TypeError, match="callback_kwargs must be"):
-            _resolve_callbacks(None, callback_kwargs=["not", "a", "dict"])
+            _resolve_callbacks("some.Callback", callback_kwargs=["not", "a", "dict"])
+
+    def test_callback_kwargs_without_callbacks_raises(self):
+        """``callback_kwargs`` with ``callbacks=None`` is rejected."""
+        with pytest.raises(TypeError, match="callback_kwargs can only be used"):
+            _resolve_callbacks(None, callback_kwargs={"x": 1})
+
+    @pytest.mark.parametrize("make", [lambda: Callback(), lambda: [Callback()]])
+    def test_callback_kwargs_with_non_str_callbacks_raises(self, make):
+        """``callback_kwargs`` with a Callback instance or list is rejected."""
+        with pytest.raises(TypeError, match="callback_kwargs can only be used"):
+            _resolve_callbacks(make(), callback_kwargs={"x": 1})
 
     def test_invalid_per_node_callback_kwargs_raises(self):
         """``per_node_callback_kwargs`` must be a dict."""

@@ -3,7 +3,10 @@
 import argparse
 import subprocess
 from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+import yaml
 
 from michelangelo.cli.sandbox import sandbox
 
@@ -11,6 +14,7 @@ from michelangelo.cli.sandbox import sandbox
 class CreateFunctionTest(TestCase):
     """Tests for _create function logic."""
 
+    @patch("michelangelo.cli.sandbox.sandbox._import_log_persistence_images")
     @patch("michelangelo.cli.sandbox.sandbox._kube_wait")
     @patch("michelangelo.cli.sandbox.sandbox._create_cadence_domain")
     @patch("michelangelo.cli.sandbox.sandbox._create_spark_operator")
@@ -39,11 +43,13 @@ class CreateFunctionTest(TestCase):
         mock_create_spark,
         mock_create_cadence_domain,
         mock_kube_wait,
+        mock_import_images,
     ):
         """Test dedicated cluster functions called with compute cluster name."""
         # Setup namespace with create_compute_cluster=True
         ns = argparse.Namespace(
             workflow="cadence",
+            object_store="minio",
             exclude=[],
             include_experimental=[],
             create_compute_cluster=True,
@@ -69,6 +75,7 @@ class CreateFunctionTest(TestCase):
         mock_apply_rbac.assert_called_once_with("test-compute-cluster")
         mock_create_secrets.assert_called_once_with("test-compute-cluster")
 
+    @patch("michelangelo.cli.sandbox.sandbox._import_log_persistence_images")
     @patch("michelangelo.cli.sandbox.sandbox._kube_wait")
     @patch("michelangelo.cli.sandbox.sandbox._create_cadence_domain")
     @patch("michelangelo.cli.sandbox.sandbox._create_spark_operator")
@@ -97,11 +104,13 @@ class CreateFunctionTest(TestCase):
         mock_create_spark,
         mock_create_cadence_domain,
         mock_kube_wait,
+        mock_import_images,
     ):
         """Test control plane cluster functions called with sandbox cluster name."""
         # Setup namespace with create_compute_cluster=False
         ns = argparse.Namespace(
             workflow="cadence",
+            object_store="minio",
             exclude=[],
             include_experimental=[],
             create_compute_cluster=False,
@@ -128,6 +137,59 @@ class CreateFunctionTest(TestCase):
         mock_create_crd.assert_called_once_with("michelangelo-sandbox")
         mock_apply_rbac.assert_called_once_with("michelangelo-sandbox")
         mock_create_secrets.assert_called_once_with("michelangelo-sandbox")
+
+    @patch("michelangelo.cli.sandbox.sandbox._import_log_persistence_images")
+    @patch("michelangelo.cli.sandbox.sandbox._kube_wait")
+    @patch("michelangelo.cli.sandbox.sandbox._create_cadence_domain")
+    @patch("michelangelo.cli.sandbox.sandbox._create_spark_operator")
+    @patch("michelangelo.cli.sandbox.sandbox._create_kuberay_operator")
+    @patch("michelangelo.cli.sandbox.sandbox.subprocess.check_output")
+    @patch("michelangelo.cli.sandbox.sandbox._assert_command")
+    @patch("michelangelo.cli.sandbox.sandbox._kube_create")
+    @patch("michelangelo.cli.sandbox.sandbox._exec")
+    @patch("michelangelo.cli.sandbox.sandbox.tempfile.NamedTemporaryFile")
+    @patch("michelangelo.cli.sandbox.sandbox._create_compute_cluster_secrets")
+    @patch("michelangelo.cli.sandbox.sandbox._apply_compute_cluster_rbac")
+    @patch("michelangelo.cli.sandbox.sandbox._create_compute_cluster_crd")
+    @patch("michelangelo.cli.sandbox.sandbox._create_compute_cluster")
+    def test_create_without_ray_imports_history_server_images(
+        self,
+        mock_create_compute_cluster,
+        mock_create_crd,
+        mock_apply_rbac,
+        mock_create_secrets,
+        mock_tempfile,
+        mock_exec,
+        mock_kube_create,
+        mock_assert_command,
+        mock_check_output,
+        mock_create_kuberay,
+        mock_create_spark,
+        mock_create_cadence_domain,
+        mock_kube_wait,
+        mock_import_images,
+    ):
+        """With --exclude ray, the History Server images are still imported."""
+        ns = argparse.Namespace(
+            workflow="cadence",
+            object_store="minio",
+            exclude=["ray"],
+            include_experimental=[],
+            create_compute_cluster=False,
+            compute_cluster_name="test-compute-cluster",
+        )
+
+        mock_check_output.return_value = b""
+        mock_registry_file = Mock()
+        mock_registry_file.name = "/tmp/test-registry.json"
+        mock_registry_file.__enter__ = Mock(return_value=mock_registry_file)
+        mock_registry_file.__exit__ = Mock(return_value=False)
+        mock_tempfile.return_value = mock_registry_file
+
+        sandbox._create(ns)
+
+        mock_create_kuberay.assert_not_called()
+        mock_import_images.assert_called_once_with()
 
 
 class ComputeClusterSetupTest(TestCase):
@@ -331,17 +393,23 @@ current-context: test-context
 
         sandbox._delete(ns)
 
-        # Verify check was called
-        mock_check_output.assert_called_once()
+        # Each demo inference cluster is probed before the compute cluster, so the
+        # compute-cluster probe is the last one.
+        inference_clusters = sandbox._inference_compute_cluster_names
+        self.assertEqual(mock_check_output.call_count, len(inference_clusters) + 1)
         call_args = mock_check_output.call_args[0][0]
         self.assertIn("k3d", call_args)
         self.assertIn("cluster", call_args)
         self.assertIn("get", call_args)
         self.assertIn("test-compute", call_args)
 
-        # Verify both clusters were deleted
+        # Every probe succeeds here, so the inference clusters, the compute cluster,
+        # and the sandbox cluster are all deleted.
         delete_calls = [c for c in mock_exec.call_args_list if "delete" in c[0]]
-        self.assertEqual(len(delete_calls), 2)
+        self.assertEqual(len(delete_calls), len(inference_clusters) + 2)
+        deleted = {c[0][-1] for c in delete_calls}
+        for inf_cluster in inference_clusters:
+            self.assertIn(inf_cluster, deleted)
 
     @patch("michelangelo.cli.sandbox.sandbox._exec")
     @patch("michelangelo.cli.sandbox.sandbox.subprocess.check_output")
@@ -357,10 +425,12 @@ current-context: test-context
 
         sandbox._delete(ns)
 
-        # Verify check was called
-        mock_check_output.assert_called_once()
+        # Each demo inference cluster is probed before the compute cluster.
+        inference_clusters = sandbox._inference_compute_cluster_names
+        self.assertEqual(mock_check_output.call_count, len(inference_clusters) + 1)
 
-        # Verify only main cluster was deleted (not the compute cluster)
+        # Every probe fails, so neither the inference clusters nor the compute cluster
+        # are deleted; only the main sandbox cluster is.
         delete_calls = [c for c in mock_exec.call_args_list if "delete" in c[0]]
         self.assertEqual(len(delete_calls), 1)
 
@@ -433,3 +503,327 @@ class ArgumentParsingTest(TestCase):
         """`ma sandbox create` without --set should default helm_set to []."""
         ns = self._parse(["create"])
         self.assertEqual(ns.helm_set, [])
+
+    def test_create_object_store_defaults_to_minio(self):
+        """`ma sandbox create` without --object-store should default to minio."""
+        ns = self._parse(["create"])
+        self.assertEqual(ns.object_store, "minio")
+
+    def test_sync_object_store_defaults_to_minio(self):
+        """`ma sandbox sync` without --object-store should default to minio."""
+        ns = self._parse(["sync"])
+        self.assertEqual(ns.object_store, "minio")
+
+    def test_create_accepts_object_store_seaweedfs(self):
+        """`ma sandbox create --object-store seaweedfs` parses through."""
+        ns = self._parse(["create", "--object-store", "seaweedfs"])
+        self.assertEqual(ns.object_store, "seaweedfs")
+
+    def test_create_rejects_unknown_object_store(self):
+        """An unsupported --object-store value is rejected by argparse."""
+        with self.assertRaises(SystemExit):
+            self._parse(["create", "--object-store", "ceph"])
+
+
+class DeployServicesObjectStoreTest(TestCase):
+    """Tests for `_deploy_services`'s object-store resource selection."""
+
+    def _run_deploy_services(self, object_store):
+        ns = argparse.Namespace(
+            workflow="cadence",
+            object_store=object_store,
+            exclude=[],
+            include_experimental=[],
+            create_compute_cluster=False,
+            compute_cluster_name="test-compute-cluster",
+        )
+        with (
+            patch("michelangelo.cli.sandbox.sandbox._kube_apply") as mock_kube_apply,
+            patch("michelangelo.cli.sandbox.sandbox._create_bucket_setup"),
+            patch("michelangelo.cli.sandbox.sandbox._import_log_persistence_images"),
+            patch("michelangelo.cli.sandbox.sandbox._ensure_credentials_secret"),
+            patch("michelangelo.cli.sandbox.sandbox._sync_config_from_secret"),
+            patch("michelangelo.cli.sandbox.sandbox._assert_command"),
+            patch(
+                "michelangelo.cli.sandbox.sandbox.subprocess.check_output",
+                return_value=b"",
+            ),
+            patch("michelangelo.cli.sandbox.sandbox._create_kuberay_operator"),
+            patch("michelangelo.cli.sandbox.sandbox._create_spark_operator"),
+            patch("michelangelo.cli.sandbox.sandbox._kube_wait"),
+            patch("michelangelo.cli.sandbox.sandbox._deploy_app_services"),
+            patch("michelangelo.cli.sandbox.sandbox._create_cadence_domain"),
+            patch("michelangelo.cli.sandbox.sandbox._create_compute_cluster_crd"),
+            patch("michelangelo.cli.sandbox.sandbox._apply_compute_cluster_rbac"),
+            patch("michelangelo.cli.sandbox.sandbox._create_compute_cluster_secrets"),
+        ):
+            sandbox._deploy_services(ns)
+        applied = {call.args[0].name for call in mock_kube_apply.call_args_list}
+        return applied
+
+    def test_default_object_store_applies_minio_yaml(self):
+        """object_store="minio" (default) applies minio.yaml only."""
+        applied = self._run_deploy_services("minio")
+        self.assertIn("minio.yaml", applied)
+        self.assertNotIn("weed-server.yaml", applied)
+
+    def test_seaweedfs_object_store_applies_weed_server_yaml(self):
+        """object_store="seaweedfs" applies weed-server.yaml only."""
+        applied = self._run_deploy_services("seaweedfs")
+        self.assertIn("weed-server.yaml", applied)
+        self.assertNotIn("minio.yaml", applied)
+
+
+class K3dImageImportTest(TestCase):
+    """Tests for _k3d_import_image."""
+
+    @staticmethod
+    def _fake_run(save_returncode):
+        def run(cmd, **kwargs):
+            if cmd[:2] == ["docker", "version"]:
+                return Mock(returncode=0, stdout="linux/arm64\n")
+            if cmd[:2] == ["docker", "save"]:
+                return Mock(returncode=save_returncode)
+            return Mock(returncode=0)
+
+        return run
+
+    @patch("michelangelo.cli.sandbox.sandbox.subprocess.run")
+    def test_imports_single_platform_archive(self, mock_run):
+        """k3d imports a tarball holding only the Docker server's platform."""
+        mock_run.side_effect = self._fake_run(save_returncode=0)
+
+        self.assertTrue(sandbox._k3d_import_image("nginx:1.27-alpine"))
+
+        save = mock_run.call_args_list[1][0][0]
+        k3d = mock_run.call_args_list[2][0][0]
+        self.assertEqual(save[:4], ["docker", "save", "--platform", "linux/arm64"])
+        self.assertEqual(save[-1], "nginx:1.27-alpine")
+        archive = save[save.index("-o") + 1]
+        self.assertEqual(k3d[:4], ["k3d", "image", "import", archive])
+
+    @patch("michelangelo.cli.sandbox.sandbox.subprocess.run")
+    def test_falls_back_to_plain_import(self, mock_run):
+        """Without `docker save --platform`, k3d imports the image by name."""
+        mock_run.side_effect = self._fake_run(save_returncode=1)
+
+        self.assertTrue(sandbox._k3d_import_image("nginx:1.27-alpine"))
+
+        k3d = mock_run.call_args_list[2][0][0]
+        self.assertEqual(k3d[:4], ["k3d", "image", "import", "nginx:1.27-alpine"])
+
+
+class ImportLogPersistenceImagesTest(TestCase):
+    """Tests for _import_log_persistence_images."""
+
+    @patch("michelangelo.cli.sandbox.sandbox._LOG_PERSISTENCE_IMAGES", ["img:1"])
+    @patch("michelangelo.cli.sandbox.sandbox._k3d_import_image", return_value=True)
+    @patch("michelangelo.cli.sandbox.sandbox.subprocess.run")
+    def test_failed_pull_imports_local_copy(self, mock_run, mock_import):
+        """A failed pull still imports a copy already on the host."""
+        mock_run.side_effect = lambda cmd, **kwargs: Mock(
+            returncode=1 if cmd[:2] == ["docker", "pull"] else 0
+        )
+        sandbox._import_log_persistence_images()
+        mock_import.assert_called_once_with("img:1")
+
+    @patch("michelangelo.cli.sandbox.sandbox._LOG_PERSISTENCE_IMAGES", ["img:1"])
+    @patch("michelangelo.cli.sandbox.sandbox._k3d_import_image")
+    @patch("michelangelo.cli.sandbox.sandbox.subprocess.run")
+    def test_failed_pull_without_local_copy_skips(self, mock_run, mock_import):
+        """A failed pull with no copy on the host skips the image."""
+        mock_run.return_value = Mock(returncode=1)
+        sandbox._import_log_persistence_images()
+        mock_import.assert_not_called()
+
+
+class TestEnsurePodRunning:
+    """_ensure_pod_running recreates a bare infra pod that is dead or stale."""
+
+    WANTED = "mysql:8.0"
+
+    def _run(self, stdout):
+        """Run the helper with kubectl reporting `stdout`; return (calls, apply)."""
+        from michelangelo.cli.sandbox.sandbox import _ensure_pod_running
+
+        with (
+            patch("michelangelo.cli.sandbox.sandbox._kube_apply") as apply,
+            patch(
+                "michelangelo.cli.sandbox.sandbox._manifest_pod_image",
+                return_value=self.WANTED,
+            ),
+            patch("michelangelo.cli.sandbox.sandbox.subprocess.run") as run,
+        ):
+            run.return_value = Mock(stdout=stdout)
+            _ensure_pod_running("mysql", "mysql.yaml")
+        return [call.args[0] for call in run.call_args_list], apply
+
+    def test_running_pod_with_current_image_is_left_alone(self):
+        """A Running pod on the manifest's image is not touched."""
+        commands, apply = self._run(f"Running|{self.WANTED}\n")
+
+        assert len(commands) == 1
+        apply.assert_not_called()
+
+    def test_failed_pod_is_recreated(self):
+        """A Failed (evicted) pod is deleted, re-applied and waited on."""
+        commands, apply = self._run(f"Failed|{self.WANTED}\n")
+
+        assert any(cmd[:4] == ["kubectl", "delete", "pod", "mysql"] for cmd in commands)
+        assert any(
+            cmd[:3] == ["kubectl", "wait", "--for=condition=ready"] for cmd in commands
+        )
+        apply.assert_called_once()
+
+    def test_missing_pod_is_created(self):
+        """A missing pod is created from the manifest."""
+        _, apply = self._run("")
+
+        apply.assert_called_once()
+
+    def test_running_pod_with_stale_image_is_recreated(self):
+        """A crash-looping pod still reports Running; a changed image replaces it."""
+        _, apply = self._run("Running|ghcr.io/old/mysql:arm64-only\n")
+
+        apply.assert_called_once()
+
+
+class TestObjectstoreService:
+    """The `objectstore` Service is applied on create and sync, per backend."""
+
+    def _apply(self, object_store, legacy_type="NodePort"):
+        from michelangelo.cli.sandbox.sandbox import _ensure_objectstore_service
+
+        calls = []
+        applied = {}
+        aliases = []
+
+        def fake_run(args, **kwargs):
+            calls.append(("run", tuple(args)))
+            return MagicMock(returncode=0, stdout=legacy_type)
+
+        def fake_apply(path, context=None):
+            calls.append(("apply", path.name))
+            docs = list(yaml.safe_load_all(path.read_text()))
+            applied.update(docs[0])
+            aliases.extend(docs[1:])
+
+        with (
+            patch("michelangelo.cli.sandbox.sandbox.subprocess.run", fake_run),
+            patch("michelangelo.cli.sandbox.sandbox._kube_apply", fake_apply),
+        ):
+            _ensure_objectstore_service(argparse.Namespace(object_store=object_store))
+        applied["_aliases"] = aliases
+        return calls, applied
+
+    def test_legacy_minio_service_is_deleted_before_apply(self):
+        """The old `minio` Service holds the NodePorts, so it must go first."""
+        calls, _ = self._apply("minio")
+        delete = ("kubectl", "delete", "svc", "minio", "--ignore-not-found=true")
+        assert ("run", delete) in calls
+        assert calls.index(("run", delete)) < calls.index(
+            ("apply", "objectstore-service.yaml")
+        )
+
+    def test_minio_alias_is_not_deleted_on_repeat_sync(self):
+        """An existing ClusterIP alias is left alone, so repeat syncs don't blip."""
+        calls, _ = self._apply("minio", legacy_type="ClusterIP")
+        assert not any("delete" in c[1] for c in calls if c[0] == "run")
+
+    def test_minio_alias_has_no_nodeports_and_follows_backend(self):
+        """`minio:9091` keeps resolving without claiming NodePorts."""
+        for backend in ("minio", "seaweedfs"):
+            alias = self._apply(backend)[1]["_aliases"][0]
+            assert alias["metadata"]["name"] == "minio"
+            assert alias["spec"]["type"] == "ClusterIP"
+            assert alias["spec"]["selector"] == {"app": backend}
+            assert all("nodePort" not in p for p in alias["spec"]["ports"])
+
+    def test_selector_follows_backend(self):
+        """The Service selects the chosen backend's Pod."""
+        assert self._apply("minio")[1]["spec"]["selector"] == {"app": "minio"}
+        assert self._apply("seaweedfs")[1]["spec"]["selector"] == {"app": "seaweedfs"}
+
+    def test_pod_manifests_do_not_define_the_service(self):
+        """Only objectstore-service.yaml defines it, so NodePorts can't clash."""
+        from michelangelo.cli.sandbox import sandbox
+
+        for name in ("minio.yaml", "weed-server.yaml"):
+            with open(sandbox._dir / "resources" / name) as f:
+                kinds = {d["kind"] for d in yaml.safe_load_all(f) if d}
+            assert kinds == {"Pod"}, name
+
+    def test_service_nodeports_match_cluster_mappings(self):
+        """30007/30008 are the ports the k3d cluster maps to 9091/9090."""
+        from michelangelo.cli.sandbox import sandbox
+
+        with open(sandbox._dir / "resources" / "objectstore-service.yaml") as f:
+            ports = {
+                p["port"]: p["nodePort"] for p in yaml.safe_load(f)["spec"]["ports"]
+            }
+        assert ports == {9090: 30008, 9091: 30007}
+
+
+class TestCheckObjectStoreBackend:
+    """sync refuses to run onto a cluster that has the other backend's pod."""
+
+    def _check(self, object_store, existing_pods):
+        from michelangelo.cli.sandbox.sandbox import _check_object_store_backend
+
+        def fake_run(args, **kwargs):
+            return MagicMock(returncode=0 if args[-1] in existing_pods else 1)
+
+        with patch("michelangelo.cli.sandbox.sandbox.subprocess.run", fake_run):
+            _check_object_store_backend(argparse.Namespace(object_store=object_store))
+
+    def test_same_backend_is_allowed(self):
+        """A minio cluster synced with the default backend is fine."""
+        self._check("minio", {"minio"})
+
+    def test_fresh_cluster_is_allowed(self):
+        """No object-store pod yet: nothing to conflict with."""
+        self._check("seaweedfs", set())
+
+    def test_other_backend_is_refused_with_guidance(self):
+        """Syncing minio onto a seaweedfs cluster exits and names the fix."""
+        with pytest.raises(SystemExit) as exc:
+            self._check("minio", {"seaweedfs"})
+        assert "--object-store seaweedfs" in str(exc.value)
+        assert "ma sandbox delete" in str(exc.value)
+
+
+class TestEnsureObjectStoreRunning:
+    """_ensure_object_store_running checks only the selected backend's pod."""
+
+    def _run(self, object_store):
+        from michelangelo.cli.sandbox.sandbox import _ensure_object_store_running
+
+        with patch("michelangelo.cli.sandbox.sandbox._ensure_pod_running") as ensure:
+            _ensure_object_store_running(argparse.Namespace(object_store=object_store))
+        return ensure
+
+    def test_minio_backend_checks_minio_pod(self):
+        """The default backend checks the minio pod from minio.yaml."""
+        self._run("minio").assert_called_once_with("minio", "minio.yaml")
+
+    def test_seaweedfs_backend_checks_seaweedfs_pod(self):
+        """SeaweedFS must not recreate a minio pod, which would steal the Service."""
+        self._run("seaweedfs").assert_called_once_with("seaweedfs", "weed-server.yaml")
+
+
+class TestManifestPodImage:
+    """_manifest_pod_image reads the Pod's image out of the resources manifest."""
+
+    def test_reads_the_pod_image(self):
+        """The helper finds the minio Pod's image in minio.yaml."""
+        from michelangelo.cli.sandbox.sandbox import _manifest_pod_image
+
+        assert _manifest_pod_image("minio.yaml", "minio").endswith(
+            "minio:RELEASE.2025-05-24T17-08-30Z"
+        )
+
+    def test_unknown_pod_returns_empty(self):
+        """A pod name that is not in the manifest yields no image."""
+        from michelangelo.cli.sandbox.sandbox import _manifest_pod_image
+
+        assert _manifest_pod_image("mysql.yaml", "nope") == ""

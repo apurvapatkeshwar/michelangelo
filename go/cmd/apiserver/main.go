@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/michelangelo-ai/michelangelo/go/api"
 	"github.com/michelangelo-ai/michelangelo/go/api/crd"
 	apihandler "github.com/michelangelo-ai/michelangelo/go/api/handler"
 	"github.com/michelangelo-ai/michelangelo/go/auth"
@@ -36,7 +37,7 @@ func opts() fx.Option {
 		zapfx.Module,
 		fx.Invoke(printConfig),
 		apihandler.APIServerModule,
-		auth.DummyAuthModule,
+		auth.AuthModule,
 		logging.DummyAuditLogModule,
 		fx.Provide(getTallyScope),
 		fx.Provide(baseconfig.GetK8sConfig),
@@ -46,11 +47,20 @@ func opts() fx.Option {
 		fx.Provide(provideMetadataStorage),
 		fx.Provide(provideDispatcher),
 		fx.Provide(getScheme),
+		fx.Provide(apihandler.NewConfig),
 		fx.Invoke(projectapihook.RegisterProjectAPIHook),
-		// Cascade-delete: stamp the owning Pipeline ownerReference on runs at creation.
-		fx.Invoke(pipelinerunapihook.RegisterPipelineRunAPIHook),
-		fx.Invoke(triggerrunapihook.RegisterTriggerRunAPIHook),
-		fx.Invoke(modelapihook.RegisterModelAPIHook),
+		// Cascade-delete: stamp the owning Pipeline ownerReference on runs at
+		// creation. Also defaults api.EnvironmentLabel from the
+		// operator-configured PipelineRunDefaultEnvironment.
+		fx.Invoke(func(logger *zap.Logger, apiHandler api.Handler, scheme *runtime.Scheme, conf apihandler.Config) {
+			pipelinerunapihook.RegisterPipelineRunAPIHook(logger, apiHandler, scheme, conf.PipelineRunDefaultEnvironment)
+		}),
+		fx.Invoke(func(logger *zap.Logger, apiHandler api.Handler, scheme *runtime.Scheme, conf apihandler.Config) {
+			triggerrunapihook.RegisterTriggerRunAPIHook(logger, apiHandler, scheme, conf.PipelineRunDefaultEnvironment)
+		}),
+		fx.Invoke(func(logger *zap.Logger, apiHandler api.Handler, conf apihandler.Config) {
+			modelapihook.RegisterModelAPIHook(logger, apiHandler, conf.PipelineRunDefaultEnvironment)
+		}),
 		v2pb.CachedOutputSvcModule,
 		v2pb.ClusterSvcModule,
 		v2pb.DeploymentSvcModule,

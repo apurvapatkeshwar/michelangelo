@@ -10,7 +10,6 @@ from logging import getLogger
 from types import MethodType
 from typing import Optional
 
-from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.message import Message
 from grpc import Channel
 
@@ -137,19 +136,28 @@ def generate_kill(crd: CRD, channel: Channel, parser: Optional[ArgumentParser] =
         current_resource = _self.get(_namespace, _name)
         _LOG.info("Retrieved PipelineRun resource for kill: %r", current_resource)
 
-        # Convert to dict and set kill flag
-        current_dict = MessageToDict(current_resource, preserving_proto_field_name=True)
-
+        # Move the resource into the request as wire bytes. A dict round trip
+        # cannot represent an Any whose type is missing from the descriptor
+        # pool, which made the kill fail on resources the server itself had
+        # just returned. Bytes are also all the two sides share: the CRD
+        # framework builds its message classes from server reflection, so the
+        # fetched resource and the request field are distinct Python classes
+        # for the same proto.
         resource_name = _self.name
-        if resource_name in current_dict and "spec" in current_dict[resource_name]:
-            current_dict[resource_name]["spec"]["kill"] = True
-        else:
+        current_source = getattr(current_resource, resource_name)
+        if not current_source.HasField("spec"):
             _LOG.error("Missing required spec field in the resource structure")
-            raise ValueError(f"Cannot set kill flag on {resource_name}")
+            raise ValueError(
+                f"Cannot set kill flag on {resource_name} {_namespace}/{_name}: "
+                "the fetched resource has no spec. Inspect it with "
+                f"`ma {resource_name} get --namespace={_namespace} --name={_name}`."
+            )
 
         # Create update request
         request_input = input_class()
-        ParseDict(current_dict, request_input, ignore_unknown_fields=True)
+        target = getattr(request_input, resource_name)
+        target.MergeFromString(current_source.SerializeToString())
+        target.spec.kill = True
         apply_dry_run_to_request(request_input, "update_options", bound_args.arguments)
         _dry_run = bound_args.arguments.get("dry_run", False)
 
@@ -182,19 +190,18 @@ def generate_kill(crd: CRD, channel: Channel, parser: Optional[ArgumentParser] =
             _LOG.info("Dry-run kill completed (%r): %r", type(response), response)
             return response
 
-        # Verify the kill flag was set
-        response_dict = MessageToDict(response, preserving_proto_field_name=True)
-        resource_name = _self.name
-        if (
-            resource_name in response_dict
-            and "spec" in response_dict[resource_name]
-            and response_dict[resource_name]["spec"].get("kill") is True
-        ):
+        # Verify the kill flag was set. Read it off the proto: rendering the
+        # response to a dict fails on an Any the client cannot resolve, after
+        # the kill was already applied.
+        if getattr(response, resource_name).spec.kill:
             _LOG.info("Kill operation successfully set spec.kill=true")
         else:
             _LOG.error("Kill operation failed: spec.kill not set to true in response")
             raise RuntimeError(
-                f"Kill operation failed for {resource_name}: spec.kill not properly set"
+                f"Kill operation failed for {resource_name} {_namespace}/{_name}: "
+                "the Update response does not have spec.kill set. Check its "
+                f"state with `ma {resource_name} get --namespace={_namespace} "
+                f"--name={_name}`."
             )
 
         _LOG.info("Kill operation completed (%r): %r", type(response), response)

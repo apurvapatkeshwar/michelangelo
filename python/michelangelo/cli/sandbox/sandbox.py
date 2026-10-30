@@ -3,11 +3,13 @@
 import argparse
 import base64
 import shutil
+import string
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -43,6 +45,7 @@ _infra_ports = [
     "3000:30012",  # Grafana
     "9092:30015",  # Prometheus
     "5001:30013",  # MLflow Tracking Server
+    "3001:30016",  # Ray History Server
 ]
 
 # Infra ports owned by optionally-excluded services. When the user passes
@@ -67,6 +70,37 @@ _helm_nodeport_map = [
     ("8090", ("ui", "service", "nodePort")),  # Michelangelo UI
     ("8088", ("cadence", "web", "service", "nodePort")),  # Cadence Web
     ("8080", ("temporal", "web", "service", "nodePort")),  # Temporal Web
+]
+
+# API group shared by every Michelangelo custom resource — used by
+# `ma sandbox snapshot` to discover CRD kinds dynamically instead of
+# hardcoding a list that would need updating as new CRDs are added.
+_snapshot_api_group = "michelangelo.api"
+
+# Volatile metadata fields stripped from a snapshotted resource so it can be
+# re-applied cleanly. `status` is deliberately left untouched: every
+# Michelangelo CRD registers `status` as a subresource, so `kubectl apply`
+# structurally cannot modify it regardless of what's in the file, and keeping
+# it gives a debugging reference for the state at capture time.
+_snapshot_strip_metadata_fields = [
+    "resourceVersion",
+    "uid",
+    "creationTimestamp",
+    "generation",
+    "selfLink",
+    "managedFields",
+    "ownerReferences",
+]
+
+# Annotations stripped from a snapshotted resource:
+# - last-applied-configuration is kubectl bookkeeping.
+# - MetadataStoragePrimaryKey is set once (idempotently) by the ingester
+#   controller and pinned to the object's original uid as its MySQL primary
+#   key. Left in place, a restored object's controller would never refresh
+#   it, silently decoupling the CRD's live uid from its DB row.
+_snapshot_strip_annotations = [
+    "kubectl.kubernetes.io/last-applied-configuration",
+    "michelangelo/MetadataStoragePrimaryKey",
 ]
 
 
@@ -112,6 +146,12 @@ def _helm_chart_ports(workflow: str) -> list[str]:
     return ports
 
 
+# Remote k3d clusters created for `ma sandbox demo inference-multicluster`.
+_inference_compute_cluster_names = [
+    "inference-cluster-1",
+]
+
+
 def init_arguments(p: argparse.ArgumentParser):
     """Initialize command-line arguments for the sandbox CLI."""
     sp = p.add_subparsers(dest="action", required=True)
@@ -132,6 +172,12 @@ def init_arguments(p: argparse.ArgumentParser):
         choices=["cadence", "temporal"],
         default="cadence",
         help="Choose workflow engine: cadence or temporal (default: cadence).",
+    )
+    create_p.add_argument(
+        "--object-store",
+        choices=["minio", "seaweedfs"],
+        default="minio",
+        help="Choose object storage backend: minio or seaweedfs (default: minio).",
     )
     create_p.add_argument(
         "--wait-timeout",
@@ -193,6 +239,12 @@ def init_arguments(p: argparse.ArgumentParser):
         help="Choose workflow engine: cadence or temporal (default: cadence).",
     )
     sync_p.add_argument(
+        "--object-store",
+        choices=["minio", "seaweedfs"],
+        default="minio",
+        help="Choose object storage backend: minio or seaweedfs (default: minio).",
+    )
+    sync_p.add_argument(
         "--wait-timeout",
         type=int,
         default=600,
@@ -221,6 +273,29 @@ def init_arguments(p: argparse.ArgumentParser):
     )
     _ = demo_sp.add_parser("pipeline", help="Create pipeline demo resources")
     _ = demo_sp.add_parser("inference", help="Create inference server demo resources")
+    _ = demo_sp.add_parser(
+        "inference-multicluster",
+        help=("Create a multi-cluster inference server demo."),
+    )
+
+    snapshot_p = sp.add_parser(
+        "snapshot", help="Capture or restore Michelangelo CRD state."
+    )
+    snapshot_sp = snapshot_p.add_subparsers(dest="snapshot_action", required=True)
+    _ = snapshot_sp.add_parser(
+        "create", help="Capture all Michelangelo CRDs in the cluster to disk."
+    )
+    restore_p = snapshot_sp.add_parser(
+        "restore", help="Replay a previously captured snapshot into the cluster."
+    )
+    restore_p.add_argument(
+        "timestamp",
+        help=(
+            "Snapshot to restore — either the bare timestamp "
+            "(e.g. 20260807-170000) or the full path printed by "
+            "`snapshot create`."
+        ),
+    )
 
     delete_p = sp.add_parser("delete", help="Delete the cluster.")
     delete_p.add_argument(
@@ -265,6 +340,8 @@ def run(ns: argparse.Namespace):
         return _stop(ns)
     if ns.action == "demo":
         return _create_demo_crs(ns)
+    if ns.action == "snapshot":
+        return _snapshot(ns)
 
     raise ValueError(f"Unsupported action: {ns.action}")
 
@@ -344,9 +421,17 @@ def _sync(ns: argparse.Namespace):
     # Upgrade or install the control plane via Helm.
     # Infrastructure (mysql, cadence, minio, grafana, prometheus) is left running.
 
+    _ensure_mysql_running()
+    _check_object_store_backend(ns)
+    _ensure_objectstore_service(ns)
+    _ensure_object_store_running(ns)
     _refresh_mysql_schema()
 
     _ensure_credentials_secret()
+    # Clusters created before the objectstore rename still have the old
+    # endpoint in michelangelo-config; refresh it and re-sync credentials.
+    _kube_apply(_dir / "resources" / "michelangelo-config.yaml")
+    _sync_config_from_secret()
     _helm_ensure_repos()
     helm_args = _build_helm_set_args(ns)
 
@@ -432,6 +517,144 @@ def _sync(ns: argparse.Namespace):
         )
 
     _helm_wait(ns)
+
+
+def _manifest_pod_image(manifest: str, name: str) -> str:
+    """Return the first container image of the named Pod in a resources manifest."""
+    with open(_dir / "resources" / manifest) as f:
+        for doc in yaml.safe_load_all(f):
+            if doc and doc.get("kind") == "Pod" and doc["metadata"]["name"] == name:
+                return doc["spec"]["containers"][0]["image"]
+    return ""
+
+
+def _ensure_pod_running(name: str, manifest: str):
+    """Recreate a bare infrastructure pod that is dead or out of date.
+
+    mysql and minio are bare Pods, so nothing replaces them. A pod that was
+    evicted (phase Failed) or finished (Succeeded) stays dead, and a pod whose
+    manifest image changed keeps running the old image, even a crash-looping one
+    (which still reports phase Running). Later steps then fail in confusing ways:
+    `kubectl exec mysql` errors with "cannot exec into a container in a completed
+    pod", and uploads to MinIO's NodePort hang because the Service has no
+    backend. Their data lives on hostPath volumes, so recreating the pod keeps it.
+    """
+    result = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            "pod",
+            name,
+            "-o",
+            "jsonpath={.status.phase}|{.spec.containers[0].image}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    phase, _, image = result.stdout.strip().partition("|")
+    wanted = _manifest_pod_image(manifest, name)
+    if phase in ("Pending", "Running") and (not wanted or image == wanted):
+        return
+    if not phase:
+        reason = "missing"
+    elif phase not in ("Pending", "Running"):
+        reason = f"phase {phase}"
+    else:
+        reason = f"image {image} != {wanted}"
+    print(f"{name} pod needs recreating ({reason})...")
+    subprocess.run(
+        ["kubectl", "delete", "pod", name, "--ignore-not-found=true", "--wait=true"],
+        check=True,
+    )
+    _kube_apply(_dir / "resources" / manifest)
+    subprocess.run(
+        ["kubectl", "wait", "--for=condition=ready", f"pod/{name}", "--timeout=300s"],
+        check=True,
+    )
+
+
+def _ensure_mysql_running():
+    """Make sure the mysql pod is up before the schema refresh execs into it."""
+    _ensure_pod_running("mysql", "mysql.yaml")
+
+
+def _ensure_objectstore_service(ns: argparse.Namespace):
+    """Point the `objectstore` Service at the selected backend's Pod.
+
+    Applied on every create and sync, so clusters created before the Service
+    was renamed from `minio` get it too. A legacy NodePort `minio` Service is
+    removed first because it holds NodePorts 30007/30008, which `objectstore`
+    needs. A ClusterIP `minio` alias (no NodePorts) is kept so configs that
+    still say `minio:9091` (older ConfigMaps, custom configs) keep resolving.
+    """
+    pod = "seaweedfs" if ns.object_store == "seaweedfs" else "minio"
+    legacy_type = subprocess.run(
+        ["kubectl", "get", "svc", "minio", "-o", "jsonpath={.spec.type}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    if legacy_type == "NodePort":
+        subprocess.run(
+            ["kubectl", "delete", "svc", "minio", "--ignore-not-found=true"],
+            capture_output=True,
+            check=False,
+        )
+    with open(_dir / "resources" / "objectstore-service.yaml") as f:
+        service = yaml.safe_load(f)
+    service["spec"]["selector"] = {"app": pod}
+    alias = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": "minio", "labels": {"app": "objectstore"}},
+        "spec": {
+            "type": "ClusterIP",
+            "ports": [
+                {"port": p["port"], "name": p["name"]} for p in service["spec"]["ports"]
+            ],
+            "selector": {"app": pod},
+        },
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        rendered = Path(tmp) / "objectstore-service.yaml"
+        rendered.write_text(yaml.safe_dump_all([service, alias]))
+        _kube_apply(rendered)
+
+
+def _check_object_store_backend(ns: argparse.Namespace):
+    """Refuse to sync onto a cluster that runs the other object-store backend.
+
+    The backends keep separate data and share the `objectstore` Service, so
+    switching on a live cluster would leave two pods and an empty store.
+    """
+    other = "minio" if ns.object_store == "seaweedfs" else "seaweedfs"
+    exists = (
+        subprocess.run(
+            ["kubectl", "get", "pod", other], capture_output=True, check=False
+        ).returncode
+        == 0
+    )
+    if exists:
+        flag = "minio" if other == "seaweedfs" else "seaweedfs"
+        sys.exit(
+            f"This cluster runs the {other} object store but --object-store is "
+            f"{ns.object_store}. Pass --object-store {other} to sync it, or run "
+            f"`ma sandbox delete` and `ma sandbox create --object-store {flag}` "
+            f"to switch (data is not carried over)."
+        )
+
+
+def _ensure_object_store_running(ns: argparse.Namespace):
+    """Make sure the object-store pod is up; pipeline registration uploads to it.
+
+    Only the selected backend's pod is checked: applying the other backend's
+    manifest would also re-point the shared `objectstore` Service at it.
+    """
+    if ns.object_store == "seaweedfs":
+        _ensure_pod_running("seaweedfs", "weed-server.yaml")
+    else:
+        _ensure_pod_running("minio", "minio.yaml")
 
 
 def _refresh_mysql_schema():
@@ -815,23 +1038,40 @@ def _deploy_services(ns: argparse.Namespace):
             check=False,
         )
 
-    # MinIO
+    # Object storage. Regardless of backend, the Kubernetes Service is named
+    # "objectstore" with NodePorts 9090/9091 so that consumers
+    # (sandbox-bucket-setup.yaml, history-server.yaml, michelangelo-config.yaml,
+    # etc.) never need to change.
 
-    resources.append("minio.yaml")
-    links.append(
-        (
-            "MinIO Console",
-            "http://localhost:9090",
-            "[Username: minioadmin; Password: minioadmin]",
+    _ensure_objectstore_service(ns)
+
+    if ns.object_store == "seaweedfs":
+        resources.append("weed-server.yaml")
+        # SeaweedFS's all-in-one server mode has no MinIO-console-equivalent
+        # admin UI on port 9090, so no console link is printed for this
+        # backend. This is intentional, not a gap: the sandbox intentionally
+        # stays on the lightweight single-Pod `weed server` all-in-one mode
+        # for fast spin-up/teardown, rather than SeaweedFS's full
+        # master/volume/filer/admin topology. A real admin UI/file browser
+        # requires running SeaweedFS's official Helm chart separately
+        # (https://seaweedfs.github.io/seaweedfs/helm, `admin.enabled`) —
+        # not available through this sandbox CLI today.
+    else:
+        resources.append("minio.yaml")
+        links.append(
+            (
+                "MinIO Console",
+                "http://localhost:9090",
+                "[Username: michelangeloadmin; Password: michelangeloadmin]",
+            )
         )
-    )
 
     # KubeRay History Server (core resource, deployed alongside MinIO)
     resources.append("history-server.yaml")
     links.append(
         (
             "Ray History Server",
-            "http://localhost:3001",
+            "http://localhost:3001/select_cluster",
             "",
         )
     )
@@ -907,6 +1147,10 @@ def _deploy_services(ns: argparse.Namespace):
         # helm repo list returns non-zero exit status when no repositories
         # are configured
         helm_existing_repos = ""
+
+    # The History Server above is deployed even with --exclude ray, so its
+    # images are imported outside the KubeRay operator step.
+    _import_log_persistence_images()
 
     if "ray" not in ns.exclude:
         _create_kuberay_operator(helm_existing_repos)
@@ -1032,7 +1276,7 @@ def _create_kuberay_operator(helm_existing_repos):
         "kuberay-operator",
         "kuberay/kuberay-operator",
         "--version",
-        "1.4.2",
+        "1.7.1",
         "--namespace",
         "ray-system",
         "--create-namespace",
@@ -1041,45 +1285,83 @@ def _create_kuberay_operator(helm_existing_repos):
         "20m",
     )
 
-    _import_kuberay_images()
 
-
-_KUBERAY_IMAGES = [
-    "ghcr.io/michelangelo-ai/kuberay-collector:main",
-    "ghcr.io/michelangelo-ai/kuberay-historyserver:main",
+_LOG_PERSISTENCE_IMAGES = [
+    # KubeRay log persistence: collector sidecar + History Server API.
+    "quay.io/kuberay/collector:v1.7.1",
+    "quay.io/kuberay/historyserver:v1.7.1",
+    # History Server frontend (resources/history-server.yaml): nginx serves the
+    # Ray Dashboard build copied out of the Ray image. Keep the Ray tag on the
+    # version the collector targets so the dashboard matches the replayed API.
+    "rayproject/ray:2.55.0",
+    "nginx:1.27-alpine",
 ]
 
 
-def _import_kuberay_images():
-    """Pull kuberay images from GHCR and import them into k3d.
+def _import_log_persistence_images():
+    """Pull the Ray log-persistence images and import them into k3d.
 
+    Pulling on the host rather than letting the node do it keeps working
+    behind corporate TLS interception, where the k3d node trusts no extra CA.
+    When the pull fails, a copy already on the host is imported instead.
     Non-fatal: prints a warning on failure since the collector sidecar and
-    history server are optional for basic sandbox usage.
+    history server are optional for basic sandbox usage, and the pods use
+    imagePullPolicy IfNotPresent so the node still pulls what is missing.
     """
-    for image in _KUBERAY_IMAGES:
+    for image in _LOG_PERSISTENCE_IMAGES:
         print(f"Importing {image} into k3d...")
         pull = subprocess.run(
             ["docker", "pull", image],
             capture_output=True,
         )
         if pull.returncode != 0:
-            print(f"Warning: could not pull {image}. Skipping.")
-            continue
+            local = subprocess.run(
+                ["docker", "image", "inspect", image],
+                capture_output=True,
+            )
+            if local.returncode != 0:
+                print(f"Warning: could not pull {image}. Skipping.")
+                continue
+            print(f"Warning: could not pull {image}; importing the local copy.")
+        if _k3d_import_image(image):
+            print(f"Successfully imported {image} into k3d.")
+        else:
+            print(f"Warning: could not import {image} into k3d.")
+
+
+def _k3d_import_image(image: str) -> bool:
+    """Import a host image into the sandbox's k3d nodes; True on success.
+
+    ``k3d image import <image>`` exits 0 yet imports nothing when Docker uses
+    the containerd image store: it saves a multi-platform archive whose other
+    platforms were never pulled, and the nodes skip it. Saving only the
+    Docker server's platform to a tarball and importing that works with
+    either image store. Docker without ``docker save --platform`` falls back
+    to the plain import, which works with the classic image store.
+    """
+    platform = subprocess.run(
+        ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = str(Path(tmp) / "image.tar")
+        save = subprocess.run(
+            ["docker", "save", "--platform", platform, "-o", archive, image],
+            capture_output=True,
+        )
         result = subprocess.run(
             [
                 "k3d",
                 "image",
                 "import",
-                image,
+                archive if save.returncode == 0 else image,
                 "-c",
                 _michelangelo_sandbox_kube_cluster_name,
             ],
             capture_output=True,
         )
-        if result.returncode != 0:
-            print(f"Warning: could not import {image} into k3d.")
-        else:
-            print(f"Successfully imported {image} into k3d.")
+    return result.returncode == 0
 
 
 def _create_cadence_domain(links):
@@ -1141,13 +1423,8 @@ def _create_cadence_domain(links):
     sys.exit(result.returncode)
 
 
-def _create_demo_crs(ns: argparse.Namespace):
-    """Create demo Custom Resources (CRs) for the sandbox environment."""
-    assert ns
-    if ns.demo_action != "pipeline" and ns.demo_action != "inference":
-        raise ValueError(f"Unsupported demo action: {ns.demo_action}")
-
-    # Check if cluster exists
+def _assert_sandbox_cluster_running():
+    """Ensure the sandbox cluster exists and is running, or exit with a hint."""
     try:
         _exec(
             "k3d",
@@ -1162,7 +1439,6 @@ def _create_demo_crs(ns: argparse.Namespace):
             "Please run 'ma sandbox create' first."
         )
 
-    # Check if cluster is running
     try:
         _exec("kubectl", "cluster-info", raise_error=True)
     except subprocess.CalledProcessError:
@@ -1170,6 +1446,15 @@ def _create_demo_crs(ns: argparse.Namespace):
             f"Cluster {_michelangelo_sandbox_kube_cluster_name} is not running. "
             "Please run 'ma sandbox start' first."
         )
+
+
+def _create_demo_crs(ns: argparse.Namespace):
+    """Create demo Custom Resources (CRs) for the sandbox environment."""
+    assert ns
+    if ns.demo_action not in ("pipeline", "inference", "inference-multicluster"):
+        raise ValueError(f"Unsupported demo action: {ns.demo_action}")
+
+    _assert_sandbox_cluster_running()
 
     # Create CRs used by all demo resources
     demo_dir = _dir / "demo"
@@ -1195,8 +1480,147 @@ def _create_demo_crs(ns: argparse.Namespace):
         _create_pipeline_demo_crs()
     elif ns.demo_action == "inference":
         _create_inference_demo_crs()
+    elif ns.demo_action == "inference-multicluster":
+        _create_inference_multicluster_demo_crs()
     else:
         raise ValueError(f"Unsupported demo action: {ns.demo_action}")
+
+
+def _snapshot(ns: argparse.Namespace):
+    """Dispatch `ma sandbox snapshot` to its create/restore action."""
+    assert ns
+    if ns.snapshot_action == "create":
+        return _snapshot_create(ns)
+    if ns.snapshot_action == "restore":
+        return _snapshot_restore(ns)
+    raise ValueError(f"Unsupported snapshot action: {ns.snapshot_action}")
+
+
+def _snapshot_kube_context() -> str:
+    return f"k3d-{_michelangelo_sandbox_kube_cluster_name}"
+
+
+def _snapshot_dir(timestamp: str) -> Path:
+    return _dir / "snapshots" / timestamp
+
+
+def _discover_michelangelo_kinds(context: str) -> list[str]:
+    """Discover plural resource names for every Michelangelo CRD in the cluster.
+
+    Uses `kubectl api-resources` rather than a hardcoded kind list so newly
+    added CRDs are picked up automatically.
+    """
+    result = subprocess.run(
+        [
+            "kubectl",
+            "--context",
+            context,
+            "api-resources",
+            f"--api-group={_snapshot_api_group}",
+            "-o",
+            "name",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _strip_volatile_fields(item: dict):
+    """Strip volatile identity/bookkeeping fields from a resource in place."""
+    metadata = item.get("metadata", {})
+    for field in _snapshot_strip_metadata_fields:
+        metadata.pop(field, None)
+    annotations = metadata.get("annotations")
+    if annotations:
+        for key in _snapshot_strip_annotations:
+            annotations.pop(key, None)
+        if not annotations:
+            metadata.pop("annotations", None)
+
+
+def _snapshot_create(ns: argparse.Namespace):
+    """Capture every Michelangelo CRD in the cluster to a timestamped directory."""
+    assert ns
+    _assert_sandbox_cluster_running()
+    context = _snapshot_kube_context()
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir = _snapshot_dir(timestamp)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    captured_kinds = []
+    for kind in _discover_michelangelo_kinds(context):
+        result = subprocess.run(
+            ["kubectl", "--context", context, "get", kind, "-A", "-o", "yaml"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        doc = yaml.safe_load(result.stdout) or {}
+        items = doc.get("items") or []
+        if not items:
+            continue
+
+        for item in items:
+            _strip_volatile_fields(item)
+
+        kind_name = kind.split(".", 1)[0]
+        with open(out_dir / f"{kind_name}.yaml", "w") as f:
+            yaml.safe_dump(
+                {"apiVersion": "v1", "kind": "List", "items": items},
+                f,
+                sort_keys=False,
+            )
+        captured_kinds.append(kind_name)
+
+    print(f"\n📸 Snapshot captured at {out_dir}")
+    if captured_kinds:
+        print("Captured kinds:")
+        for kind_name in captured_kinds:
+            print(f"  - {kind_name}")
+    else:
+        print("No Michelangelo resources found in the cluster.")
+
+
+def _snapshot_restore(ns: argparse.Namespace):
+    """Replay a previously captured snapshot into the cluster.
+
+    `projects.yaml` (if present) is applied first, after ensuring each
+    project's namespace exists — namespaces are assumed to correspond 1:1
+    with projects. Every other `<kind>.yaml` file is then applied in any
+    order; nothing in the cluster enforces that a Project must exist before
+    other CRs are created, so this ordering is a courtesy, not a correctness
+    requirement.
+    """
+    assert ns
+    _assert_sandbox_cluster_running()
+    context = _snapshot_kube_context()
+
+    # Accept a bare timestamp ("20260807-104041") or a full/relative path to
+    # the snapshot directory (e.g. copy-pasted from `create`'s output) —
+    # only the final path segment is significant.
+    snapshot_path = _snapshot_dir(Path(ns.timestamp).name)
+    if not snapshot_path.is_dir():
+        _err_exit(f"Snapshot not found: {snapshot_path}")
+
+    projects_file = snapshot_path / "projects.yaml"
+    if projects_file.exists():
+        with open(projects_file) as f:
+            doc = yaml.safe_load(f) or {}
+        for project in doc.get("items") or []:
+            namespace = project.get("metadata", {}).get("namespace")
+            if namespace:
+                _ensure_namespace_exists(namespace)
+        _kube_apply(projects_file, context=context)
+
+    for yaml_file in sorted(snapshot_path.glob("*.yaml")):
+        if yaml_file == projects_file:
+            continue
+        _kube_apply(yaml_file, context=context)
+
+    print(f"\n✅ Restored snapshot from {snapshot_path}")
 
 
 def _delete(ns: argparse.Namespace):
@@ -1215,6 +1639,20 @@ def _delete(ns: argparse.Namespace):
         if ns.compute_cluster_name
         else _default_compute_kube_cluster_name
     )
+
+    # Tear down any remote inference clusters created by
+    # `ma sandbox demo inference-multicluster`.
+    for inf_cluster in _inference_compute_cluster_names:
+        try:
+            subprocess.check_output(
+                ["k3d", "cluster", "get", inf_cluster], stderr=subprocess.DEVNULL
+            )
+            _exec("k3d", "cluster", "delete", inf_cluster)
+        except subprocess.CalledProcessError:
+            print(
+                f"Inference compute cluster '{inf_cluster}' not found, "
+                "skipping deletion."
+            )
 
     # Check if compute cluster exists before attempting to delete
     try:
@@ -1246,12 +1684,12 @@ def _kube_create(path: Path):
 
 
 def _ensure_credentials_secret():
-    """Create object-storage-credentials and aws-credentials Secrets only if absent.
+    """Create the sandbox credentials Secrets only if absent.
 
     This is deliberately create-only: a sandbox VM that was pre-configured
     with non-default credentials (e.g. the GCP CI runner) keeps its own
     values across every ``ma sandbox sync`` run.  Local dev gets the
-    default minioadmin credentials from the YAML files on first create.
+    default michelangeloadmin credentials from the YAML files on first create.
     """
     for secret_name, yaml_file in [
         ("object-storage-credentials", "object-storage-credentials.yaml"),
@@ -1279,7 +1717,7 @@ def _sync_config_from_secret():
     """Patch michelangelo-config ConfigMap credentials from object-storage-credentials.
 
     Ray pods consume the michelangelo-config ConfigMap via envFrom. After the
-    ConfigMap is (re)applied from the YAML file (which contains minioadmin
+    ConfigMap is (re)applied from the YAML file (which contains michelangeloadmin
     defaults), this function overwrites the credential fields with whatever
     is actually in the object-storage-credentials Secret, so all consumers see
     the same credentials.
@@ -1322,8 +1760,135 @@ def _sync_config_from_secret():
     )
 
 
-def _kube_apply(path: Path):
-    _exec("kubectl", "apply", "-f", str(path))
+def _kube_apply(path: Path, context: Optional[str] = None):
+    args = ["kubectl"]
+    if context:
+        args += ["--context", context]
+    args += ["apply", "-f", str(path)]
+    _exec(*args)
+
+
+def _apply_model_sync(
+    is_name: str, namespace: str = "default", context: Optional[str] = None
+):
+    """Apply the model-sync ConfigMap (Python script) and DaemonSet for one IS.
+
+    Two-step apply:
+    - (1) idempotently load resources/sync-models.py into the
+    `model-sync-script` ConfigMap,
+    - (2) render IS_NAME/NAMESPACE into model-sync.yaml.tmpl and apply the resulting
+    DaemonSet, in the same namespace as the InferenceServer/Triton pods it
+    reconciles, so its ConfigMap volume mounts (${IS_NAME}-model-config) resolve
+    correctly and (via the POD_NAMESPACE Downward API env var) so it looks up the
+    Triton Service's endpoints in the right namespace.
+    Waits for the resulting DaemonSet to roll out.
+    """
+    script_path = _dir / "resources" / "sync-models.py"
+    template_path = _dir / "resources" / "model-sync.yaml.tmpl"
+    if not script_path.exists() or not template_path.exists():
+        _err_exit(f"❌ Model-sync sources missing: {script_path}, {template_path}")
+
+    base_kubectl = ["kubectl"]
+    if context:
+        base_kubectl += ["--context", context]
+
+    cm_yaml = subprocess.run(
+        [
+            *base_kubectl,
+            "create",
+            "configmap",
+            "model-sync-script",
+            f"--from-file=sync-models.py={script_path}",
+            "-n",
+            namespace,
+            "--dry-run=client",
+            "-o",
+            "yaml",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    subprocess.run(
+        [*base_kubectl, "apply", "-f", "-"],
+        input=cm_yaml,
+        check=True,
+        text=True,
+    )
+
+    rendered = string.Template(template_path.read_text()).safe_substitute(
+        IS_NAME=is_name, NAMESPACE=namespace
+    )
+    subprocess.run(
+        [*base_kubectl, "apply", "-f", "-"],
+        input=rendered,
+        check=True,
+        text=True,
+    )
+
+    try:
+        _exec(
+            *base_kubectl,
+            "rollout",
+            "status",
+            "daemonset/model-sync",
+            "-n",
+            namespace,
+            "--timeout=120s",
+            raise_error=True,
+        )
+    except subprocess.CalledProcessError:
+        _err_exit(
+            "Model-sync DaemonSet failed to become ready.\n"
+            f"Check logs: kubectl {' '.join(base_kubectl[1:])} "
+            f"logs daemonset/model-sync -n {namespace}"
+        )
+
+
+def _deploy_model_sync_for_inference_server(is_yaml_path: Path, is_name: str):
+    """Deploy model-sync to every cluster listed in the IS spec's clusterTargets.
+
+    Deploys into the same namespace as the InferenceServer CR itself (not always
+    "default" — e.g. pipeline-created inference servers like "bert-cola-is" live in
+    their own project namespace), since the DaemonSet's ConfigMap volume mount for
+    ${IS_NAME}-model-config only resolves within its own namespace.
+
+    Also creates the prerequisite michelangelo-config ConfigMap and aws-credentials
+    Secret in that namespace: for non-local clusters this is always required, and
+    for the local sandbox cluster it's only skippable when the target namespace is
+    "default", which already has these from earlier sandbox setup.
+
+    Falls back to the local context if clusterTargets is missing or empty.
+    """
+    with open(is_yaml_path) as f:
+        is_yaml = yaml.safe_load(f)
+    cluster_targets = is_yaml.get("spec", {}).get("clusterTargets") or []
+    namespace = is_yaml.get("metadata", {}).get("namespace", "default")
+
+    if not cluster_targets:
+        print("⚠ No clusterTargets in IS spec, deploying model-sync to local cluster")
+        if namespace != "default":
+            _ensure_namespace_exists(namespace)
+            _create_config_in_compute_cluster(
+                _michelangelo_sandbox_kube_cluster_name, namespace=namespace
+            )
+            _create_aws_credentials_in_cluster(
+                _michelangelo_sandbox_kube_cluster_name, namespace=namespace
+            )
+        _apply_model_sync(is_name, namespace=namespace)
+        return
+
+    for target in cluster_targets:
+        cluster_id = target["clusterId"]
+        is_local = cluster_id == _michelangelo_sandbox_kube_cluster_name
+        ctx = f"k3d-{cluster_id}"
+        print(f"✅ Deploying model-sync to cluster '{cluster_id}'...")
+        if not is_local or namespace != "default":
+            if namespace != "default":
+                _ensure_namespace_exists(namespace, context=ctx)
+            _create_config_in_compute_cluster(cluster_id, namespace=namespace)
+            _create_aws_credentials_in_cluster(cluster_id, namespace=namespace)
+        _apply_model_sync(is_name, namespace=namespace, context=ctx)
 
 
 def _kube_wait(pods: bool = True, jobs: bool = True, timeout: int = 600):
@@ -1521,7 +2086,7 @@ def _create_compute_cluster(cluster_name: str):
         "kuberay-operator",
         "kuberay/kuberay-operator",
         "--version",
-        "1.4.2",
+        "1.7.1",
         "--namespace",
         "ray-system",
         "--create-namespace",
@@ -1542,12 +2107,14 @@ def _create_compute_cluster(cluster_name: str):
     )
 
 
-def _create_config_in_compute_cluster(cluster_name: str):
+def _create_config_in_compute_cluster(cluster_name: str, namespace: str = "default"):
     """Create michelangelo-config ConfigMap in compute cluster."""
     config_path = _dir / "resources" / "michelangelo-config.yaml"
 
     with open(config_path) as f:
         config_data = yaml.safe_load(f)
+
+    config_data.setdefault("metadata", {})["namespace"] = namespace
 
     # Update MinIO endpoint to point to the control plane's MinIO within the shared
     # network k3d-michelangelo-sandbox-agent-0 is the hostname of the control plane's
@@ -1570,31 +2137,48 @@ def _create_config_in_compute_cluster(cluster_name: str):
             temp_config.name,
         )
 
-    print(f"Created michelangelo-config ConfigMap in cluster '{cluster_name}'")
-
-
-def _create_aws_credentials_in_cluster(cluster_name: str):
-    """Create aws-credentials Secret in compute cluster."""
-    _exec(
-        "kubectl",
-        "--context",
-        f"k3d-{cluster_name}",
-        "apply",
-        "-f",
-        str(_dir / "resources" / "aws-credentials.yaml"),
+    print(
+        f"Created michelangelo-config ConfigMap in cluster '{cluster_name}' "
+        f"namespace '{namespace}'"
     )
-    print(f"Created aws-credentials Secret in cluster '{cluster_name}'")
 
 
-def _ensure_namespace_exists(namespace: str):
-    """Ensure the namespace exists in the sandbox cluster."""
+def _create_aws_credentials_in_cluster(cluster_name: str, namespace: str = "default"):
+    """Create aws-credentials Secret in compute cluster."""
+    creds_path = _dir / "resources" / "aws-credentials.yaml"
+    with open(creds_path) as f:
+        creds_data = yaml.safe_load(f)
+    creds_data.setdefault("metadata", {})["namespace"] = namespace
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as temp_creds:
+        yaml.dump(creds_data, temp_creds)
+        temp_creds.flush()
+
+        _exec(
+            "kubectl",
+            "--context",
+            f"k3d-{cluster_name}",
+            "apply",
+            "-f",
+            temp_creds.name,
+        )
+
+    print(
+        f"Created aws-credentials Secret in cluster '{cluster_name}' "
+        f"namespace '{namespace}'"
+    )
+
+
+def _ensure_namespace_exists(namespace: str, context: Optional[str] = None):
+    """Ensure the namespace exists in the given cluster (sandbox cluster by default)."""
+    ctx = context or f"k3d-{_michelangelo_sandbox_kube_cluster_name}"
     try:
         # Check if namespace already exists
         subprocess.check_output(
             [
                 "kubectl",
                 "--context",
-                f"k3d-{_michelangelo_sandbox_kube_cluster_name}",
+                ctx,
                 "get",
                 "namespace",
                 namespace,
@@ -1607,12 +2191,12 @@ def _ensure_namespace_exists(namespace: str):
         _exec(
             "kubectl",
             "--context",
-            f"k3d-{_michelangelo_sandbox_kube_cluster_name}",
+            ctx,
             "create",
             "namespace",
             namespace,
         )
-        print(f"Created namespace '{namespace}' in the sandbox cluster.")
+        print(f"Created namespace '{namespace}' in cluster '{ctx}'.")
 
 
 # Given a cluster name, create a Cluster CRD in the sandbox cluster
@@ -1773,6 +2357,136 @@ def _create_compute_cluster_secrets(cluster_name: str):
     print(f"\nCreated secrets for cluster '{cluster_name}' in the sandbox cluster")
 
 
+def _create_inference_compute_cluster(cluster_name: str):
+    """Create a k3d cluster used as a remote target by the inference controller.
+
+    Idempotent: if the k3d
+    cluster already exists, only the prerequisite ConfigMap and Secret are
+    re-applied.
+    """
+    exists = (
+        subprocess.run(
+            ["k3d", "cluster", "get", cluster_name],
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+    if exists:
+        print(f"k3d cluster '{cluster_name}' already exists, skipping creation")
+    else:
+        _exec(
+            "k3d",
+            "cluster",
+            "create",
+            cluster_name,
+            "--servers",
+            "1",
+            "--agents",
+            "1",
+            "--kubeconfig-switch-context=false",
+            # Share the docker network with the sandbox so pods can reach
+            # MinIO at k3d-michelangelo-sandbox-agent-0:30007 and so the
+            # control plane can reach this cluster's API server at
+            # https://k3d-<cluster_name>-server-0:6443.
+            "--network",
+            f"k3d-{_michelangelo_sandbox_kube_cluster_name}",
+        )
+
+    # Always re-run the storage prereqs so re-applies pick up MinIO endpoint
+    # changes and the Triton image-pull buffering has the AWS secret available.
+    _create_config_in_compute_cluster(cluster_name)
+    _create_aws_credentials_in_cluster(cluster_name)
+
+
+def _setup_inference_server_remote_secrets(cluster_name: str):
+    """Provision IS-token + CA-data Secrets in the SANDBOX cluster for a remote target.
+
+    The inference controller runs in the sandbox cluster and reads these
+    Secrets (named via the IS spec's `tokenTag`/`caDataTag`) to build a
+    kubeconfig that can call the remote cluster's API server.
+
+    Steps:
+    1. Apply rbac-inferenceserver.yaml in the REMOTE cluster to create the
+       inference-server-manager ServiceAccount and ClusterRoleBinding so the
+       minted token has permission to create Deployments/Services/HTTPRoutes.
+    2. Mint a long-lived token for that SA in the REMOTE cluster.
+    3. Pull the CA cert from the REMOTE cluster's kubeconfig.
+    4. Write `cluster-<name>-is-token` and `cluster-<name>-ca-data` Secrets
+       into the SANDBOX cluster (control plane).
+    """
+    remote_ctx = f"k3d-{cluster_name}"
+    sandbox_ctx = f"k3d-{_michelangelo_sandbox_kube_cluster_name}"
+
+    print(f"Setting up inference-server-manager RBAC in '{cluster_name}'...")
+    _exec(
+        "kubectl",
+        "--context",
+        remote_ctx,
+        "apply",
+        "-f",
+        str(_dir / "resources" / "rbac-inferenceserver.yaml"),
+    )
+
+    token_decoded = (
+        subprocess.check_output(
+            [
+                "kubectl",
+                "--context",
+                remote_ctx,
+                "create",
+                "token",
+                "inference-server-manager",
+                "-n",
+                "default",
+                "--duration=87600h",
+            ]
+        )
+        .decode()
+        .strip()
+    )
+
+    kubeconfig = subprocess.check_output(
+        ["k3d", "kubeconfig", "get", cluster_name]
+    ).decode()
+    kubeconfig_data = yaml.safe_load(kubeconfig)
+    ca_data = kubeconfig_data["clusters"][0]["cluster"].get(
+        "certificate-authority-data"
+    )
+    if not ca_data:
+        raise ValueError(
+            f"certificate-authority-data missing from kubeconfig for {cluster_name}"
+        )
+    ca_data_decoded = base64.b64decode(ca_data).decode()
+
+    secrets = [
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": f"cluster-{cluster_name}-is-token",
+                "namespace": "default",
+            },
+            "stringData": {"token": token_decoded},
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": f"cluster-{cluster_name}-ca-data",
+                "namespace": "default",
+            },
+            "stringData": {"cadata": ca_data_decoded},
+        },
+    ]
+    for secret in secrets:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as f:
+            yaml.dump(secret, f)
+            f.flush()
+            _exec("kubectl", "--context", sandbox_ctx, "apply", "-f", f.name)
+
+    print(f"Created IS-token + CA-data Secrets in sandbox for cluster '{cluster_name}'")
+
+
 def _setup_inference_server_secrets():
     """Create RBAC and credentials for inference server cluster access.
 
@@ -1838,6 +2552,21 @@ def _setup_inference_server_secrets():
     print(f"Created inference server credentials for cluster '{cluster_name}'")
 
 
+def _apply_demo_model(demo_dir: Path):
+    """Register the demo's Model CR in the sandbox (control-plane) cluster.
+
+    The deployment controller resolves `spec.desiredRevision` to this CR and reads the
+    artifact location from `spec.deployableArtifactUri`, so the Model has to exist
+    before a Deployment referencing it is applied.
+    """
+    model_path = demo_dir / "model.yaml"
+    if not model_path.exists():
+        _err_exit(f"❌ Model CR not found at {model_path}, exiting...")
+
+    print("✅ Registering demo Model...")
+    _kube_apply(model_path)
+
+
 def _create_inference_demo_crs():
     """Create an inference server for the sandbox cluster for demo purposes."""
     print("🚀 Setting up Michelangelo AI Inference Demo...")
@@ -1851,6 +2580,8 @@ def _create_inference_demo_crs():
     _setup_inference_server_secrets()
 
     inference_demo_dir = _dir / "demo" / "inference"
+    _apply_demo_model(inference_demo_dir)
+
     # Create inference server CR
     inference_server_path = inference_demo_dir / "inferenceserver.yaml"
     if not inference_server_path.exists():
@@ -1895,38 +2626,10 @@ def _create_inference_demo_crs():
                 kubectl logs -l app=inference-server -n {inference_server_namespace}"
         )
 
-    # Deploy model-sync Deployment
-    model_sync_deployment_path = _dir / "resources" / "model-sync.yaml"
-    if not model_sync_deployment_path.exists():
-        _err_exit(
-            f"❌ Model-sync Deployment not found at {model_sync_deployment_path},\
-                exiting..."
-        )
-
-    print("✅ Deploying model-sync Deployment...")
-    _kube_apply(model_sync_deployment_path)
-
-    # Wait for Deployment to be ready
-    print("⏳ Waiting for model-sync Deployment to be ready...")
-    try:
-        _exec(
-            "kubectl",
-            "rollout",
-            "status",
-            "deployment/model-sync",
-            "-n",
-            "default",
-            "--timeout=60s",
-            raise_error=True,
-        )
-        print("✅ Model-sync Deployment is ready!")
-    except subprocess.CalledProcessError:
-        _err_exit(
-            "Model-sync Deployment failed to become ready after 60s.\n"
-            "Check status with:\n"
-            "kubectl get deployments model-sync -n default -o yaml\n"
-            "Check logs with: kubectl logs deployment/model-sync -n default"
-        )
+    # Deploy model-sync to every cluster the IS targets (single or multi).
+    _deploy_model_sync_for_inference_server(
+        inference_server_path, inference_server_name
+    )
 
     print("✅ Inference demo resources created successfully")
 
@@ -1941,13 +2644,13 @@ def _create_inference_demo_crs():
         "🌐 Deployment-agnostic endpoint:\
             Use the following URL to test the inference server"
     )
-    print("  http://localhost:8080/inference-server-example")
+    print("  http://localhost:8880/inference-server-example")
     print(
         "  For example,\
             to test inference of a model deployed to the above inference server:\n"
     )
     print(
-        "  curl -X POST http://localhost:8080/inference-server-example/<deployment-name>/infer \\"  # noqa: E501
+        "  curl -X POST http://localhost:8880/inference-server-example/<deployment-name>/infer \\"  # noqa: E501
     )
     print('  -H "Content-Type: application/json" \\')
     print("  -d '{")
@@ -1968,7 +2671,102 @@ def _create_inference_demo_crs():
     print("}'")
 
 
-def _setup_istio_with_gateway_api():
+def _create_inference_multicluster_demo_crs():
+    """Create a multi-cluster inference server demo.
+
+    End-to-end orchestration:
+    1. For each entry in `_inference_compute_cluster_names`:
+       - Create a k3d cluster on the sandbox docker network (idempotent).
+       - Install Istio + Gateway API CRDs in that cluster (HTTPRoutes need them).
+       - Apply inference-server-manager RBAC in that cluster, mint a token, and
+         write `cluster-<name>-is-token` + `cluster-<name>-ca-data` Secrets into
+         the SANDBOX cluster so the controller can reach the remote API server.
+    2. Set up local sandbox cluster as before (Istio+gateway already up from
+       earlier sandbox bring-up; reuse `_setup_inference_server_secrets()`).
+    3. Apply the multi-cluster InferenceServer CR.
+    4. Wait for status to reach SERVING.
+    5. Deploy model-sync to every clusterTarget via the shared helper.
+    """
+    print("🚀 Setting up Michelangelo AI Multi-Cluster Inference Demo...")
+
+    # Local sandbox: Istio + Gateway API + IS RBAC/credentials.
+    _setup_istio_with_gateway_api()
+    _setup_inference_server_secrets()
+
+    # Each remote cluster: k3d, Istio + Gateway API, IS RBAC + token + CA.
+    for cluster_name in _inference_compute_cluster_names:
+        print(f"\n— Bringing up remote cluster '{cluster_name}' —")
+        _create_inference_compute_cluster(cluster_name)
+        _setup_istio_with_gateway_api(context=f"k3d-{cluster_name}")
+        _setup_inference_server_remote_secrets(cluster_name)
+
+    inference_demo_dir = _dir / "demo" / "inference-multicluster"
+    _apply_demo_model(inference_demo_dir)
+
+    inference_server_path = inference_demo_dir / "inferenceserver.yaml"
+    if not inference_server_path.exists():
+        _err_exit(
+            f"❌ Multi-cluster IS CR not found at {inference_server_path}, exiting..."
+        )
+
+    print("\n✅ Creating multi-cluster Triton InferenceServer...")
+    _kube_apply(inference_server_path)
+
+    with open(inference_server_path) as f:
+        inference_server_yaml = yaml.safe_load(f)
+    inference_server_name = inference_server_yaml["metadata"]["name"]
+    inference_server_namespace = inference_server_yaml["metadata"].get(
+        "namespace", "default"
+    )
+
+    print(f"⏳ Waiting for inference server '{inference_server_name}' to be ready...")
+    print(
+        "   (per-cluster Triton image pulls happen in parallel; first time can"
+        " take 10+ minutes per cluster)"
+    )
+    try:
+        _exec(
+            "kubectl",
+            "wait",
+            "--for=jsonpath=.status.state=INFERENCE_SERVER_STATE_SERVING",
+            f"inferenceservers.michelangelo.api/{inference_server_name}",
+            "-n",
+            inference_server_namespace,
+            "--timeout=1200s",
+            raise_error=True,
+        )
+        print("✅ Inference server is ready in all target clusters!")
+    except subprocess.CalledProcessError:
+        _err_exit(
+            f"Inference server '{inference_server_name}' "
+            "failed to become ready after 1200s.\n"
+            "Check status with:\n"
+            f"kubectl get inferenceservers.michelangelo.api "
+            f"{inference_server_name} -n {inference_server_namespace} -o yaml"
+        )
+
+    # Per-cluster model-sync (the helper iterates spec.clusterTargets).
+    _deploy_model_sync_for_inference_server(
+        inference_server_path, inference_server_name
+    )
+
+    print("\n🎉 Multi-cluster inference demo created successfully!")
+    print("📋 What was set up:")
+    print(
+        f"  • Sandbox cluster + remote clusters: "
+        f"{', '.join(_inference_compute_cluster_names)}"
+    )
+    print("  • Istio + Gateway API on every cluster")
+    print("  • inference-server-manager RBAC + bearer-token Secrets per target")
+    print("  • Multi-cluster Triton InferenceServer (per-cluster Tritons)")
+    print("  • model-sync DaemonSet in every target cluster")
+    print(
+        f"\n🌐 Endpoint (sandbox-side fanout): "
+        f"http://localhost:8880/{inference_server_name}/<deployment-name>/infer"
+    )
+
+
+def _setup_istio_with_gateway_api(context: Optional[str] = None):
     """Install Istio service mesh with Kubernetes Gateway API support.
 
     This function:
@@ -1976,8 +2774,16 @@ def _setup_istio_with_gateway_api():
     2. Installs Kubernetes Gateway API CRDs
     3. Installs Istio control plane (istiod)
     4. Creates the Gateway CR which triggers Istio to auto-provision the gateway
+
+    When context is provided, all kubectl/helm operations target that cluster.
+    The port-forward for the local sandbox gateway is only started when no
+    context is provided (i.e. for the default sandbox cluster).
     """
-    print("Setting up Istio service mesh with Gateway API...")
+    target_label = context or "local sandbox cluster"
+    print(f"Setting up Istio service mesh with Gateway API on {target_label}...")
+
+    helm_ctx = ["--kube-context", context] if context else []
+    kubectl_ctx = ["--context", context] if context else []
 
     # Fetch existing Helm repositories
     try:
@@ -2000,6 +2806,7 @@ def _setup_istio_with_gateway_api():
     print("Installing/upgrading Istio base...")
     _exec(
         "helm",
+        *helm_ctx,
         "upgrade",
         "--install",
         "istio-base",
@@ -2015,12 +2822,14 @@ def _setup_istio_with_gateway_api():
     print("Installing Gateway API CRDs...")
     _exec(
         "kubectl",
+        *kubectl_ctx,
         "apply",
         "-f",
         "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml",
     )
     _exec(
         "kubectl",
+        *kubectl_ctx,
         "wait",
         "--for=condition=Established",
         "crd/gateways.gateway.networking.k8s.io",
@@ -2033,6 +2842,7 @@ def _setup_istio_with_gateway_api():
     print("Installing/upgrading Istio control plane...")
     _exec(
         "helm",
+        *helm_ctx,
         "upgrade",
         "--install",
         "istiod",
@@ -2045,6 +2855,7 @@ def _setup_istio_with_gateway_api():
     # Wait for Istio control plane to be ready
     _exec(
         "kubectl",
+        *kubectl_ctx,
         "wait",
         "--for=condition=available",
         "deployment",
@@ -2061,11 +2872,12 @@ def _setup_istio_with_gateway_api():
         _err_exit(f"❌ Gateway API setup not found at {gateway_setup_path}")
 
     print("Creating Gateway API Gateway CR...")
-    _kube_apply(gateway_setup_path)
+    _exec("kubectl", *kubectl_ctx, "apply", "-f", str(gateway_setup_path))
 
     # Wait for Gateway to be programmed (Istio provisions the gateway)
     _exec(
         "kubectl",
+        *kubectl_ctx,
         "wait",
         "--for=condition=Programmed",
         "gateway/ma-gateway",
@@ -2077,6 +2889,7 @@ def _setup_istio_with_gateway_api():
     # Print status for visibility
     _exec(
         "kubectl",
+        *kubectl_ctx,
         "get",
         "gateway",
         "ma-gateway",
@@ -2086,21 +2899,24 @@ def _setup_istio_with_gateway_api():
         "wide",
     )
 
-    # automatically perform port-forwarding in the background
-    subprocess.Popen(
-        [
-            "kubectl",
-            "-n",
-            "default",
-            "port-forward",
-            "svc/ma-gateway-istio",
-            "8080:80",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    if not context:
+        # Only port-forward the local sandbox gateway. Remote-cluster gateways
+        # are reached cluster-internally via the controller's discovery routes,
+        # not from the host machine.
+        subprocess.Popen(
+            [
+                "kubectl",
+                "-n",
+                "default",
+                "port-forward",
+                "svc/ma-gateway-istio",
+                "8880:80",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
-    print("✅ Istio with Gateway API setup complete")
+    print(f"✅ Istio with Gateway API setup complete on {target_label}")
 
 
 def _create_pipeline_demo_crs():

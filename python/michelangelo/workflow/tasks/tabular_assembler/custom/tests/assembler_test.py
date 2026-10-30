@@ -184,6 +184,10 @@ class CustomAssemblerTest(unittest.TestCase):
         self.assertTrue(os.path.exists(assembled.deployable_model.path))
         self.assertTrue(os.path.exists(assembled.raw_model.path))
 
+        # Default: both deployable and raw are uploaded as loose files.
+        self.assertTrue(os.path.isdir(assembled.deployable_model.path))
+        self.assertTrue(os.path.isdir(assembled.raw_model.path))
+
         pkg_kwargs = mock_create_model.call_args.kwargs
         self.assertTrue(
             np.array_equal(
@@ -240,6 +244,56 @@ class CustomAssemblerTest(unittest.TestCase):
         self.assertTrue(observed["is_dir"])
         self.assertEqual(observed["contents"], b"weights-xyz")
         self.assertEqual(observed["model_path_source_type"], StorageType.LOCAL)
+
+    @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_model_package")
+    @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_raw_model_package")
+    def test_single_file_raw_model_is_wrapped_into_directory(
+        self, mock_create_raw, mock_create_model
+    ):
+        """A raw model saved as one file reaches both packagers as a directory."""
+        src_file = os.path.join(self._tmp.name, "checkpoint.pt")
+        with open(src_file, "wb") as f:
+            f.write(b"single-file-weights")
+        file_uri = self.storage_backend.upload(src_file, "sources/checkpoint.pt")
+
+        observed: dict[str, dict[str, object]] = {}
+
+        def _observer(label: str):
+            def _observe(model_path, *, dest_model_path=None, **kwargs):
+                with open(os.path.join(model_path, "checkpoint.pt"), "rb") as f:
+                    contents = f.read()
+                observed[label] = {
+                    "is_dir": os.path.isdir(model_path),
+                    "files": sorted(os.listdir(model_path)),
+                    "contents": contents,
+                }
+                os.makedirs(dest_model_path, exist_ok=True)
+                return dest_model_path
+
+            return _observe
+
+        mock_create_model.side_effect = _observer("deployable")
+        mock_create_raw.side_effect = _observer("raw")
+
+        raw_model = ModelArtifact(
+            path=file_uri,
+            metadata=ModelMetadata(
+                model_class=CUSTOM_MODEL_CLASS_PATH,
+                _schema=BytesIO(pickle.dumps(_make_schema())),
+                _sample_data=BytesIO(pickle.dumps([{}])),
+            ),
+        )
+
+        custom_assembler(
+            TabularAssemblerConfig(),
+            raw_model,
+            storage_backend=self.storage_backend,
+        )
+
+        for label in ("deployable", "raw"):
+            self.assertTrue(observed[label]["is_dir"], label)
+            self.assertEqual(observed[label]["files"], ["checkpoint.pt"], label)
+            self.assertEqual(observed[label]["contents"], b"single-file-weights", label)
 
     @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_model_package")
     @patch(f"{_ASSEMBLER_MODULE}.CustomTritonPackager.create_raw_model_package")

@@ -5,15 +5,30 @@ sidebar_label: "Cascade Delete"
 
 # Pipeline Cascade Delete
 
-Deleting a Pipeline cascades to all of its child resources — PipelineRuns and TriggerRuns — in a single operation. This is the **default behavior**: there is no feature flag to enable. Each child's in-flight workflow (Spark/Ray job, Cadence/Temporal schedule) is cancelled gracefully first, its final state is preserved in MySQL, and only then is the child removed.
+Deleting a Pipeline cascades to all of its child resources — PipelineRuns, TriggerRuns, and Revisions — in a single operation. This is the **default behavior**: there is no feature flag to enable. PipelineRuns and TriggerRuns each have an in-flight workflow (Spark/Ray job, Cadence/Temporal schedule) that is cancelled gracefully first, with its final state preserved in MySQL, before the child is removed. Revisions carry no in-flight work — they are pure snapshots — so they are simply soft-deleted (see [Revisions are soft-deleted, not retained](#revisions-are-soft-deleted-not-retained)).
 
 It is built on Kubernetes [foreground garbage collection](https://kubernetes.io/docs/concepts/architecture/garbage-collection/#foreground-deletion): the Pipeline is not removed until all children have been drained and deleted.
 
-There is exactly one cascade relationship: `Pipeline → {PipelineRun, TriggerRun}`. Deleting any other entity (Model, Deployment, …) does not cascade.
+There is one **delete** cascade relationship: `Pipeline → {PipelineRun, TriggerRun, Revision}`. Deleting any other entity (Model, Deployment, …) does not cascade.
 
 :::warning
-Cascade is on by default and **irreversible** — deleting a Pipeline terminates and removes all of its child runs. To keep the children, delete with the `orphan` propagation policy (see [Controlling cascade behavior](#controlling-cascade-behavior)).
+Cascade is on by default and **irreversible** — deleting a Pipeline terminates and removes all of its child runs, and soft-deletes its Revisions. To keep the children, delete with the `orphan` propagation policy (see [Controlling cascade behavior](#controlling-cascade-behavior)).
 :::
+
+## Cancel cascade (TriggerRun)
+
+Killing a TriggerRun, or deleting the Pipeline that owns it (which cascades to the TriggerRun), cancels the pipeline runs it started. The controller finds them by the `pipelinerun.michelangelo/triggered-by=<trigger-name>` label (child runs carry no ownerReference to their trigger) and sets `spec.kill=true` on each one. It doesn't delete them, so they stay in the run history as `KILLED`.
+
+Runs that are pending or running are cancelled, and so are runs in `INVALID`: a run the trigger just created that hasn't started yet. Cancelling it stops it from starting.
+
+To list a trigger's child runs:
+
+```bash
+kubectl get pipelineruns -n <namespace> -l pipelinerun.michelangelo/triggered-by=<trigger-name>
+```
+
+- **Kill:** the TriggerRun stays in `PENDING_KILL` until its child runs are terminal, then ends `KILLED` and stays visible. `PENDING_KILL` has no timeout: the controller keeps retrying the cancels and waits until every child stops. If a child run is stuck, kill that pipeline run directly.
+- **Delete:** the API refuses to delete a TriggerRun that is not `FAILED`, `KILLED` or `SUCCEEDED` (gRPC `FailedPrecondition`): kill it first. A TriggerRun removed by cascade from its Pipeline bypasses that check; its drain finalizer (see [Drain finalizers](#drain-finalizers)) is then held until its child runs are terminal, bounded by the same 24-hour [safety timeout](#safety-timeout).
 
 ## Controlling cascade behavior
 
@@ -32,15 +47,15 @@ The `ma pipeline delete` CLI always uses `foreground`. To opt out of cascade for
 **2. RBAC (who may delete).** Who may delete a Pipeline is governed by Kubernetes RBAC.
 
 :::danger
-**Garbage collection bypasses child-level RBAC.** The GC deletes children with the **controller's** permissions, not the caller's. A user who is permitted to delete a Pipeline therefore causes all of its PipelineRuns and TriggerRuns to be deleted **even if that user has no delete permission on the runs themselves**. Child-level RBAC does **not** protect runs from cascade. Restrict Pipeline-delete access accordingly.
+**Garbage collection bypasses child-level RBAC.** The GC deletes children with the **controller's** permissions, not the caller's. A user who is permitted to delete a Pipeline therefore causes all of its PipelineRuns, TriggerRuns, and Revisions to be deleted **even if that user has no delete permission on the children themselves**. Child-level RBAC does **not** protect children from cascade. Restrict Pipeline-delete access accordingly.
 :::
 
 ## How it works
 
 1. **User deletes a Pipeline** with `foreground` propagation (the CLI default).
-2. **Kubernetes GC stamps children for deletion.** PipelineRuns and TriggerRuns carry `ownerReferences` to the Pipeline (with `blockOwnerDeletion: true`), stamped at creation via API hooks; GC sets a `deletionTimestamp` on each child.
-3. **Drain finalizers cancel in-flight work.** A PipelineRun's drain finalizer cancels its Cadence/Temporal workflow; a TriggerRun's deletes the Temporal schedule (or Cadence cron) and terminates any open run. The finalizer is removed once the run reaches a terminal state.
-4. **Ingester retains final state.** While a child's drain finalizer is present, the ingester refreshes MySQL with the current state; once it is removed, the ingester upserts the final state and removes its own finalizer, deleting the child from etcd. The run history therefore survives in MySQL.
+2. **Kubernetes GC stamps children for deletion.** All three child kinds carry `ownerReferences` to the Pipeline (with `blockOwnerDeletion: true`). PipelineRuns and TriggerRuns get theirs stamped at creation via API hooks; Revisions get theirs stamped by the Pipeline controller itself, in the same reconcile that snapshots the Revision CR (Revisions have no external Create RPC to hook into — the Pipeline controller creates them directly). GC sets a `deletionTimestamp` on each child once stamped.
+3. **Drain finalizers cancel in-flight work — PipelineRun and TriggerRun only.** A PipelineRun's drain finalizer cancels its Cadence/Temporal workflow; a TriggerRun's deletes the Temporal schedule (or Cadence cron), terminates any open run, and waits for the trigger's in-flight child PipelineRuns to stop. The finalizer is removed once the run reaches a terminal state. Revisions carry no in-flight workflow (they are immutable snapshots of pipeline content), so they have no drain finalizer and are deleted as soon as GC processes them.
+4. **Ingester finalizes each child.** For PipelineRun/TriggerRun: while the drain finalizer is present, the ingester refreshes MySQL with the current state; once it is removed, the ingester upserts the final state and removes its own finalizer, deleting the child from etcd — the run history therefore survives in MySQL. For Revision: the ingester has no retain policy for this kind, so it soft-deletes the MySQL row and removes its finalizer in one step (see [Revisions are soft-deleted, not retained](#revisions-are-soft-deleted-not-retained)).
 5. **Pipeline deletion completes** once all children are gone (under `foreground`).
 
 ## Drain finalizers
@@ -48,13 +63,21 @@ The `ma pipeline delete` CLI always uses `foreground`. To opt out of cascade for
 | Finalizer | Applied to | Purpose |
 |-----------|-----------|---------|
 | `pipelineruns.michelangelo.uber.com/drain` | PipelineRun | Cancels the pipeline workflow before GC deletes the CR |
-| `triggerruns.michelangelo.uber.com/drain` | TriggerRun | Deletes the cron schedule and terminates any open workflow run |
+| `triggerruns.michelangelo.uber.com/drain` | TriggerRun | Deletes the cron schedule, terminates any open workflow run, and waits for the trigger's in-flight child PipelineRuns to reach a terminal state |
 
-A drain finalizer is installed **before** the ownerReference, so a child can never become GC-eligible without its drain finalizer in place. Newly created children receive the ownerReference at creation via API hooks; children predating the hook are backfilled once during reconciliation (a transitional migration).
+Revision has no drain finalizer — it carries no in-flight work, so there is nothing to cancel before GC removes it.
+
+A drain finalizer is installed **before** the ownerReference, so a PipelineRun or TriggerRun can never become GC-eligible without its drain finalizer in place. Newly created PipelineRuns/TriggerRuns receive the ownerReference at creation via API hooks; children predating the hook are backfilled once during reconciliation (a transitional migration). Revisions receive their ownerReference in the Pipeline controller's reconcile loop going forward; **there is no backfill for Revisions created before this cascade relationship existed** — pre-existing Revisions are not retroactively owned and will not be cascade-deleted by their Pipeline.
+
+## Revisions are soft-deleted, not retained
+
+PipelineRun and TriggerRun are **retain** kinds: the ingester preserves their final state in MySQL when GC removes the CR. Revision is deliberately **not** a retain kind — cascade-deleted Revisions are **soft-deleted** by the ingester's default path, the same as any other non-retained kind removed outside the API server. There is no equivalent to the "final state" preservation PipelineRun/TriggerRun get; the Revision's MySQL row is simply marked deleted.
 
 ## Safety timeout
 
 The drain safety timeout is **per child**. Each child's drain finalizer enforces its own **24-hour** timeout, keyed off **that child's** `deletionTimestamp`: if a drain has not completed within 24 hours of when the child was stamped for deletion, the child performs a best-effort engine teardown, force-removes its drain finalizer regardless of workflow state, and lets GC proceed. The timeout is hard-coded (24h) and not configurable. There is no Pipeline-level timeout — each run drains and times out independently.
+
+The same per-object 24-hour bound applies to a TriggerRun being deleted while it waits for its child PipelineRuns to stop. It does not apply to a kill: `PENDING_KILL` has no timeout.
 
 :::warning
 The 24-hour safety timeout is a last resort — it removes the drain finalizer even if the workflow is still running. Under normal operation, drains complete in minutes. If the timeout fires, investigate why the drain was wedged via the controller manager logs and the `cascade_child_drain_timeout_total` metric.
@@ -62,13 +85,14 @@ The 24-hour safety timeout is a last resort — it removes the drain finalizer e
 
 ## Metrics
 
-Four `cascade_*` metrics (owner-ref backfills, drain duration, drain timeouts, active drains) are always emitted, labeled by `kind` (`pipeline_run` or `trigger_run`). See [Monitoring & Observability](operations/monitoring.md#cascade-delete) for the metric reference, scrape configuration, and alert rules.
+Four `cascade_*` metrics (owner-ref backfills, drain duration, drain timeouts, active drains) are always emitted, labeled by `kind` (`pipeline_run` or `trigger_run`). These are drain-specific, so they are not emitted for Revision, which has no drain phase. See [Monitoring & Observability](operations/monitoring.md#cascade-delete) for the metric reference, scrape configuration, and alert rules.
 
 ## Limitations
 
 - **Pipeline-only scope.** Deleting a Model, Deployment, or other entity type does not cascade.
-- **Children in scope.** Only PipelineRun and TriggerRun are treated as Pipeline children.
-- **ownerReference stamping.** ownerReferences are stamped at creation via API hooks; CRs predating the hook are backfilled once during reconciliation (a transitional migration).
+- **Cancel cascade scope.** The cancel cascade is TriggerRun to PipelineRun only, and it matches by label rather than ownerReference, so any PipelineRun carrying the `pipelinerun.michelangelo/triggered-by=<trigger-name>` label is cancelled.
+- **Children in scope.** PipelineRun, TriggerRun, and Revision are treated as Pipeline children. PipelineRun and TriggerRun get drain-then-retain treatment; Revision is soft-deleted immediately with no drain phase (see [Revisions are soft-deleted, not retained](#revisions-are-soft-deleted-not-retained)).
+- **ownerReference stamping.** PipelineRun/TriggerRun ownerReferences are stamped at creation via API hooks; CRs predating the hook are backfilled once during reconciliation (a transitional migration). Revision ownerReferences are stamped by the Pipeline controller on reconcile going forward, with **no backfill** for Revisions that already existed before this cascade relationship shipped — those will not cascade-delete with their Pipeline.
 
 ## User experience
 
@@ -77,7 +101,7 @@ $ ma pipeline delete -n my-project --name training-pipeline
 
  ! WARNING: deleting pipeline 'training-pipeline' will also terminate
    and permanently delete all of its child runs (PipelineRuns,
-   TriggerRuns). This cannot be undone.
+   TriggerRuns) and soft-delete its Revisions. This cannot be undone.
  > delete pipeline 'training-pipeline'? [y/N] y
 ```
 

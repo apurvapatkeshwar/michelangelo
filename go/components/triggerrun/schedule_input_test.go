@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/zapr"
 	"github.com/golang/mock/gomock"
+	mgapi "github.com/michelangelo-ai/michelangelo/go/api"
 	interfaceMock "github.com/michelangelo-ai/michelangelo/go/base/workflowclient/interface/interface_mock"
 	api "github.com/michelangelo-ai/michelangelo/proto-go/api"
 	v2pb "github.com/michelangelo-ai/michelangelo/proto-go/api/v2"
@@ -60,7 +61,7 @@ func TestScheduleInputHashTracksEffectiveInput(t *testing.T) {
 		{
 			name: "environment label",
 			mutate: func(triggerRun *v2pb.TriggerRun) {
-				triggerRun.Labels[scheduleInputEnvironmentLabel] = "staging"
+				triggerRun.Labels[mgapi.EnvironmentLabel] = "staging"
 			},
 		},
 		{
@@ -144,7 +145,7 @@ func TestCronTriggerUpdateRefreshesChangedScheduleInput(t *testing.T) {
 		gomock.Eq([]interface{}{CreateTriggerRequest{TriggerRun: scheduleWorkflowInput(triggerRun)}}),
 	).Return(nil)
 
-	status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient).Update(
+	status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient, newTestConfigProvider(t)).Update(
 		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_NO_ACTION)
 
 	require.NoError(t, err)
@@ -173,7 +174,7 @@ func TestCronTriggerUpdateBackfillsMissingHashOnce(t *testing.T) {
 		gomock.Any(),
 	).Return(nil).Times(1)
 
-	runner := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient)
+	runner := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient, newTestConfigProvider(t))
 	firstStatus, _, err := runner.Update(
 		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_NO_ACTION)
 	require.NoError(t, err)
@@ -208,7 +209,7 @@ func TestCronTriggerUpdateDoesNotAdvanceHashOnFailure(t *testing.T) {
 		gomock.Any(),
 	).Return(assert.AnError)
 
-	status, _, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient).Update(
+	status, _, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient, newTestConfigProvider(t)).Update(
 		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_NO_ACTION)
 
 	require.Error(t, err)
@@ -239,7 +240,7 @@ func TestCronTriggerUpdatePauseWithInputDriftIsAtomic(t *testing.T) {
 		gomock.Eq([]interface{}{CreateTriggerRequest{TriggerRun: scheduleWorkflowInput(triggerRun)}}),
 	).Return(nil)
 
-	status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient).Update(
+	status, handled, err := NewCronTrigger(zapr.NewLogger(zap.NewNop()), mockClient, newTestConfigProvider(t)).Update(
 		context.Background(), triggerRun, v2pb.TRIGGER_RUN_ACTION_PAUSE)
 
 	require.NoError(t, err)
@@ -258,7 +259,7 @@ func scheduleInputTestTriggerRun() *v2pb.TriggerRun {
 			Namespace: "test-namespace",
 			Name:      "test-trigger",
 			Labels: map[string]string{
-				scheduleInputEnvironmentLabel: "production",
+				mgapi.EnvironmentLabel: "production",
 			},
 		},
 		Spec: v2pb.TriggerRunSpec{

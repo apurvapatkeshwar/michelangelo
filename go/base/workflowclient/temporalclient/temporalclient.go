@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cadence-workflow/starlark-worker/temporal"
 	clientInterface "github.com/michelangelo-ai/michelangelo/go/base/workflowclient/interface"
 	commonV1 "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	temporalEnumsV1 "go.temporal.io/api/enums/v1"
+	failureV1 "go.temporal.io/api/failure/v1"
 	filterV1 "go.temporal.io/api/filter/v1"
 	"go.temporal.io/api/serviceerror"
 	workflowserviceV1 "go.temporal.io/api/workflowservice/v1"
@@ -126,6 +128,9 @@ func (c *TemporalClient) createScheduleForCron(ctx context.Context, options clie
 		ID: scheduleID,
 		Spec: temporalClient.ScheduleSpec{
 			CronExpressions: []string{options.CronSchedule},
+			// Zero values are treated as unset by the SDK.
+			StartAt: options.ScheduleStartAt,
+			EndAt:   options.ScheduleEndAt,
 		},
 		Action: &temporalClient.ScheduleWorkflowAction{
 			ID:        options.ID,
@@ -133,7 +138,7 @@ func (c *TemporalClient) createScheduleForCron(ctx context.Context, options clie
 			TaskQueue: options.TaskList,
 			Args:      args,
 		},
-		Overlap:        overlapPolicy, // Use extracted policy based on maxConcurrency
+		Overlap:        overlapPolicy,
 		PauseOnFailure: false,
 		Paused:         options.StartPaused,
 	}
@@ -147,15 +152,74 @@ func (c *TemporalClient) createScheduleForCron(ctx context.Context, options clie
 	}
 
 	// Create the schedule
-	_, err := c.Client.ScheduleClient().Create(ctx, scheduleOptions)
+	handle, err := c.Client.ScheduleClient().Create(ctx, scheduleOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Temporal schedule: %w", err)
 	}
 
-	return &clientInterface.WorkflowExecution{
+	execution := &clientInterface.WorkflowExecution{
 		ID:    scheduleID,
 		RunID: "", // Schedules don't have runIDs
-	}, nil
+	}
+
+	if !options.CatchUpFrom.IsZero() && !options.StartPaused {
+		catchUpTo := catchUpEnd(options.ScheduleEndAt, time.Now())
+		if err := backfillSchedule(ctx, handle, options.CatchUpFrom, catchUpTo); err != nil {
+			// Return the execution alongside the error: the schedule was created and is
+			// firing forward, so the caller must keep the trigger alive. Reporting a bare
+			// failure here would strand a live schedule behind a terminated TriggerRun.
+			return execution, &clientInterface.CatchUpError{
+				ScheduleID:  scheduleID,
+				CatchUpFrom: options.CatchUpFrom,
+				Err:         err,
+			}
+		}
+	}
+
+	return execution, nil
+}
+
+// catchUpEnd bounds a catch-up replay. Occurrences are replayed up to now, or up to the
+// schedule's own end when that came first, so a window that already closed is not
+// replayed past its end.
+func catchUpEnd(scheduleEndAt, now time.Time) time.Time {
+	if !scheduleEndAt.IsZero() && scheduleEndAt.Before(now) {
+		return scheduleEndAt
+	}
+	return now
+}
+
+// backfillSchedule replays the occurrences the schedule would have taken between
+// catchUpFrom and catchUpTo, one action each.
+//
+// ScheduleSpec.StartAt cannot do this - it only filters out times before it, and
+// CatchupWindow covers server downtime rather than a backdated start - so the
+// backfill API is the mechanism that actually replays a historical range.
+//
+// Overlap is overridden to BUFFER_ALL for this request only: the schedule's
+// steady-state SKIP policy would drop nearly every occurrence in the burst, since
+// backfilled actions are taken as if their time passed all at once.
+//
+// BUFFER_ALL is also what keeps the replay inside the trigger's maxConcurrency budget.
+// That setting bounds parallel pipeline runs *within* one CronTrigger execution, so the
+// peak during a backfill is (concurrent occurrences) x maxConcurrency. BUFFER_ALL pins
+// the first term to 1, landing peak concurrency exactly on maxConcurrency.
+//
+// Do not "use the spare capacity" by switching to ALLOW_ALL when maxConcurrency > 1:
+// that runs every occurrence at once, making peak N x maxConcurrency - a 24-tick catch-up
+// at maxConcurrency 3 would put 72 pipeline runs in flight. Temporal's overlap policies
+// are not numeric, so there is no setting for "at most N occurrences"; serializing them
+// is the only way to hold the bound.
+func backfillSchedule(ctx context.Context, handle temporalClient.ScheduleHandle, catchUpFrom, catchUpTo time.Time) error {
+	return handle.Backfill(ctx, temporalClient.ScheduleBackfillOptions{
+		Backfill: []temporalClient.ScheduleBackfill{
+			{
+				Start:   catchUpFrom,
+				End:     catchUpTo,
+				Overlap: temporalEnumsV1.SCHEDULE_OVERLAP_POLICY_BUFFER_ALL,
+			},
+		},
+	})
 }
 
 // GetWorkflowExecutionInfo gets the execution info of a workflow
@@ -172,13 +236,81 @@ func (c *TemporalClient) GetWorkflowExecutionInfo(ctx context.Context, workflowI
 		}, nil
 	}
 
+	status := mapTemporalStatusToInterface(workflowExecutionInfo.Status)
+
 	return &clientInterface.WorkflowExecutionInfo{
-		Status: mapTemporalStatusToInterface(workflowExecutionInfo.Status),
+		Status: status,
 		Execution: &clientInterface.WorkflowExecution{
 			ID:    workflowExecutionInfo.GetExecution().GetWorkflowId(),
 			RunID: workflowExecutionInfo.GetExecution().GetRunId(),
 		},
+		FailureMessage: c.getFailureMessage(ctx, workflowID, runID, status),
 	}, nil
+}
+
+// getFailureMessage returns a human-readable failure reason for a terminal, unsuccessful
+// workflow status. For Failed/Terminated it fetches just the closing history event (a single
+// event, not the full history) to extract the underlying failure text. A failure to fetch
+// history is logged and swallowed - the workflow status itself is still valid without it.
+func (c *TemporalClient) getFailureMessage(ctx context.Context, workflowID string, runID string, status clientInterface.WorkflowExecutionStatus) string {
+	switch status {
+	case clientInterface.WorkflowExecutionStatusTimedOut:
+		return "Workflow execution timed out"
+	case clientInterface.WorkflowExecutionStatusFailed, clientInterface.WorkflowExecutionStatusTerminated:
+		message, err := c.getCloseEventFailureMessage(ctx, workflowID, runID)
+		if err != nil {
+			c.logger().Warn("failed to fetch Temporal close event for failure message",
+				zap.String("workflow_id", workflowID),
+				zap.String("run_id", runID),
+				zap.Error(err))
+			return ""
+		}
+		return message
+	default:
+		return ""
+	}
+}
+
+// getCloseEventFailureMessage fetches the closing history event for a workflow execution and
+// extracts a failure message from it, if any.
+func (c *TemporalClient) getCloseEventFailureMessage(ctx context.Context, workflowID string, runID string) (string, error) {
+	iter := c.Client.GetWorkflowHistory(ctx, workflowID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT)
+	for iter.HasNext() {
+		event, err := iter.Next()
+		if err != nil {
+			return "", fmt.Errorf("failed to get close event: %w", err)
+		}
+
+		switch event.GetEventType() {
+		case temporalEnumsV1.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+			return c.extractFailureMessage(event.GetWorkflowExecutionFailedEventAttributes().GetFailure()), nil
+		case temporalEnumsV1.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
+			return event.GetWorkflowExecutionTerminatedEventAttributes().GetReason(), nil
+		}
+	}
+	return "", nil
+}
+
+// extractFailureMessage returns the human-readable text of a Temporal failure. The
+// starlark-worker library (used by our pipeline workflows) reports errors via
+// workflow.NewCustomError(ctx, code, err.Error()), which Temporal's ApplicationError
+// stores as: Message = code (e.g. "invalid-argument") and Details = the actual
+// descriptive error text. So for ApplicationFailureInfo we prefer decoding the first
+// Details payload - using the same custom DataConverter the workflow encoded it with -
+// over the generic code string in Message, falling back to Message when there are no
+// decodable details.
+func (c *TemporalClient) extractFailureMessage(failure *failureV1.Failure) string {
+	if failure == nil {
+		return ""
+	}
+	if details := failure.GetApplicationFailureInfo().GetDetails(); len(details.GetPayloads()) > 0 {
+		converter := temporal.DataConverter{Logger: c.logger()}
+		var detail string
+		if err := converter.FromPayload(details.GetPayloads()[0], &detail); err == nil && detail != "" {
+			return detail
+		}
+	}
+	return failure.GetMessage()
 }
 
 // QueryWorkflow queries a workflow

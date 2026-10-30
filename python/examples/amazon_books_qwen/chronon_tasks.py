@@ -199,11 +199,11 @@ def compute_chronon_features_with_spark(
             .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
             .config(
                 "spark.hadoop.fs.s3a.access.key",
-                os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+                os.getenv("AWS_ACCESS_KEY_ID", "michelangeloadmin"),
             )
             .config(
                 "spark.hadoop.fs.s3a.secret.key",
-                os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+                os.getenv("AWS_SECRET_ACCESS_KEY", "michelangeloadmin"),
             )
             .config(
                 "spark.hadoop.fs.s3a.endpoint",
@@ -241,15 +241,15 @@ def compute_chronon_features_with_spark(
         )
         spark.conf.set(
             "spark.hadoop.fs.s3a.access.key",
-            os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+            os.getenv("AWS_ACCESS_KEY_ID", "michelangeloadmin"),
         )
         spark.conf.set(
             "spark.hadoop.fs.s3a.secret.key",
-            os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+            os.getenv("AWS_SECRET_ACCESS_KEY", "michelangeloadmin"),
         )
         spark.conf.set(
             "spark.hadoop.fs.s3a.endpoint",
-            os.getenv("AWS_ENDPOINT_URL", "http://minio:9000"),
+            os.getenv("AWS_ENDPOINT_URL", "http://objectstore:9000"),
         )
         spark.conf.set("spark.hadoop.fs.s3a.path.style.access", "true")
         spark.conf.set("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")

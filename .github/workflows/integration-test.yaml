@@ -10,27 +10,50 @@ on:
         description: >
           GHCR examples image tag to use as the task image.
           Use your branch name or a sha- tag to test a branch build.
-          Defaults to "latest" (built from main).
+          Defaults to "main" (the dev-tip build).
         required: false
-        default: "latest"
+        default: "main"
       integration_test_ref:
         description: >
           Branch or ref of michelangelo-ai/integration-test to check out.
           Defaults to "main". Use a feature branch to test unreleased fixture changes.
         required: false
         default: "main"
+      michelangelo_examples_ref:
+        description: >
+          Branch or ref of michelangelo-ai/michelangelo-examples to check out.
+          Defaults to "main".
+        required: false
+        default: "main"
+      michelangelo_examples_image:
+        description: >
+          Full task image for the michelangelo-examples pipelines, e.g.
+          ghcr.io/michelangelo-ai/michelangelo-examples:california-housing-sha-abc1234.
+          Empty uses the moving california-housing tag.
+        required: false
+        default: ""
   workflow_call:
     inputs:
       image_tag:
         description: "GHCR examples image tag"
         required: false
         type: string
-        default: "latest"
+        default: "main"
       integration_test_ref:
         description: "Branch or ref of michelangelo-ai/integration-test to check out"
         required: false
         type: string
         default: "main"
+      michelangelo_examples_ref:
+        description: "Branch or ref of michelangelo-ai/michelangelo-examples to check out"
+        required: false
+        type: string
+        default: "main"
+      michelangelo_examples_image:
+        description: "Full task image for the michelangelo-examples pipelines (empty = california-housing tag)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   sandbox-e2e:
@@ -40,6 +63,12 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, linux, gcp]
     timeout-minutes: 90
+    # The runner's k3d cluster and the fixed ma-dev-test namespace are shared
+    # state, so two runs (nightly + manual dispatch) must never overlap. Queue
+    # instead of cancelling: a half-finished run leaves the cluster dirty.
+    concurrency:
+      group: integration-test-sandbox
+      cancel-in-progress: false
     permissions:
       contents: read
     defaults:
@@ -48,7 +77,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # k3d, kubectl, helm, and AWS CLI v2 are pre-installed on the GCP self-hosted runner.
       # The examples task image is pre-loaded into k3s containerd on the runner VM.
@@ -72,8 +101,26 @@ jobs:
             --set controllermgr.jobs.k8sengine.mapper.logPersistence.enabled=false \
             --set objectStorage.existingSecret=minio-credentials
 
+      # The task image is named in the example pipeline files (examples:main). To test a branch
+      # build of the examples image, point the bert_cola pipeline at that tag and pull it onto
+      # the sandbox nodes up front, so the pull is not part of the pipeline run's own timing.
+      - name: Use the requested examples task image
+        if: ${{ inputs.image_tag && inputs.image_tag != 'main' }}
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/michelangelo-ai/examples:${IMAGE_TAG}"
+          sed -i "s#michelangelo/uniflow-image: ghcr.io/michelangelo-ai/examples:.*#michelangelo/uniflow-image: ${image}#" \
+            examples/bert_cola/pipeline.yaml
+          grep -n "uniflow-image" examples/bert_cola/pipeline.yaml
+          for node in $(docker ps --format '{{.Names}}' | grep -E '^k3d-michelangelo-sandbox-agent-[0-9]+$'); do
+            echo "pulling $image on $node"
+            docker exec "$node" crictl pull "$image"
+          done
+
       - name: Check out integration-test repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: michelangelo-ai/integration-test
           ref: ${{ inputs.integration_test_ref || 'main' }}
@@ -81,10 +128,10 @@ jobs:
           path: integration-test
 
       - name: Check out michelangelo-examples repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: michelangelo-ai/michelangelo-examples
-          ref: main
+          ref: ${{ inputs.michelangelo_examples_ref || 'main' }}
           path: michelangelo-examples
 
       - name: Install integration test dependencies
@@ -151,6 +198,9 @@ jobs:
         env:
           MA_API_SERVER: localhost:15566
           MICHELANGELO_EXAMPLES_DIR: ${{ github.workspace }}/michelangelo-examples
+          # The test reads this with os.environ.get(), which treats an empty
+          # value as set, so spell out the default rather than passing "".
+          MICHELANGELO_EXAMPLES_IMAGE_TAG: ${{ inputs.michelangelo_examples_image || 'ghcr.io/michelangelo-ai/michelangelo-examples:california-housing' }}
           PYTHONPATH: ${{ github.workspace }}/integration-test
 
       - name: Seed browser test data
@@ -169,7 +219,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/integration-test
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24.18.0
 
@@ -187,7 +237,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: integration-test/browser/playwright-report/

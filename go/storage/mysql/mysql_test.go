@@ -312,6 +312,42 @@ func TestBuildLabelCriterionSQL(t *testing.T) {
 	require.Equal(t, []interface{}{"env", "prod"}, params)
 }
 
+func TestBuildLabelCriterionSQL_NullOperators(t *testing.T) {
+	cases := []struct {
+		name       string
+		op         apipb.CriterionOperator
+		wantSQL    string
+		wantParams []interface{}
+	}{
+		{
+			name:       "is_null matches objects without the label",
+			op:         apipb.CRITERION_OPERATOR_IS_NULL,
+			wantSQL:    " `uid` NOT IN (SELECT `obj_uid` FROM pipeline_run_labels WHERE `key`= ? )",
+			wantParams: []interface{}{"pipelinerun.michelangelo/triggered-by"},
+		},
+		{
+			name:       "is_not_null matches objects with the label",
+			op:         apipb.CRITERION_OPERATOR_IS_NOT_NULL,
+			wantSQL:    " `uid` in (SELECT `obj_uid` FROM pipeline_run_labels WHERE `key`= ? AND `value` IS NOT NULL  )",
+			wantParams: []interface{}{"pipelinerun.michelangelo/triggered-by"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			op := &apipb.CriterionOperation{
+				Criterion: []*apipb.Criterion{{
+					FieldName: "pipeline_run.metadata.labels.pipelinerun.michelangelo/triggered-by",
+					Operator:  c.op,
+				}},
+			}
+			queryStrs, params, err := buildLabelCriterionSQL(op, "pipeline_run")
+			require.NoError(t, err)
+			require.Equal(t, []string{c.wantSQL}, queryStrs)
+			require.Equal(t, c.wantParams, params)
+		})
+	}
+}
+
 func TestBuildLabelCriterionSQL_SkipsNonLabel(t *testing.T) {
 	op := &apipb.CriterionOperation{
 		Criterion: []*apipb.Criterion{
@@ -438,6 +474,35 @@ func TestBuildCriterionSQL_AndCombination(t *testing.T) {
 		sql,
 	)
 	require.Equal(t, []interface{}{"RUNNING", "env", "prod"}, params)
+}
+
+func TestBuildCriterionSQL_StateInWithNilMap(t *testing.T) {
+	// Production stores pass a nil indexPathToKeyMap, so a field criterion must use the
+	// indexed column name: "pipeline_run.state" builds, the object path "status.state" fails.
+	op := func(field string) *apipb.CriterionOperation {
+		return &apipb.CriterionOperation{
+			LogicalOperator: apipb.LOGICAL_OPERATOR_AND,
+			Criterion: []*apipb.Criterion{
+				{
+					FieldName:  field,
+					Operator:   apipb.CRITERION_OPERATOR_IN,
+					MatchValue: stringMatchValue(t, "PIPELINE_RUN_STATE_PENDING,PIPELINE_RUN_STATE_RUNNING"),
+				},
+				{
+					FieldName:  "pipeline_run.metadata.labels.pipelinerun.michelangelo/triggered-by",
+					Operator:   apipb.CRITERION_OPERATOR_EQUAL,
+					MatchValue: stringMatchValue(t, "tr"),
+				},
+			},
+		}
+	}
+
+	sql, _, err := buildCriterionSQL(op("pipeline_run.state"), "pipeline_run", nil)
+	require.NoError(t, err)
+	require.Contains(t, sql, "`state`")
+
+	_, _, err = buildCriterionSQL(op("pipeline_run.status.state"), "pipeline_run", nil)
+	require.Error(t, err)
 }
 
 func TestBuildCriterionSQL_OrCombination(t *testing.T) {

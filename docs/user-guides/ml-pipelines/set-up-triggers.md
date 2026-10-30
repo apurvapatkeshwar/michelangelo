@@ -1,3 +1,7 @@
+---
+last_verified: 2026-10-14
+---
+
 # Set Up Triggers
 
 ## What You'll Learn
@@ -103,7 +107,7 @@ Here are the commands for managing your trigger runs:
 
 A few things to keep in mind:
 
-- **`kill` vs `delete`:** Use `kill` to stop a running trigger (it sets a kill flag and cleanly terminates the workflow). Use `delete` to remove the trigger resource entirely.
+- **`kill` vs `delete`:** Use `kill` to stop a running trigger (it sets the kill action and cleanly terminates the workflow); the trigger stays visible as `KILLED`, and pipeline runs it started that are still pending or running are killed, not deleted, and stay in the run history as `KILLED`. Use `delete` to remove the trigger resource once it has stopped: the API refuses to delete a trigger that is not `FAILED`, `KILLED` or `SUCCEEDED` (gRPC `FailedPrecondition`), so kill it first. Deleting the owning Pipeline still removes its triggers, running or not, through cascade delete; for details, see Cascade Delete in the [Operator Guides](../../operator-guides/cascade-delete.md).
 - **`kill` will ask for confirmation** before proceeding. Add `--yes` to skip the prompt (useful in scripts).
 
 For the full list of CLI options and flags, see the [CLI reference guide](../reference/cli.md).
@@ -118,7 +122,7 @@ Once your trigger is registered, the system starts executing pipeline runs on sc
 
 * **Workflow Engine UI (Cadence/Temporal):** For a deeper look at what's happening under the hood, you can check the workflow engine UI. In a local sandbox, this is typically:
   * **Cadence:** `http://localhost:8088/domains/default`
-  * **Temporal:** `http://localhost:8080/domains/default`
+  * **Temporal:** `http://localhost:8080`
 
   Your trigger shows up as an "Open" or "Running" workflow (look for `trigger.CronTrigger`). This workflow continuously generates **child pipeline runs** based on your cron schedule. You can expand a workflow to see individual activities and their execution times.
 
@@ -169,7 +173,24 @@ spec:
 
 In this example, the cron schedule is "daily at 9 AM" and the window covers January 1-7. That means the system creates **7 pipeline runs** — one for each day at 9:00 AM. If you also have `parameters_map` entries, the total is multiplied (7 days x 2 parameter sets = 14 runs).
 
-> **Tip:** Make sure your time window actually includes at least one cron cycle. For example, if your cron runs weekly on Saturdays (`"0 9 * * 6"`), a window from Monday to Friday won't generate any runs!
+> **Tip:** Make sure your time window actually includes at least one cron cycle. For example, if your cron runs weekly on Saturdays (`"0 9 * * 6"`), a window from Monday to Friday won't generate any runs, and the API rejects it (see [What the API Rejects](#what-the-api-rejects)).
+
+### What the API Rejects
+
+The API server validates a TriggerRun when it is created and when it is updated, and answers with gRPC `InvalidArgument` and a message naming the field, so a mistake surfaces immediately instead of as a `FAILED` trigger later.
+
+On create and update:
+
+- `spec.trigger` must set `cron_schedule`, and the cron expression must parse (5 fields, or a descriptor such as `@every 1h`). `interval_schedule` and `batch_rerun` are rejected as not supported yet: no runner is wired for them ([#548](https://github.com/michelangelo-ai/michelangelo/issues/548)).
+- `end_timestamp` must be after `start_timestamp`.
+
+On create, and on an update that changes the trigger's shape (its type, `start_timestamp`/`end_timestamp`, `catchup`, `auto_flip` or the cron expression):
+
+- A backfill window (both timestamps, no `catchup`) must lie entirely in the past and contain at least one cron occurrence.
+- `auto_flip` cannot be set on a backfill window.
+- `metadata.name` must be a valid label value (at most 63 characters): it is stamped as the `pipelinerun.michelangelo/triggered-by` label on every pipeline run the trigger starts.
+
+An update that keeps the shape (a pause, a notification change, the controller's own bookkeeping) is accepted even when the object would not pass those rules today, so an existing trigger can always be edited; an update that turns a cron trigger into a backfill, or moves a backfill window, is held to the same rules as a create. A kill (`spec.action: TRIGGER_RUN_ACTION_KILL`) is never refused by these rules, so a trigger created before a rule existed can always be stopped.
 
 ## Advanced Configuration
 
@@ -333,15 +354,16 @@ As your trigger runs, it moves through different states. Understanding these sta
 | **RUNNING** | The trigger is active and creating pipeline runs on schedule. This is the normal operating state. |
 | **SUCCEEDED** | The trigger completed all its scheduled runs successfully. For backfill triggers, this means the entire time window has been processed. |
 | **FAILED** | Something went wrong and the trigger couldn't complete. Check the trigger details for error information. |
+| **PAUSED** | The trigger's workflow has been paused and is not creating new pipeline runs until it is resumed. |
 | **KILLED** | The trigger was manually stopped using `ma trigger_run kill`. |
-| **PENDING_KILL** | A kill request has been sent but the trigger hasn't fully stopped yet. It will transition to KILLED shortly. |
-| **INVALID** | The trigger configuration has a problem — for example, a missing pipeline or revision. Review your pipeline YAML's `triggerMap` for errors. |
+| **PENDING_KILL** | A kill request has been sent but the trigger hasn't fully stopped yet. It transitions to KILLED once the pipeline runs it started have stopped, which can take as long as those in-progress runs take to stop. If a trigger stays in PENDING_KILL, check its pipeline runs for one that is stuck. |
+| **INVALID** | The initial, unset state of a newly created trigger run, before the controller has started its workflow. It normally moves to RUNNING within moments; if it moves to FAILED instead, check the trigger details for the error. |
 
 ### How States Transition
 
 Here's the typical flow:
 
-1. When you register a trigger, it enters the **RUNNING** state and begins creating pipeline runs.
+1. When you create a trigger run, it starts in **INVALID** (not yet started), then enters the **RUNNING** state and begins creating pipeline runs.
 2. If everything goes well, a backfill trigger moves to **SUCCEEDED** when it finishes. Cron triggers stay in **RUNNING** until stopped.
 3. If you run `ma trigger_run kill`, the trigger moves to **PENDING_KILL** and then to **KILLED**.
 4. If an error occurs, the trigger moves to **FAILED**.
@@ -363,7 +385,7 @@ Running into issues? Here are a few common things to check:
 - **Trigger not starting?** Make sure your pipeline is registered and the trigger name matches one defined in the pipeline's `triggerMap`. You can verify with `ma trigger_run get --namespace=<ns> --name=<name>`.
 - **CLI command failing?** Double-check that your sandbox is running and your project exists. See the [Prerequisites](#prerequisites) section above.
 - **Cron not firing when you expect?** Verify your cron expression is correct — the 5-field format can be tricky. [crontab.guru](https://crontab.guru/) is a handy tool for testing expressions.
-- **Pipeline runs not showing up in the UI?** Check the trigger state with `ma trigger_run get`. If the trigger is in a `FAILED` or `INVALID` state, the output will include details about what went wrong.
+- **Pipeline runs not showing up in the UI?** Check the trigger state with `ma trigger_run get`. If the trigger is in a `FAILED` state, the output will include details about what went wrong.
 
 ## Coming Soon
 

@@ -34,7 +34,7 @@ You also need the following infrastructure reachable from the cluster **before**
 | Component | What the chart needs | Examples |
 |-----------|---------------------|----------|
 | Metadata storage | A reachable MySQL or PostgreSQL endpoint, plus credentials (root password OR an existing Kubernetes Secret) | RDS, Cloud SQL, an in-cluster pod |
-| Object storage | An S3-compatible endpoint and access keys (or an existing Secret). Native `gs://` support for the worker and controller manager is optional, see [Use native GCS storage](#use-native-gcs-storage) | S3, GCS (HMAC), MinIO |
+| Object storage | An S3-compatible endpoint and access keys (or an existing Secret). Native `gs://` support for the worker and controller manager is optional, see [Use native GCS storage](#use-native-gcs-storage) | S3, GCS (HMAC), MinIO, SeaweedFS |
 | Workflow engine | A Cadence or Temporal frontend address — or enable a bundled subchart (see [Self-contained install](#self-contained-install-with-cadence-or-temporal)) | Managed Cadence/Temporal, in-cluster install |
 
 ## Quick start
@@ -152,6 +152,17 @@ gcsStorage:
 - **Emulators and public buckets.** `gcsStorage.anonymous: true` disables authentication and cannot be combined with `existingSecret`. A non-`https://` `gcsStorage.endpoint` is accepted only together with `anonymous: true`.
 - **Not supported yet.** Serving models from `gs://` ([#2348](https://github.com/michelangelo-ai/michelangelo/issues/2348)).
 
+### Enable monitoring resources
+
+If your cluster runs the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator) and/or the [Grafana Operator](https://github.com/grafana/grafana-operator), one toggle installs a `ServiceMonitor` for the controller manager, a `PrometheusRule` with starter alerts, and two `GrafanaDashboard`s:
+
+```yaml
+monitoring:
+  enabled: true
+```
+
+Every resource is CRD-gated — anything whose operator CRDs are absent is skipped, so the toggle is safe on any cluster. See [Monitoring & Observability](operations/monitoring.md) for the sub-toggles and the metrics behind each artifact.
+
 ### Expose the UI and API
 
 The chart includes per-service Ingress templates (`apiserver.ingress`, `envoy.ingress`, `ui.ingress`). Enable and configure them to expose the UI and API outside the cluster:
@@ -176,6 +187,10 @@ envoy:
 ui:
   apiBaseUrl: https://michelangelo.example.com/api    # match your Envoy/Ingress URL
 ```
+
+### Custom transcoder allowlist
+
+`helm/michelangelo/files/transcoder-services.json` is a generated file, not a `values.yaml` setting — there is no override key for it today. If you need a different allowlist, edit the file directly in a fork or checkout before packaging the chart. See [gen-transcoder-services.sh](../contributing/dev/shell-scripts.md#gen-transcoder-servicessh) for what generates it and the current scope limits.
 
 ### Enable TLS on the API server
 
@@ -243,6 +258,18 @@ helm install michelangelo ./helm/michelangelo \
 ```
 
 Pass Temporal subchart values under the `temporal:` key. See the [official Temporal Helm chart](https://github.com/temporalio/helm-charts) for the full surface.
+
+## Optional LiteLLM gateway
+
+The prerelease `michelangelo-llm-gateway` chart installs LiteLLM as a separate inference data plane. It is **not** a subchart of `michelangelo`: installing the control plane does not install the gateway. The gateway requires Helm 3.17 or newer, its own PostgreSQL database, existing credential Secrets, and an approved provider configuration.
+
+Starting with the first Michelangelo release that includes the gateway, both charts are published from the same release tag and share the same chart `version`. The gateway's `appVersion` identifies the independently pinned LiteLLM runtime, not the Michelangelo version. Releases published before this chart lands do not include it; choose a subsequent release that publishes both packages.
+
+Shared publication does not combine the Helm releases. Install the gateway in its own namespace and manage its installation, scaling, upgrades, and rollback separately from the control plane. An upgrade or rollback of one release does not change the other.
+
+Before a gateway upgrade, review the LiteLLM database migrations and verify database backups and the schema recovery procedure. **Helm rollback does not reverse database migrations.**
+
+See the [gateway chart operations guide](https://github.com/michelangelo-ai/michelangelo/blob/main/helm/michelangelo-llm-gateway/README.md) for installation, GCP examples, secret and network prerequisites, the filtered Helm test, and live qualification requirements.
 
 ## Upgrade
 
@@ -312,6 +339,7 @@ Most commonly set values. See `helm/michelangelo/values.yaml` for the complete l
 | `ui.enabled` / `envoy.enabled` / etc. | no | `true` | Per-service install toggle |
 | `<service>.ingress.enabled` | no | `false` | Per-service Ingress toggle |
 | `controllermgr.watchNamespace` | no | `[]` (all) | Namespaces the controller manager watches |
+| `monitoring.enabled` | no | `false` | Install CRD-gated ServiceMonitor, alert rules, and Grafana dashboards |
 | `cadence.enabled` | no | `false` | Install bundled Cadence subchart |
 | `temporal.enabled` | no | `false` | Install bundled Temporal subchart |
 
@@ -328,7 +356,7 @@ The `michelangelo` chart owns the **control plane only**. Three tiers, with clea
   - `michelangelo-ui` — React frontend (port 80)
   - `michelangelo-worker` — Cadence/Temporal workflow client
   - `michelangelo-controllermgr` — Kubernetes controller manager
-- **Observability tier** — optional. Bring your own Prometheus and Grafana, or see [Monitoring & Observability](operations/monitoring.md).
+- **Observability tier** — optional. Bring your own Prometheus and Grafana; if you run the Prometheus Operator and/or Grafana Operator, `monitoring.enabled=true` installs a ServiceMonitor, starter alert rules, and two dashboards (see [Monitoring & Observability](operations/monitoring.md)).
 
 ### Chart layout
 
@@ -398,10 +426,11 @@ The Envoy ConfigMap references `{{ include "michelangelo.fullname" . }}-apiserve
 
 ### KubeRay log-collector sidecar
 
-When enabled via `controllermgr.jobs.k8sengine.mapper.logPersistence`, controllermgr injects a `kuberayCollector` sidecar into Ray jobs to persist logs to object storage. See `values.yaml` comments for the available knobs.
+When enabled via `controllermgr.jobs.k8sengine.mapper.logPersistence`, controllermgr injects a `kuberayCollector` sidecar into Ray jobs to persist logs to object storage. The sidecar image is `images.kuberayCollector`, which defaults to the official upstream release `quay.io/kuberay/collector:v1.7.1`. The `logPersistence.exposableEventTypes` knob controls which Ray event types the dashboard aggregator exposes: leave it empty to use the built-in default `"ALL"`, which requires Ray >= 2.54, and set the explicit event list instead for older Ray images. See `values.yaml` comments for the available knobs.
 
 ## Next steps
 
+- [LiteLLM gateway](#optional-litellm-gateway) — install and operate the optional gateway as a separate Helm release
 - [Platform Setup](setup/platform-setup.md) — configure the components installed by this chart through their ConfigMaps
 - [Network & Ingress](setup/network.md) — TLS and multi-cluster connectivity
 - [Authentication](setup/authentication.md) — connect an identity provider and configure RBAC

@@ -1,13 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom-v5-compat';
 import { useStyletron } from 'baseui';
+import { Button, KIND } from 'baseui/button';
 import { Tab, Tabs } from 'baseui/tabs-motion';
 
+import { Icon } from '#core/components/icon/icon';
 import { CircleExclamationMark } from '#core/components/illustrations/circle-exclamation-mark/circle-exclamation-mark';
 import { CircleExclamationMarkKind } from '#core/components/illustrations/circle-exclamation-mark/types';
 import { PageHeader } from '#core/components/page-header/page-header';
 import { Signpost } from '#core/components/signpost/signpost';
 import { useStudioParams } from '#core/hooks/routing/use-studio-params/use-studio-params';
+import { formatEntityName } from '#core/utils/string-utils';
 import { EntityTable } from './entity-table';
 
 import type { Theme } from 'baseui/theme';
@@ -26,6 +29,7 @@ export function PhaseEntityView<T extends object = object>({
   const [css, theme] = useStyletron();
   const navigate = useNavigate();
   const { projectId, entity: currentEntity } = useStudioParams('list');
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   useEffect(() => {
     if (!currentEntity) {
@@ -67,6 +71,26 @@ export function PhaseEntityView<T extends object = object>({
     );
   }
 
+  const { createAction } = currentEntityConfig;
+
+  const createActionButton = createAction && (
+    <Button
+      kind={KIND.primary}
+      onClick={() => setIsCreateOpen(true)}
+      startEnhancer={
+        createAction.display.icon && (
+          <Icon
+            name={createAction.display.icon}
+            size={theme.sizing.scale600}
+            color={theme.colors.buttonPrimaryText}
+          />
+        )
+      }
+    >
+      {createAction.display.label}
+    </Button>
+  );
+
   return (
     <div className={css({ marginTop: theme.sizing.scale800 })}>
       <PageHeader
@@ -75,6 +99,9 @@ export function PhaseEntityView<T extends object = object>({
         description={phaseConfig.description}
         docUrl={phaseConfig.docUrl}
       />
+      {createAction && isCreateOpen && (
+        <createAction.component onClose={() => setIsCreateOpen(false)} />
+      )}
       <Tabs
         activeKey={activeKey}
         onChange={handleEntityTabChange}
@@ -87,7 +114,7 @@ export function PhaseEntityView<T extends object = object>({
         }}
       >
         {entities.map((entity, index) => (
-          <Tab key={String(index)} title={entity.name}>
+          <Tab key={String(index)} title={formatEntityName(entity.name, 'nav')}>
             {String(index) === activeKey && (
               <EntityTable<T>
                 service={entity.service}
@@ -97,6 +124,8 @@ export function PhaseEntityView<T extends object = object>({
                 }}
                 tableSettingsId={`${phaseConfig.id}/${entity.id}`}
                 pipelineTypes={phaseConfig.pipelineTypes}
+                trailingActions={createActionButton}
+                variants={currentEntityConfig.views[0].variants}
               />
             )}
           </Tab>

@@ -13,23 +13,31 @@ Public surface re-exported below:
 * :class:`LightningTrainerParam` — dataclass holding the training
   configuration (model factory, datasets, batch size, optional Lightning
   logger, warm-start specs, etc.).
+* :class:`CustomDataloaderParam` and :class:`DataLoaderFactory` — plug a
+  user-owned dataloader factory (Ray-backed or file-backed) in place of the
+  default Ray Data batch iteration via ``LightningTrainerParam.custom_dataloader``.
 * :class:`TransferLearningSpec`, :class:`IncrementalTrainingSpec`,
   :class:`ModelSpec`, :class:`TrainingType`, :class:`LearningMode` — warm-start
   schema types consumed by the trainer.
 * :class:`ExperimentStore` — pluggable auto-resume seam;
-  :class:`FsspecExperimentStore` is the filesystem default.
+  :class:`FsspecExperimentStore` is the filesystem default and
+  :class:`MlflowExperimentStore` records markers on an MLflow tracking server
+  (requires the ``trainer-mlflow`` extra).
 * :func:`comet_profiler_sink` — ready-made ``LightningTrainerParam.profiler_sink``
   that ships profiler output to a Comet experiment.
 * :func:`mlflow_profiler_sink` — ready-made ``LightningTrainerParam.profiler_sink``
   that ships profiler output to an MLflow run.
 """
 
-from michelangelo.lib.trainer.torch.pytorch_lightning._private.util import (
+from michelangelo.lib.trainer.torch.pytorch_lightning._private.profiler import (
     comet_profiler_sink,
     mlflow_profiler_sink,
 )
 from michelangelo.lib.trainer.torch.pytorch_lightning.experiment_store import (
     FsspecExperimentStore,
+)
+from michelangelo.lib.trainer.torch.pytorch_lightning.experiment_store_mlflow import (
+    MlflowExperimentStore,
 )
 from michelangelo.lib.trainer.torch.pytorch_lightning.lightning_trainer import (
     LightningTrainer,
@@ -37,6 +45,8 @@ from michelangelo.lib.trainer.torch.pytorch_lightning.lightning_trainer import (
     LightningTrainerWithStateDict,
 )
 from michelangelo.lib.trainer.torch.pytorch_lightning.schema import (
+    CustomDataloaderParam,
+    DataLoaderFactory,
     ExperimentStore,
     IncrementalTrainingSpec,
     LearningMode,
@@ -47,6 +57,8 @@ from michelangelo.lib.trainer.torch.pytorch_lightning.schema import (
 )
 
 __all__ = [
+    "CustomDataloaderParam",
+    "DataLoaderFactory",
     "ExperimentStore",
     "FsspecExperimentStore",
     "IncrementalTrainingSpec",
@@ -54,6 +66,7 @@ __all__ = [
     "LightningTrainer",
     "LightningTrainerParam",
     "LightningTrainerWithStateDict",
+    "MlflowExperimentStore",
     "ModelSpec",
     "TrainingObserver",
     "TrainingType",
